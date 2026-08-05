@@ -4806,6 +4806,35 @@
             return raw.replace(" ", "T").slice(0, 16);
         }
 
+        function normalizeAssignmentTimeInput(value) {
+            const raw = String(value || "").trim();
+            if (!raw) return "";
+
+            const match = raw.match(/^(\d{1,2})(?::?(\d{2}))$/);
+            if (!match) return "";
+
+            const hour = Number(match[1]);
+            const minute = Number(match[2]);
+            if (!Number.isInteger(hour) || !Number.isInteger(minute)
+                || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+                return "";
+            }
+
+            return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+        }
+
+        function sanitizeAssignmentPostDueTimeInput(input) {
+            if (!input) return;
+            input.value = String(input.value || "").replace(/[^0-9:]/g, "").slice(0, 5);
+        }
+
+        function normalizeAssignmentPostDueTimeInput(input) {
+            if (!input) return;
+            const normalized = normalizeAssignmentTimeInput(input.value);
+            if (normalized) input.value = normalized;
+            updateAssignmentPostDuePreview();
+        }
+
         function getAssignmentDateTimeParts(value) {
             const normalized = formatAssignmentDateTimeInput(value);
             return {
@@ -4816,8 +4845,17 @@
 
         function buildAssignmentDateTimeValue(datePart, timePart) {
             const dateText = String(datePart || "").trim();
-            const timeText = String(timePart || "").trim() || "23:59";
-            if (!dateText) return "";
+            const timeText = normalizeAssignmentTimeInput(timePart) || "23:59";
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return "";
+
+            const dateParts = dateText.split("-").map(Number);
+            const parsedDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+            if (parsedDate.getUTCFullYear() !== dateParts[0]
+                || parsedDate.getUTCMonth() !== dateParts[1] - 1
+                || parsedDate.getUTCDate() !== dateParts[2]) {
+                return "";
+            }
+
             return normalizeAssignmentDateTime(dateText + "T" + timeText);
         }
 
@@ -4901,7 +4939,7 @@
 
             const targetDateText = getAssignmentPostDuePresetDateText(dayOffset);
             dateInput.value = targetDateText;
-            timeInput.value = String(timePart || "23:59");
+            timeInput.value = normalizeAssignmentTimeInput(timePart) || "23:59";
             updateAssignmentPostDuePreview();
         }
 
@@ -6715,7 +6753,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">時間</label>
-                            <input type="time" id="assignment-post-due-time" value="${defaultDueParts.time || '23:59'}" step="300" onchange="updateAssignmentPostDuePreview()" class="w-full min-w-0 px-4 py-2.5 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs bg-white">
+                            <input type="text" id="assignment-post-due-time" value="${defaultDueParts.time || '23:59'}" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="18:00" oninput="sanitizeAssignmentPostDueTimeInput(this)" onchange="normalizeAssignmentPostDueTimeInput(this)" onblur="normalizeAssignmentPostDueTimeInput(this)" class="w-full min-w-0 px-4 py-2.5 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs bg-white">
                         </div>
                     </div>
 
@@ -6809,7 +6847,8 @@
             const stageId = String((document.getElementById('assignment-post-stage') || {}).value || "").trim();
             const dueDate = String((document.getElementById('assignment-post-due-date') || {}).value || "").trim();
             const dueTime = String((document.getElementById('assignment-post-due-time') || {}).value || "").trim();
-            const dueAt = buildAssignmentDateTimeValue(dueDate, dueTime);
+            const normalizedDueTime = normalizeAssignmentTimeInput(dueTime);
+            const dueAt = buildAssignmentDateTimeValue(dueDate, normalizedDueTime);
             const submissionMode = normalizeAssignmentSubmissionMode((document.getElementById('assignment-post-mode') || {}).value || "file-text");
             const targetMode = String((document.getElementById('assignment-post-target-mode') || {}).value || "all").trim();
             const allowReSubmit = Boolean((document.getElementById('assignment-post-allow-resubmit') || {}).checked);
@@ -6825,6 +6864,16 @@
 
             if (!dueDate) {
                 showToast("請先選擇截止日期。", "warning");
+                return;
+            }
+
+            if (!normalizedDueTime || !dueAt) {
+                const dueTimeInput = document.getElementById('assignment-post-due-time');
+                if (dueTimeInput) {
+                    dueTimeInput.focus();
+                    dueTimeInput.select();
+                }
+                showToast("請輸入有效截止時間，例如 18:00。", "warning");
                 return;
             }
 
