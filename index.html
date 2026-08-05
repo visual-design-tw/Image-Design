@@ -379,6 +379,10 @@
             }
         }
         @media (max-width: 767px) {
+            #dashboard-section {
+                padding: 16px;
+                gap: 16px;
+            }
             #dashboard-navigation-card {
                 display: none;
             }
@@ -678,6 +682,66 @@
             #topbar-member-actions .topbar-mobile-only-action {
                 display: inline-flex !important;
             }
+            .mobile-table-scroll {
+                overflow: visible;
+            }
+            .mobile-stack-table,
+            .mobile-stack-table tbody {
+                display: block;
+                width: 100%;
+            }
+            .mobile-stack-table thead {
+                display: none;
+            }
+            .mobile-stack-table tbody {
+                display: grid;
+                gap: 10px;
+            }
+            .mobile-stack-table tbody tr {
+                display: block;
+                padding: 14px;
+                border: 1px solid #E8E8ED;
+                border-radius: 18px;
+                background: #FBFBFD;
+            }
+            .mobile-stack-table tbody tr:hover {
+                background: #FBFBFD;
+            }
+            .mobile-stack-table tbody td {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 16px;
+                padding: 7px 0 !important;
+                border: 0 !important;
+                text-align: right !important;
+            }
+            .mobile-stack-table tbody td::before {
+                content: attr(data-mobile-label);
+                flex: 0 0 auto;
+                color: #86868B;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-align: left;
+            }
+            .mobile-stack-table tbody td.mobile-stack-primary {
+                display: block;
+                padding: 0 0 10px !important;
+                text-align: left !important;
+            }
+            .mobile-stack-table tbody td.mobile-stack-primary::before {
+                display: none;
+            }
+            .mobile-stack-table tbody td.mobile-stack-status {
+                align-items: center;
+                margin-top: 4px;
+                padding-top: 12px !important;
+                border-top: 1px solid #E8E8ED !important;
+            }
+            .mobile-stack-table tbody td.mobile-stack-secondary {
+                display: none;
+            }
         }
         @media (min-width: 1280px) {
             .topbar-shell {
@@ -833,8 +897,8 @@
                 <!-- 組長建組 -->
                 <form id="form-sub-reg-leader" onsubmit="handleRegisterLeader(event)" class="space-y-4">
                     <div>
-                        <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">畢業生組別名稱</label>
-                        <input type="text" id="reg-leader-team" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="如：C組_品牌包裝">
+                        <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">組別名稱</label>
+                        <input type="text" id="reg-leader-team" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="如：01郭子綾、陳昱廷（楊炘彪）">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">組長姓名</label>
@@ -1147,6 +1211,20 @@
                     <p id="upload-file-summary" class="mt-2 text-[10px] text-[#86868B] leading-relaxed">尚未選擇檔案。</p>
                     <p id="upload-version-hint" class="mt-1.5 text-[10px] text-[#86868B] leading-relaxed">若系統偵測到同一份附件的既有版本，將自動以下一版號儲存。</p>
                 </div>
+                <div id="upload-route-summary" class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3.5 py-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex min-w-0 items-start gap-2.5">
+                            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#EAF3FF] text-[#0066CC]">
+                                <i data-lucide="route" class="h-3.5 w-3.5"></i>
+                            </span>
+                            <div class="min-w-0">
+                                <p id="upload-route-title" class="text-[11px] font-bold text-[#1D1D1F]">等待選擇附件</p>
+                                <p id="upload-route-detail" class="mt-0.5 text-[10px] leading-relaxed text-[#86868B]">18 MB 內會直接上傳；較大檔案會改走穩定上傳頁。</p>
+                            </div>
+                        </div>
+                        <span id="upload-route-badge" class="shrink-0 rounded-full bg-[#F2F2F7] px-2 py-1 text-[9px] font-bold text-[#86868B]">待檢查</span>
+                    </div>
+                </div>
                 <div id="upload-large-file-panel" class="hidden rounded-2xl border border-[#CFE3FF] bg-[#F4F8FF] p-4 space-y-3">
                     <div class="flex items-start gap-2.5">
                         <i data-lucide="hard-drive-upload" class="w-4 h-4 text-[#0066CC] mt-0.5"></i>
@@ -1195,25 +1273,68 @@
     </div>
 
     <!-- 作業詳情與繳交 Modal -->
-    <div id="assignment-detail-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80] flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-3xl max-w-4xl w-full p-6 border border-[#E8E8ED] shadow-xl space-y-5 animate-in fade-in zoom-in duration-200">
-            <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2 text-[#0066CC]">
+    <div id="assignment-detail-modal" class="fixed inset-0 overflow-y-auto bg-black/30 backdrop-blur-sm z-[80] p-3 sm:p-5 hidden">
+        <div class="mx-auto flex max-h-[calc(100dvh-24px)] w-full max-w-4xl flex-col gap-4 overflow-hidden rounded-3xl border border-[#E8E8ED] bg-white p-4 shadow-xl animate-in fade-in zoom-in duration-200 sm:max-h-[calc(100dvh-40px)] sm:p-6">
+            <div class="flex shrink-0 items-start justify-between gap-4">
+                    <div class="flex min-w-0 items-center gap-2 text-[#0066CC]">
                         <i data-lucide="book-open" class="w-5 h-5"></i>
-                        <div>
+                        <div class="min-w-0">
                         <h3 class="font-bold text-base text-[#1D1D1F]">繳交項目詳情</h3>
                         <p class="text-[10px] text-[#86868B] mt-0.5">查看項目內容、繳交規格、版本歷程與目前繳交狀態。</p>
                         </div>
                     </div>
-                <button onclick="closeAssignmentDetailModal()" class="text-[#86868B] hover:text-[#1D1D1F] transition">
+                <button onclick="closeAssignmentDetailModal()" aria-label="關閉繳交項目詳情" class="shrink-0 text-[#86868B] hover:text-[#1D1D1F] transition">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
-            <div id="assignment-detail-modal-body" class="space-y-4"></div>
+            <div id="assignment-detail-modal-body" class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1"></div>
         </div>
     </div>
 
-    <!-- GAS 雲端硬碟自動分類與回寫 Sheets 模擬終端機面板 (高擬真亮點模擬) -->
+    <!-- 形印代做申請 Modal -->
+    <div id="design-service-request-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceRequestModal()">
+        <div class="w-full max-w-md space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex items-center gap-2 text-[#0066CC]"><i data-lucide="briefcase" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">申請形印代做</h3><p class="mt-0.5 text-[10px] text-[#86868B]">由形印組接手製作，不在本系統處理金額。</p></div></div>
+                <button type="button" onclick="closeDesignServiceRequestModal()" class="text-[#86868B] hover:text-[#1D1D1F]"><i data-lucide="x" class="h-5 w-5"></i></button>
+            </div>
+            <div id="design-service-request-modal-body" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- 形印代做資格設定 Modal -->
+    <div id="design-service-settings-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceSettingsModal()">
+        <div class="max-h-[88vh] w-full max-w-lg space-y-5 overflow-y-auto rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex items-center gap-2 text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">形印代做設定</h3><p class="mt-0.5 text-[10px] text-[#86868B]">由形印組組長控制是否開放，以及哪些組員可以接案。</p></div></div>
+                <button type="button" onclick="closeDesignServiceSettingsModal()" class="text-[#86868B] hover:text-[#1D1D1F]"><i data-lucide="x" class="h-5 w-5"></i></button>
+            </div>
+            <div id="design-service-settings-modal-body" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- 形印代做成果審核 Modal -->
+    <div id="design-service-review-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceReviewModal()">
+        <div class="w-full max-w-md space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div class="flex items-start justify-between gap-4"><div class="flex items-center gap-2 text-[#5E5CE6]"><i data-lucide="clipboard-check" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">審核形印代做成果</h3><p id="design-service-review-title" class="mt-0.5 text-[10px] text-[#86868B]">請確認成果檔案。</p></div></div><button type="button" onclick="closeDesignServiceReviewModal()" class="text-[#86868B] hover:text-[#1D1D1F]"><i data-lucide="x" class="h-5 w-5"></i></button></div>
+            <div><label class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">審核意見</label><textarea id="design-service-review-note" rows="4" class="w-full resize-none rounded-2xl border border-[#E8E8ED] px-4 py-3 text-xs focus:border-[#0066CC] focus:outline-none" placeholder="通過可留下補充說明；退回修正時請填寫具體修改方向。"></textarea></div>
+            <div class="flex justify-end gap-2"><button type="button" onclick="closeDesignServiceReviewModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><button type="button" onclick="submitDesignServiceReview('退件')" class="rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B]">退回修正</button><button type="button" onclick="submitDesignServiceReview('通過')" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white">通過</button></div>
+        </div>
+    </div>
+
+    <!-- 形印代做成果上傳 Modal -->
+    <div id="design-service-upload-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceUploadModal()">
+        <div class="w-full max-w-lg space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div class="flex items-start justify-between gap-4"><div class="flex items-center gap-2 text-[#0066CC]"><i data-lucide="cloud-upload" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">上傳形印代做成果</h3><p id="design-service-upload-title" class="mt-0.5 text-[10px] text-[#86868B]">成果會寫入案件專屬資料夾。</p></div></div><button type="button" onclick="closeDesignServiceUploadModal()" class="text-[#86868B] hover:text-[#1D1D1F]"><i data-lucide="x" class="h-5 w-5"></i></button></div>
+            <form id="design-service-upload-form" onsubmit="handleDesignServiceUploadSubmit(event)" class="space-y-4">
+                <div><label class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">選擇成果檔案</label><input id="design-service-upload-file" type="file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" onchange="refreshDesignServiceUploadRoute()" required class="block w-full text-xs text-[#1D1D1F] file:mr-3 file:rounded-xl file:border-0 file:bg-[#F5F5F7] file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-[#1D1D1F]"><p id="design-service-upload-summary" class="mt-2 text-[10px] text-[#86868B]">尚未選擇成果檔案。</p><p id="design-service-upload-route" class="mt-1.5 text-[10px] leading-relaxed text-[#86868B]">18 MB 內直傳；較大成果會改走穩定上傳頁。</p></div>
+                <div id="design-service-upload-transfer-status" class="hidden rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] px-3.5 py-3" aria-live="polite"><div class="flex items-center justify-between gap-3"><p id="design-service-upload-transfer-title" class="text-[11px] font-bold text-[#1D1D1F]">正在準備成果</p><span id="design-service-upload-transfer-value" class="text-[10px] font-bold text-[#0066CC]">0%</span></div><div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE8F8]"><div id="design-service-upload-transfer-bar" class="h-full w-0 rounded-full bg-[#0066CC] transition-all duration-300"></div></div><p id="design-service-upload-transfer-detail" class="mt-2 text-[10px] leading-relaxed text-[#5F6975]">系統正在確認檔案。</p></div>
+                <div class="flex items-center justify-between gap-2 pt-1"><button type="button" onclick="closeDesignServiceUploadModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><div class="flex gap-2"><button type="button" onclick="startStableDesignServiceUploadFlow()" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-4 py-2 text-xs font-bold text-[#0066CC]">大檔穩定上傳</button><button id="design-service-upload-submit" type="submit" class="rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90">上傳成果</button></div></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 雲端繳交處理狀態 -->
     <div id="gas-simulation-modal" class="fixed inset-0 bg-black/50 z-[90] flex items-center justify-center p-4 hidden">
         <div class="bg-[#1C1C1E] text-[#3A3A3C] rounded-3xl max-w-lg w-full p-6 border border-[#2C2C2E] shadow-2xl space-y-4 font-mono">
             <div class="flex items-center justify-between border-b border-[#2C2C2E] pb-3">
@@ -1221,15 +1342,25 @@
                     <span class="w-3 h-3 rounded-full bg-[#FF5F56]"></span>
                     <span class="w-3 h-3 rounded-full bg-[#FFBD2E]"></span>
                     <span class="w-3 h-3 rounded-full bg-[#27C93F]"></span>
-                    <span class="text-xs font-bold text-[#AEAEB2] ml-2">Google Apps Script API Terminal</span>
+                    <span class="text-xs font-bold text-[#AEAEB2] ml-2">雲端送件處理</span>
                 </div>
             </div>
+            <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
+                <div class="flex items-center justify-between gap-3">
+                    <p id="gas-upload-status" class="text-[11px] font-bold text-white">正在準備繳交</p>
+                    <span id="gas-upload-percent" class="text-[10px] font-bold text-[#64D2FF]">0%</span>
+                </div>
+                <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <div id="gas-upload-bar" class="h-full w-0 rounded-full bg-[#64D2FF] transition-all duration-300"></div>
+                </div>
+                <p id="gas-upload-detail" class="mt-2 text-[10px] leading-relaxed text-[#8E8E93]">正在確認檔案與雲端連線。</p>
+            </div>
             <div id="gas-terminal-log" class="h-64 overflow-y-auto text-xs text-[#34C759] space-y-2 p-2 bg-black rounded-xl">
-                <!-- 由 JavaScript 動態模擬渲染逐步日誌 -->
+                <!-- 由 JavaScript 動態記錄實際處理階段 -->
             </div>
             <div class="flex justify-end border-t border-[#2C2C2E] pt-3">
                 <button id="btn-close-gas-modal" disabled onclick="closeGasModal()" class="px-5 py-2 bg-[#3A3A3C] hover:bg-[#48484A] disabled:opacity-30 text-white rounded-xl text-xs font-bold transition">
-                    關閉模擬終端
+                    關閉
                 </button>
             </div>
         </div>
@@ -1314,7 +1445,7 @@
                 <button type="button" onclick="closeStageDeleteModal()" class="min-h-[52px] px-4 text-[16px] font-normal text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none">
                     取消
                 </button>
-                <button type="button" onclick="confirmStageDelete()" class="min-h-[52px] border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none">
+                <button type="button" id="stage-delete-modal-confirm" onclick="confirmStageDelete()" class="min-h-[52px] border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
                     刪除
                 </button>
             </div>
@@ -1361,7 +1492,7 @@
         const STORAGE_KEY = "shapeprint_state_v5_pro";
         const GAS_API_STORAGE_KEY = "shapeprint_gas_api_url";
         const SESSION_STORAGE_KEY = "shapeprint_auth_session_v1";
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxD-RswZk3FIW-kOo-8Nn5KfWGqPo-gCkJdkXUWGOwJmJaL73uPBf2ibGUGgdaGtRg/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
         const SUPPORTED_UPLOAD_EXTENSIONS = [".ai", ".pdf", ".psd", ".indd", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".zip"];
         const MAX_BROWSER_UPLOAD_SIZE_BYTES = 18 * 1024 * 1024;
@@ -1398,6 +1529,7 @@
         let activeAssignmentId = "";
         let pendingUploadContext = null;
         let pendingStageDeleteContext = null;
+        let stageDeleteInFlight = false;
         let pendingStageBudgetContext = null;
         let pendingNotificationCardMotionIds = [];
         let fileBrowserPillGeometry = {};
@@ -1418,6 +1550,7 @@
         let passwordResetExpiresAt = "";
         let passwordResetErrorMessage = "";
         let loginSubmitInFlight = false;
+        let logoutInFlight = false;
         let authSessionToken = "";
         let remoteStateRevision = 0;
         let activityLogs = [];
@@ -1430,14 +1563,18 @@
         let nativeSoftSelectAutoId = 0;
         let largeUploadSessions = {};
         let pendingLargeAssignmentAssetUpload = null;
+        let activeDesignServiceRequestAssignmentId = "";
+        let activeDesignServiceReviewOrderId = "";
+        let activeDesignServiceUploadOrderId = "";
         const NAVIGATION_MENU_CONFIGS = [
-            { id: "overview", name: "會審儀表板", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
+            { id: "overview", name: "會審總覽", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "notifications", name: "通知中心", icon: "bell", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "files", name: "繳交專區", icon: "clipboard-list", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
-            { id: "purchase", name: "印刷品登記", icon: "printer", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
+            { id: "design-service", name: "形印代做", icon: "briefcase", roles: ["SuperAdmin", "Admin"] },
+            { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "activity", name: "操作紀錄", icon: "scroll-text", roles: ["SuperAdmin", "Admin"] },
             { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Leader", "Member"] },
-            { id: "stages", name: "會審期數設定", icon: "settings", roles: ["SuperAdmin"] }
+            { id: "stages", name: "會審設定", icon: "settings", roles: ["SuperAdmin"] }
         ];
         const BOOT_LOADER_MIN_MS = 950;
         const bootLoaderStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -2376,6 +2513,8 @@
             ],
             Notifications: [],
             Discussion_Comments: [],
+            Design_Service_Settings: [],
+            Design_Service_Orders: [],
             Meta: {}
         };
         const DEFAULT_STATE = JSON.parse(JSON.stringify(state));
@@ -2401,6 +2540,7 @@
             fileBrowserPillGeometry = {};
             if (currentUser) {
                 syncFileBrowserPillIndicators();
+                window.requestAnimationFrame(renderHeatmap);
             }
         });
 
@@ -2523,7 +2663,7 @@
 
         function createUnauthenticatedState() {
             const snapshot = cloneStateSnapshot(DEFAULT_STATE);
-            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments"].forEach(function(key) {
+            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders"].forEach(function(key) {
                 snapshot[key] = [];
             });
             snapshot.Meta = { State_Revision: 0 };
@@ -3355,9 +3495,99 @@
         function updateFileSelectionSummary(summaryId, file, emptyText = "尚未選擇檔案。") {
             const summary = document.getElementById(summaryId);
             if (!summary) return;
-            summary.textContent = file
-                ? "已選擇：" + file.name + " ・ " + formatFileSize(file.size)
-                : emptyText;
+            if (!file) {
+                summary.textContent = emptyText;
+                return;
+            }
+
+            const transferLabel = exceedsStableLargeUploadLimit(file)
+                ? "超過 50 MB 上限"
+                : needsStableLargeUpload(file)
+                    ? "穩定上傳"
+                    : "直接上傳";
+            summary.textContent = "已選擇：" + file.name + " ・ " + formatFileSize(file.size) + " ・ " + transferLabel;
+        }
+
+        function getUploadRouteInfo(file) {
+            if (!file) {
+                return {
+                    title: "等待選擇附件",
+                    detail: "18 MB 內會直接上傳；較大檔案會改走穩定上傳頁。",
+                    badge: "待檢查",
+                    tone: "muted"
+                };
+            }
+
+            if (exceedsStableLargeUploadLimit(file)) {
+                return {
+                    title: "檔案超過穩定上傳上限",
+                    detail: "目前選擇「" + file.name + "」為 " + formatFileSize(file.size) + "，請壓縮至 50 MB 內後再上傳。",
+                    badge: "需調整",
+                    tone: "error"
+                };
+            }
+
+            if (needsStableLargeUpload(file)) {
+                return {
+                    title: "將使用穩定上傳",
+                    detail: "「" + file.name + "」超過 18 MB，會在專用頁直接送往 Google Drive，完成後自動同步紀錄。",
+                    badge: "穩定上傳",
+                    tone: "blue"
+                };
+            }
+
+            if (!isRemoteSyncEnabled()) {
+                return {
+                    title: "目前為本機模式",
+                    detail: "檔案已通過基本檢查；連線至 GAS 後可直接送往 Google Drive。",
+                    badge: "本機模式",
+                    tone: "muted"
+                };
+            }
+
+            return {
+                title: "將直接上傳到雲端",
+                detail: "「" + file.name + "」符合 18 MB 直傳條件，送出後會自動分類至你的 Google Drive 資料夾。",
+                badge: "直接上傳",
+                tone: "success"
+            };
+        }
+
+        function updateUploadRouteSummary() {
+            const route = getUploadRouteInfo(getSelectedFileFromInput('upload-form-file'));
+            const title = document.getElementById('upload-route-title');
+            const detail = document.getElementById('upload-route-detail');
+            const badge = document.getElementById('upload-route-badge');
+            if (title) title.textContent = route.title;
+            if (detail) detail.textContent = route.detail;
+            if (badge) {
+                const toneClasses = route.tone === 'success'
+                    ? 'bg-[#E8F7ED] text-[#14833B]'
+                    : route.tone === 'blue'
+                        ? 'bg-[#EAF3FF] text-[#0066CC]'
+                        : route.tone === 'error'
+                            ? 'bg-[#FFF0EE] text-[#C9342B]'
+                            : 'bg-[#F2F2F7] text-[#86868B]';
+                badge.className = 'shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ' + toneClasses;
+                badge.textContent = route.badge;
+            }
+        }
+
+        function setInlineUploadProgress(scope, options = {}) {
+            const panel = document.getElementById(scope + '-upload-transfer-status');
+            const title = document.getElementById(scope + '-upload-transfer-title');
+            const detail = document.getElementById(scope + '-upload-transfer-detail');
+            const value = document.getElementById(scope + '-upload-transfer-value');
+            const bar = document.getElementById(scope + '-upload-transfer-bar');
+            if (!panel || !title || !detail || !value || !bar) return;
+
+            const progress = Math.max(0, Math.min(100, Number(options.progress || 0)));
+            panel.classList.toggle('hidden', options.visible === false);
+            title.textContent = options.title || '正在準備附件';
+            detail.textContent = options.detail || '系統正在確認檔案。';
+            value.textContent = progress + '%';
+            bar.style.width = progress + '%';
+            bar.style.backgroundColor = options.tone === 'error' ? '#FF3B30' : '#0066CC';
         }
 
         function getPendingLargeAssignmentAsset(assignmentId, teamId) {
@@ -3454,7 +3684,7 @@
             return sessionKey;
         }
 
-        function readFileAsBase64(file) {
+        function readFileAsBase64(file, onProgress) {
             return new Promise(function(resolve, reject) {
                 if (!file) {
                     reject(new Error("找不到要上傳的檔案。"));
@@ -3470,6 +3700,10 @@
                 reader.onerror = function() {
                     reject(new Error("讀取檔案失敗，請重新選擇檔案。"));
                 };
+                reader.onprogress = function(event) {
+                    if (!event || !event.lengthComputable || typeof onProgress !== 'function') return;
+                    onProgress(event.total > 0 ? event.loaded / event.total : 0);
+                };
                 reader.readAsDataURL(file);
             });
         }
@@ -3483,16 +3717,64 @@
                 throw new Error("目前單檔直傳上限為 18 MB，請先壓縮或改較小檔案後再試。");
             }
 
-            const fileContentBase64 = await readFileAsBase64(file);
-            const response = await requestGas(action, Object.assign({}, payload, {
+            const uploadUiScope = String(payload.uploadUiScope || '').trim();
+            const requestPayload = Object.assign({}, payload);
+            delete requestPayload.uploadUiScope;
+
+            if (uploadUiScope) {
+                setInlineUploadProgress(uploadUiScope, {
+                    progress: 8,
+                    title: '正在讀取附件',
+                    detail: '正在準備「' + file.name + '」的上傳資料。'
+                });
+            }
+
+            try {
+                const fileContentBase64 = await readFileAsBase64(file, function(ratio) {
+                    if (!uploadUiScope) return;
+                    setInlineUploadProgress(uploadUiScope, {
+                        progress: Math.round(8 + Math.max(0, Math.min(1, ratio)) * 54),
+                        title: '正在讀取附件',
+                        detail: '已讀取 ' + Math.round(Math.max(0, Math.min(1, ratio)) * 100) + '%，請不要關閉此視窗。'
+                    });
+                });
+
+                if (uploadUiScope) {
+                    setInlineUploadProgress(uploadUiScope, {
+                        progress: 68,
+                        title: '正在上傳到雲端',
+                        detail: '正在傳送至 Google Drive 並建立繳交附件。'
+                    });
+                }
+
+                const response = await requestGas(action, Object.assign({}, requestPayload, {
                 fileName: file.name,
                 sourceFileName: file.name,
                 mimeType: file.type || "application/octet-stream",
                 fileSize: Number(file.size || 0),
                 fileContentBase64: fileContentBase64
-            }));
+                }));
 
-            return response && response.data ? response.data : {};
+                if (uploadUiScope) {
+                    setInlineUploadProgress(uploadUiScope, {
+                        progress: 100,
+                        title: '附件已上傳',
+                        detail: '已完成 Google Drive 歸檔，正在寫入繳交紀錄。'
+                    });
+                }
+
+                return response && response.data ? response.data : {};
+            } catch (error) {
+                if (uploadUiScope) {
+                    setInlineUploadProgress(uploadUiScope, {
+                        progress: 100,
+                        title: '附件上傳失敗',
+                        detail: error && error.message ? error.message : '請重新選擇檔案後再試。',
+                        tone: 'error'
+                    });
+                }
+                throw error;
+            }
         }
 
         function handleLargeUploadWindowMessage(event) {
@@ -3548,6 +3830,15 @@
 
                 refreshAssignmentSubmitRuleValidation();
                 showToast("大檔已先上傳完成，回到原視窗按一次「送出繳交」即可。", "success");
+                return;
+            }
+
+            if (payload.mode === "design-service") {
+                if (sessionKey) {
+                    delete largeUploadSessions[sessionKey];
+                }
+                closeDesignServiceUploadModal();
+                refreshStateFromBackendAfterLargeUpload("形印代做成果已上傳，現在等待形印組長審核。" );
             }
         }
 
@@ -3801,6 +4092,7 @@
             const canUseStableUpload = isRemoteSyncEnabled() && Boolean(getGasApiUrl());
             const validation = getUploadFileRuleValidation();
             updateFileSelectionSummary('upload-file-summary', getSelectedFileFromInput('upload-form-file'));
+            updateUploadRouteSummary();
 
             if (largeFilePanel) {
                 const shouldShowLargeFilePanel = canUseStableUpload && needsStableLargeUpload(selectedFile);
@@ -4259,6 +4551,37 @@
             return comment;
         }
 
+        function hydrateDesignServiceSettingsRecord(settings) {
+            if (!settings || typeof settings !== "object") return settings;
+            settings.Settings_ID = String(settings.Settings_ID || "SERVICE_DEFAULT");
+            settings.Enabled = settings.Enabled === true || String(settings.Enabled || "").toLowerCase() === "true";
+            settings.Eligible_User_IDs = ensureArray(settings.Eligible_User_IDs).map(function(userId) {
+                return String(userId || "").trim();
+            }).filter(function(userId, index, list) {
+                return userId && list.indexOf(userId) === index;
+            });
+            settings.Updated_At = String(settings.Updated_At || "");
+            settings.Updated_By_User_ID = String(settings.Updated_By_User_ID || "");
+            return settings;
+        }
+
+        function hydrateDesignServiceOrderRecord(order) {
+            if (!order || typeof order !== "object") return order;
+            [
+                "Service_Order_ID", "Assignment_ID", "Stage_ID", "Team_ID",
+                "Requested_By_User_ID", "Requested_At", "Responsible_User_ID",
+                "Responsible_Name", "Claimed_At", "Status", "File_Name",
+                "Google_Drive_URL", "Drive_File_ID", "Drive_Folder_ID",
+                "Submitted_At", "Reviewed_By_User_ID", "Reviewed_At",
+                "Review_Note", "Updated_At"
+            ].forEach(function(key) {
+                order[key] = String(order[key] || "");
+            });
+            if (!order.Status) order.Status = "待接案";
+            if (!order.Updated_At) order.Updated_At = order.Requested_At || "";
+            return order;
+        }
+
         function migrateLegacyFileCommentsToDiscussionThreads() {
             if (!state.Meta || typeof state.Meta !== "object") {
                 state.Meta = {};
@@ -4353,6 +4676,8 @@
             state.Files = ensureArray(state.Files);
             state.Notifications = ensureArray(state.Notifications);
             state.Discussion_Comments = ensureArray(state.Discussion_Comments);
+            state.Design_Service_Settings = ensureArray(state.Design_Service_Settings);
+            state.Design_Service_Orders = ensureArray(state.Design_Service_Orders);
 
             state.Purchase_Items.forEach(function(item) {
                 hydratePurchaseItemRecord(item);
@@ -4374,6 +4699,12 @@
             });
             state.Discussion_Comments.forEach(function(comment) {
                 hydrateDiscussionCommentRecord(comment);
+            });
+            state.Design_Service_Settings.forEach(function(settings) {
+                hydrateDesignServiceSettingsRecord(settings);
+            });
+            state.Design_Service_Orders.forEach(function(order) {
+                hydrateDesignServiceOrderRecord(order);
             });
 
             if (isLegacyDemoNotificationSeedBatch(state.Notifications)) {
@@ -4776,6 +5107,281 @@
                     : "尚未繳交",
                 targetLabels: getAssignmentTargetTeamLabels(assignment)
             };
+        }
+
+        function getAssignmentReviewSubmissionStatus(submission) {
+            const rawStatus = String(submission && submission.Status || "已繳交").trim();
+            if (/退件|退回|修正/.test(rawStatus)) {
+                return {
+                    key: "rejected",
+                    label: "退回修正",
+                    tone: "text-[#FF3B30]",
+                    badge: "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]"
+                };
+            }
+            if (/通過|完成|核准|已審/.test(rawStatus)) {
+                return {
+                    key: "approved",
+                    label: "審核通過",
+                    tone: "text-[#34C759]",
+                    badge: "bg-[#34C759] bg-opacity-10 text-[#34C759]"
+                };
+            }
+            return {
+                key: "submitted",
+                label: "待審核",
+                tone: "text-[#FF9500]",
+                badge: "bg-[#FF9500] bg-opacity-10 text-[#FF9500]"
+            };
+        }
+
+        function buildAssignmentReviewTimelineMarkup(assignment, options = {}) {
+            const isExhibitionAdmin = options.isExhibitionAdmin === true;
+            const effectiveTeamID = String(options.effectiveTeamID || "");
+            const targetIds = getAssignmentTargetTeamIds(assignment);
+            const scopedTeamIds = isExhibitionAdmin
+                ? targetIds
+                : (targetIds.includes(effectiveTeamID) ? [effectiveTeamID] : []);
+            const scopedTeams = scopedTeamIds.map(function(teamId) {
+                return state.Teams.find(function(team) {
+                    return team.Team_ID === teamId;
+                }) || { Team_ID: teamId, Team_Name: teamId };
+            });
+            const latestSubmissions = scopedTeamIds.map(function(teamId) {
+                return {
+                    teamId: teamId,
+                    team: scopedTeams.find(function(team) { return team.Team_ID === teamId; }),
+                    submission: getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, teamId)
+                };
+            });
+            const submittedEntries = latestSubmissions.filter(function(item) {
+                return Boolean(item.submission);
+            });
+            const approvedEntries = submittedEntries.filter(function(item) {
+                return getAssignmentReviewSubmissionStatus(item.submission).key === "approved";
+            });
+            const rejectedEntries = submittedEntries.filter(function(item) {
+                return getAssignmentReviewSubmissionStatus(item.submission).key === "rejected";
+            });
+            const adminComments = getDiscussionComments("assignment", assignment.Assignment_ID).filter(function(comment) {
+                return ["SuperAdmin", "Admin", "System"].includes(String(comment.Author_Role || ""));
+            });
+            const latestSubmission = submittedEntries.slice().sort(function(a, b) {
+                return String(b.submission.Submitted_At || b.submission.Updated_At || "")
+                    .localeCompare(String(a.submission.Submitted_At || a.submission.Updated_At || ""));
+            })[0] || null;
+            const latestReviewComment = adminComments[adminComments.length - 1] || null;
+            const entries = [{
+                title: "公告發布",
+                detail: "繳交項目已建立，等待目標小組依規格完成送件。",
+                at: assignment.Created_At,
+                state: "complete",
+                icon: "megaphone"
+            }];
+
+            if (scopedTeamIds.length === 0) {
+                entries.push({
+                    title: "未設定可查看的小組",
+                    detail: "目前帳號不在這份繳交項目的目標組別範圍內。",
+                    at: "",
+                    state: "pending",
+                    icon: "users"
+                });
+            } else if (submittedEntries.length > 0) {
+                const submittedNames = submittedEntries.map(function(item) {
+                    return item.team ? item.team.Team_Name : item.teamId;
+                }).join("、");
+                entries.push({
+                    title: "小組繳交",
+                    detail: submittedEntries.length + " / " + scopedTeamIds.length + " 組已送出" + (submittedNames ? "：" + submittedNames : ""),
+                    at: latestSubmission ? (latestSubmission.submission.Submitted_At || latestSubmission.submission.Updated_At) : "",
+                    state: submittedEntries.length === scopedTeamIds.length ? "complete" : "active",
+                    icon: "upload-cloud"
+                });
+            } else {
+                entries.push({
+                    title: "等待小組繳交",
+                    detail: isExhibitionAdmin ? "目前尚未收到目標小組的繳交紀錄。" : "完成繳交後，這裡會更新下一個流程節點。",
+                    at: "",
+                    state: "pending",
+                    icon: "upload-cloud"
+                });
+            }
+
+            if (rejectedEntries.length > 0) {
+                entries.push({
+                    title: "退回修正",
+                    detail: rejectedEntries.length + " 組需要依審核意見修正後重新繳交。",
+                    at: rejectedEntries[rejectedEntries.length - 1].submission.Updated_At || rejectedEntries[rejectedEntries.length - 1].submission.Submitted_At,
+                    state: "active",
+                    icon: "rotate-ccw"
+                });
+            } else if (approvedEntries.length === scopedTeamIds.length && scopedTeamIds.length > 0) {
+                entries.push({
+                    title: "審核完成",
+                    detail: "目前範圍內的目標小組都已完成審核。",
+                    at: approvedEntries[approvedEntries.length - 1].submission.Updated_At || approvedEntries[approvedEntries.length - 1].submission.Submitted_At,
+                    state: "complete",
+                    icon: "circle-check"
+                });
+            } else if (submittedEntries.length > 0) {
+                entries.push({
+                    title: "形印組審核",
+                    detail: "繳交資料已收到，等待形印組確認內容與規格。",
+                    at: latestSubmission ? (latestSubmission.submission.Updated_At || latestSubmission.submission.Submitted_At) : "",
+                    state: "active",
+                    icon: "scan-search"
+                });
+            } else {
+                entries.push({
+                    title: "等待審核",
+                    detail: "小組完成繳交後，審核節點會在這裡開啟。",
+                    at: "",
+                    state: "pending",
+                    icon: "scan-search"
+                });
+            }
+
+            if (latestReviewComment) {
+                entries.push({
+                    title: "最新審核留言",
+                    detail: String(latestReviewComment.Message || "形印組已留下審核回覆。"),
+                    at: latestReviewComment.Created_At,
+                    state: "active",
+                    icon: "message-circle"
+                });
+            }
+
+            const progressLabel = scopedTeamIds.length > 0
+                ? submittedEntries.length + " / " + scopedTeamIds.length + " 組已繳交"
+                : "尚無可用進度";
+            const timelineItems = entries.map(function(entry, index) {
+                const isLast = index === entries.length - 1;
+                const stateClass = entry.state === "complete"
+                    ? "bg-[#34C759] text-white"
+                    : entry.state === "active"
+                        ? "bg-[#0066CC] text-white"
+                        : "bg-[#F5F5F7] text-[#86868B] border border-[#E5E5EA]";
+                const titleClass = entry.state === "pending" ? "text-[#86868B]" : "text-[#1D1D1F]";
+                const connector = isLast ? "" : '<span class="absolute left-[15px] top-8 h-[calc(100%-12px)] w-px bg-[#E5E5EA]"></span>';
+                return `
+                    <li class="relative flex gap-3 pb-4 last:pb-0">
+                        ${connector}
+                        <span class="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${stateClass}">
+                            <i data-lucide="${entry.icon}" class="h-4 w-4"></i>
+                        </span>
+                        <div class="min-w-0 flex-1 pt-0.5">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <p class="text-xs font-bold ${titleClass}">${escapeHtml(entry.title)}</p>
+                                ${entry.at ? `<span class="text-[10px] font-medium text-[#86868B]">${escapeHtml(formatCompactDateTimeLabel(entry.at))}</span>` : '<span class="text-[10px] font-semibold text-[#AEAEB2]">尚未發生</span>'}
+                            </div>
+                            <p class="mt-1 text-[10px] leading-relaxed text-[#6E6E73]">${escapeHtml(entry.detail)}</p>
+                        </div>
+                    </li>
+                `;
+            }).join('');
+
+            return `
+                <section class="rounded-3xl border border-[#E8E8ED] bg-[#FBFBFD] p-4" data-assignment-timeline>
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="route" class="h-4 w-4 text-[#0066CC]"></i>
+                                <h4 class="text-sm font-bold text-[#1D1D1F]">審核流程時間軸</h4>
+                            </div>
+                            <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">從公告發布、繳交到形印組回覆，依目前帳號可查看的組別顯示。</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-[#0066CC] border border-[#DCE8F8]">${escapeHtml(progressLabel)}</span>
+                    </div>
+                    <ol class="mt-4">${timelineItems}</ol>
+                </section>
+            `;
+        }
+
+        function getTeamCompletionComparison(assignments) {
+            const assignmentList = ensureArray(assignments);
+            return state.Teams.filter(function(team) {
+                return team.Team_ID !== "T00";
+            }).map(function(team) {
+                const targetAssignments = assignmentList.filter(function(assignment) {
+                    return getAssignmentTargetTeamIds(assignment).includes(team.Team_ID);
+                });
+                const submittedAssignments = targetAssignments.filter(function(assignment) {
+                    return Boolean(getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, team.Team_ID));
+                });
+                const approvedAssignments = targetAssignments.filter(function(assignment) {
+                    const submission = getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, team.Team_ID);
+                    return submission && getAssignmentReviewSubmissionStatus(submission).key === "approved";
+                });
+                const targetCount = targetAssignments.length;
+                const submittedCount = submittedAssignments.length;
+                return {
+                    teamId: team.Team_ID,
+                    teamName: team.Team_Name || team.Team_ID,
+                    targetCount: targetCount,
+                    submittedCount: submittedCount,
+                    approvedCount: approvedAssignments.length,
+                    pendingCount: Math.max(0, targetCount - submittedCount),
+                    progress: targetCount > 0 ? Math.round((submittedCount / targetCount) * 100) : 0
+                };
+            }).filter(function(item) {
+                return item.targetCount > 0;
+            }).sort(function(a, b) {
+                return b.progress - a.progress
+                    || b.submittedCount - a.submittedCount
+                    || a.teamName.localeCompare(b.teamName, "zh-Hant");
+            });
+        }
+
+        function buildTeamCompletionComparisonMarkup(assignments) {
+            const rows = getTeamCompletionComparison(assignments);
+            if (rows.length === 0) {
+                return `
+                    <section class="mt-4 rounded-[24px] border border-[#ECECF1] bg-[#FCFCFD] p-4 shadow-sm">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="bar-chart-3" class="h-4 w-4 text-[#0066CC]"></i>
+                            <h4 class="text-sm font-bold text-[#1D1D1F]">小組完成率比較</h4>
+                        </div>
+                        <p class="mt-2 text-[10px] text-[#86868B]">目前會期尚未設定可比較的繳交項目。</p>
+                    </section>
+                `;
+            }
+
+            const maxProgress = Math.max.apply(null, rows.map(function(row) { return row.progress; }));
+            return `
+                <section class="mt-4 rounded-[24px] border border-[#ECECF1] bg-[#FCFCFD] p-4 shadow-sm" data-team-comparison>
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="bar-chart-3" class="h-4 w-4 text-[#0066CC]"></i>
+                                <h4 class="text-sm font-bold text-[#1D1D1F]">小組完成率比較</h4>
+                            </div>
+                            <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">只顯示形印組管理視角，以目前會期的已繳交項目計算。</p>
+                        </div>
+                        <span class="text-[10px] font-semibold text-[#86868B]">${rows.length} 組</span>
+                    </div>
+                    <div class="mt-4 space-y-3">
+                        ${rows.map(function(row, index) {
+                            const isLeader = row.progress === maxProgress && row.progress > 0;
+                            return `
+                                <div class="flex items-center gap-3" data-team-comparison-row="${escapeHtml(row.teamId)}">
+                                    <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${isLeader ? 'bg-[#0066CC] text-white' : 'bg-[#F0F0F3] text-[#86868B]'} text-[10px] font-bold">${index + 1}</span>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <p class="truncate text-xs font-bold text-[#1D1D1F]">${escapeHtml(row.teamName)}</p>
+                                            <span class="shrink-0 text-xs font-bold text-[#0066CC]">${row.progress}%</span>
+                                        </div>
+                                        <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#E9E9EE]">
+                                            <div class="h-full rounded-full bg-[#0066CC] transition-all duration-500" style="width:${row.progress}%"></div>
+                                        </div>
+                                        <p class="mt-1 text-[10px] text-[#86868B]">已繳交 ${row.submittedCount} / ${row.targetCount} 項 · 待繳交 ${row.pendingCount}${row.approvedCount > 0 ? ' · 已通過 ' + row.approvedCount : ''}</p>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </section>
+            `;
         }
 
         function sortAssignmentsForBrowser(assignments) {
@@ -5391,6 +5997,7 @@
             if (notification.Priority === "high") return "important";
             if (String(notification.Type || "").indexOf("file-") === 0) return "files";
             if (String(notification.Type || "").indexOf("assignment-") === 0) return "files";
+            if (String(notification.Type || "").indexOf("design-service-") === 0) return "files";
             if (notification.Type === "review-comment") return "files";
             if (notification.Type === "budget") return "budget";
             if (notification.Type === "invite") return "invite";
@@ -6286,6 +6893,10 @@
             const modal = document.getElementById('assignment-detail-modal');
             if (!modal) return;
             renderAssignmentDetailModal();
+            const modalBody = document.getElementById('assignment-detail-modal-body');
+            if (modalBody) {
+                modalBody.scrollTop = 0;
+            }
             animateSurfaceOpen(modal, modal.firstElementChild, {
                 fromY: 18,
                 fromScale: 0.98,
@@ -6329,6 +6940,14 @@
             const submissions = getAssignmentSubmissionsForAssignment(assignment.Assignment_ID);
             const mySubmission = currentUser ? getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, effectiveTeamID) : null;
             const canSubmit = !isExhibitionAdmin && (assignment.Target_Mode !== "selected" || getAssignmentTargetTeamIds(assignment).includes(effectiveTeamID)) && (!mySubmission || assignment.Allow_ReSubmit);
+            const designServiceOrder = !isExhibitionAdmin && currentUser
+                ? getDesignServiceOrderForAssignment(assignment.Assignment_ID, effectiveTeamID)
+                : null;
+            const canRequestDesignService = !isExhibitionAdmin
+                && currentUser
+                && isDesignServiceEnabled()
+                && !designServiceOrder
+                && (assignment.Target_Mode !== "selected" || getAssignmentTargetTeamIds(assignment).includes(effectiveTeamID));
             const targetLabels = getAssignmentTargetTeamLabels(assignment);
             const statusTone = mySubmission
                 ? "bg-[#34C759] bg-opacity-10 text-[#34C759]"
@@ -6414,6 +7033,26 @@
                         </div>
                     </div>
 
+                    ${!isExhibitionAdmin && isDesignServiceEnabled() ? `
+                        <div class="rounded-3xl border border-[#DCE8F8] bg-[#F7FAFF] p-4">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div class="flex items-start gap-2.5">
+                                    <i data-lucide="briefcase" class="mt-0.5 h-4 w-4 shrink-0 text-[#0066CC]"></i>
+                                    <div>
+                                        <p class="text-xs font-bold text-[#1D1D1F]">需要形印組協助製作？</p>
+                                        ${designServiceOrder ? `<p class="mt-1 text-[10px] leading-relaxed text-[#5F6975]">案件 ${escapeHtml(designServiceOrder.Service_Order_ID)} · ${getDesignServiceStatusLabel(designServiceOrder.Status)}${designServiceOrder.Responsible_Name ? " · 負責人：" + escapeHtml(designServiceOrder.Responsible_Name) : ""}</p>${designServiceOrder.Review_Note ? `<p class="mt-1 text-[10px] leading-relaxed text-[#C9342B]">審核意見：${escapeHtml(designServiceOrder.Review_Note)}</p>` : ""}` : `<p class="mt-1 text-[10px] leading-relaxed text-[#5F6975]">送出申請後，由具備資格的形印組員直接接案製作。</p>`}
+                                    </div>
+                                </div>
+                                ${canRequestDesignService ? `<button type="button" onclick="openDesignServiceRequestModal('${escapeHtml(assignment.Assignment_ID)}')" class="shrink-0 rounded-xl bg-[#0066CC] px-3.5 py-2 text-[11px] font-bold text-white hover:opacity-90">申請形印代做</button>` : ""}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${isExhibitionAdmin ? buildAssignmentReviewTimelineMarkup(assignment, {
+                        isExhibitionAdmin: true,
+                        effectiveTeamID: effectiveTeamID
+                    }) : ''}
+
                     ${canSubmit ? `
                         <form id="assignment-submit-form" onsubmit="handleSubmitAssignment(event)" class="space-y-4 rounded-3xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
                             <div class="flex items-center gap-2 text-[#0066CC]">
@@ -6429,6 +7068,16 @@
                                     <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">選擇作業附件</label>
                                     <input type="file" id="assignment-submit-file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" onchange="handleAssignmentFileInputChange()" class="block w-full text-xs text-[#1D1D1F] file:mr-3 file:rounded-xl file:border-0 file:bg-white file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-[#1D1D1F] hover:file:bg-[#F5F5F7]">
                                     <p id="assignment-submit-file-summary" class="mt-2 text-[10px] text-[#86868B] leading-relaxed">尚未選擇檔案。</p>
+                                </div>
+                                <div id="assignment-upload-transfer-status" class="hidden rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] px-3.5 py-3" aria-live="polite">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <p id="assignment-upload-transfer-title" class="text-[11px] font-bold text-[#1D1D1F]">正在準備附件</p>
+                                        <span id="assignment-upload-transfer-value" class="text-[10px] font-bold text-[#0066CC]">0%</span>
+                                    </div>
+                                    <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE8F8]">
+                                        <div id="assignment-upload-transfer-bar" class="h-full w-0 rounded-full bg-[#0066CC] transition-all duration-300"></div>
+                                    </div>
+                                    <p id="assignment-upload-transfer-detail" class="mt-2 text-[10px] leading-relaxed text-[#5F6975]">系統正在確認檔案。</p>
                                 </div>
                                 <div id="assignment-large-upload-panel" class="hidden rounded-2xl border border-[#CFE3FF] bg-white p-4 space-y-3">
                                     <div class="flex items-start gap-2.5">
@@ -6579,7 +7228,8 @@
                     const uploadResult = await uploadBrowserFileToGas("uploadAssignmentAsset", selectedFile, {
                         userId: currentUser ? currentUser.User_ID : "",
                         assignmentId: assignment.Assignment_ID,
-                        teamId: effectiveTeamID
+                        teamId: effectiveTeamID,
+                        uploadUiScope: "assignment"
                     });
 
                     fileName = String(uploadResult.fileName || fileName || "").trim();
@@ -6809,6 +7459,382 @@
 
         function canManageAssignmentBoard(effectiveRole) {
             return effectiveRole === "SuperAdmin" || effectiveRole === "Admin";
+        }
+
+        function getDesignServiceSettings() {
+            const settings = ensureArray(state.Design_Service_Settings)[0] || {
+                Settings_ID: "SERVICE_DEFAULT",
+                Enabled: false,
+                Eligible_User_IDs: []
+            };
+            return hydrateDesignServiceSettingsRecord(settings);
+        }
+
+        function isDesignServiceEnabled() {
+            return getDesignServiceSettings().Enabled === true;
+        }
+
+        function getDesignServiceOrders() {
+            return ensureArray(state.Design_Service_Orders).map(function(order) {
+                return hydrateDesignServiceOrderRecord(order);
+            });
+        }
+
+        function getDesignServiceOrderForAssignment(assignmentId, teamId) {
+            return getDesignServiceOrders().find(function(order) {
+                return String(order.Assignment_ID || "") === String(assignmentId || "")
+                    && String(order.Team_ID || "") === String(teamId || "");
+            }) || null;
+        }
+
+        function getDesignServiceOrderById(orderId) {
+            return getDesignServiceOrders().find(function(order) {
+                return String(order.Service_Order_ID || "") === String(orderId || "");
+            }) || null;
+        }
+
+        function getDesignServiceStatusLabel(status) {
+            const labels = {
+                "待接案": "待接案",
+                "製作中": "製作中",
+                "待審核": "待審核",
+                "退回修正": "退回修正",
+                "已完成": "已完成"
+            };
+            return labels[String(status || "")] || String(status || "處理中");
+        }
+
+        function getDesignServiceStatusClass(status) {
+            const tones = {
+                "待接案": "bg-[#FFF5E8] text-[#B86A00]",
+                "製作中": "bg-[#EAF3FF] text-[#0066CC]",
+                "待審核": "bg-[#F0ECFF] text-[#5E5CE6]",
+                "退回修正": "bg-[#FFF0EE] text-[#C9342B]",
+                "已完成": "bg-[#E8F7ED] text-[#14833B]"
+            };
+            return tones[String(status || "")] || "bg-[#F2F2F7] text-[#86868B]";
+        }
+
+        function getDesignServiceEligibleUsers() {
+            const eligibleIds = getDesignServiceSettings().Eligible_User_IDs;
+            return ensureArray(state.Users).filter(function(user) {
+                return user.Role === "Admin" && user.Status === "Active" && eligibleIds.includes(String(user.User_ID || ""));
+            });
+        }
+
+        function canManageDesignServiceSettings() {
+            return getEffectiveRoleContext().effectiveRole === "SuperAdmin";
+        }
+
+        function canUseDesignServiceWorkbench() {
+            const role = getEffectiveRoleContext().effectiveRole;
+            return role === "SuperAdmin" || role === "Admin";
+        }
+
+        async function submitDesignServiceAction(action, payload, successMessage) {
+            if (!isRemoteSyncEnabled()) {
+                throw new Error("形印代做需要連線 GAS 雲端後才能操作。");
+            }
+            const response = await requestGas(action, payload || {});
+            applyBackendStateResponse(response, {
+                preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                allowFallback: false
+            });
+            if (successMessage) showToast(successMessage, "success");
+            return response;
+        }
+
+        function openDesignServiceRequestModal(assignmentId) {
+            const roleContext = getEffectiveRoleContext();
+            if (roleContext.effectiveRole === "SuperAdmin" || roleContext.effectiveRole === "Admin") {
+                showToast("請切換到小組視角後再申請形印代做。", "warning");
+                return;
+            }
+            if (!isDesignServiceEnabled()) {
+                showToast("目前尚未開放形印代做申請。", "info");
+                return;
+            }
+            const assignment = state.Assignments.find(function(item) {
+                return String(item.Assignment_ID || "") === String(assignmentId || "");
+            });
+            if (!assignment) {
+                showToast("找不到要申請的繳交項目。", "warning");
+                return;
+            }
+            const existingOrder = getDesignServiceOrderForAssignment(assignment.Assignment_ID, roleContext.effectiveTeamID);
+            if (existingOrder) {
+                showToast("這份作業已有形印代做案件：" + getDesignServiceStatusLabel(existingOrder.Status), "info");
+                return;
+            }
+
+            activeDesignServiceRequestAssignmentId = String(assignment.Assignment_ID || "");
+            const stage = state.Config_Stages.find(function(item) { return item.Stage_ID === assignment.Stage_ID; });
+            const modal = document.getElementById("design-service-request-modal");
+            const body = document.getElementById("design-service-request-modal-body");
+            if (!modal || !body) return;
+            body.innerHTML = `
+                <div class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[11px] font-semibold text-[#86868B]">申請項目</span>
+                        <span class="rounded-full bg-[#EAF3FF] px-2.5 py-1 text-[10px] font-bold text-[#0066CC]">形印代做</span>
+                    </div>
+                    <h4 class="text-sm font-bold text-[#1D1D1F]">${escapeHtml(assignment.Title)}</h4>
+                    <div class="grid grid-cols-2 gap-3 text-[11px]">
+                        <div><p class="text-[#86868B]">會期</p><p class="mt-1 font-semibold text-[#1D1D1F]">${escapeHtml(stage ? stage.Stage_Name : "未定")}</p></div>
+                        <div><p class="text-[#86868B]">截止時間</p><p class="mt-1 font-semibold text-[#1D1D1F]">${escapeHtml(getAssignmentDueAtLabel(assignment))}</p></div>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-[#E8E8ED] bg-white p-4">
+                    <p class="text-xs font-bold text-[#1D1D1F]">申請後會發生什麼？</p>
+                    <p class="mt-2 text-[11px] leading-relaxed text-[#86868B]">申請會通知目前具備接案資格的形印組員。有人接案後，案件會顯示負責人；完成成果上傳後，再由形印組長進行審核。</p>
+                </div>
+                <div class="flex justify-end gap-2 pt-1">
+                    <button type="button" onclick="closeDesignServiceRequestModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button>
+                    <button type="button" onclick="submitDesignServiceRequest()" class="rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90">確認申請</button>
+                </div>
+            `;
+            modal.classList.remove("hidden");
+            renderLucideIcons();
+        }
+
+        function closeDesignServiceRequestModal() {
+            const modal = document.getElementById("design-service-request-modal");
+            if (modal) modal.classList.add("hidden");
+            activeDesignServiceRequestAssignmentId = "";
+        }
+
+        async function submitDesignServiceRequest() {
+            if (!activeDesignServiceRequestAssignmentId) return;
+            const button = document.querySelector("#design-service-request-modal button[onclick=\"submitDesignServiceRequest()\"]");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "送出中";
+            }
+            try {
+                await submitDesignServiceAction("requestDesignService", {
+                    assignmentId: activeDesignServiceRequestAssignmentId
+                }, "已送出形印代做申請，等待形印組員接案。");
+                closeDesignServiceRequestModal();
+                renderAssignmentDetailModal();
+            } catch (error) {
+                showToast(error && error.message ? error.message : "形印代做申請失敗。", "warning");
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "確認申請";
+                }
+            }
+        }
+
+        function openDesignServiceSettingsModal() {
+            if (!canManageDesignServiceSettings()) {
+                showToast("只有形印組組長可以調整形印代做設定。", "warning");
+                return;
+            }
+            const modal = document.getElementById("design-service-settings-modal");
+            const body = document.getElementById("design-service-settings-modal-body");
+            if (!modal || !body) return;
+            const settings = getDesignServiceSettings();
+            const members = ensureArray(state.Users).filter(function(user) {
+                return user.Role === "Admin" && user.Status === "Active";
+            });
+            body.innerHTML = `
+                <label class="flex items-center justify-between gap-4 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-3 cursor-pointer">
+                    <span><span class="block text-xs font-bold text-[#1D1D1F]">開放形印代做申請</span><span class="mt-1 block text-[10px] text-[#86868B]">關閉後，其他小組不會再看到新的申請入口。</span></span>
+                    <input id="design-service-enabled-toggle" type="checkbox" ${settings.Enabled ? "checked" : ""} class="h-5 w-5 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]">
+                </label>
+                <div class="space-y-2">
+                    <div><p class="text-xs font-bold text-[#1D1D1F]">可接案的形印組員</p><p class="mt-1 text-[10px] text-[#86868B]">只有勾選的形印組員會收到待接案通知並可以鎖定案件。</p></div>
+                    <div class="space-y-2">
+                        ${members.length === 0 ? '<p class="rounded-2xl bg-[#F5F5F7] p-4 text-xs text-[#86868B]">目前沒有可設定的形印組員。</p>' : members.map(function(user) {
+                            const checked = settings.Eligible_User_IDs.includes(String(user.User_ID || ""));
+                            return `<label class="flex items-center justify-between gap-3 rounded-2xl border border-[#E8E8ED] px-4 py-3 cursor-pointer hover:bg-[#FBFBFD]"><span><span class="block text-xs font-semibold text-[#1D1D1F]">${escapeHtml(user.Name)}</span><span class="mt-1 block text-[10px] text-[#86868B]">${escapeHtml(user.Email || "形印組員")}</span></span><input type="checkbox" data-design-service-user-id="${escapeHtml(user.User_ID)}" ${checked ? "checked" : ""} class="h-5 w-5 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]"></label>`;
+                        }).join("")}
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-1"><button type="button" onclick="closeDesignServiceSettingsModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><button type="button" onclick="saveDesignServiceSettings()" class="rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90">儲存設定</button></div>
+            `;
+            modal.classList.remove("hidden");
+            renderLucideIcons();
+        }
+
+        function closeDesignServiceSettingsModal() {
+            const modal = document.getElementById("design-service-settings-modal");
+            if (modal) modal.classList.add("hidden");
+        }
+
+        async function saveDesignServiceSettings() {
+            const enabledInput = document.getElementById("design-service-enabled-toggle");
+            const eligibleUserIds = Array.from(document.querySelectorAll("[data-design-service-user-id]:checked")).map(function(input) {
+                return String(input.getAttribute("data-design-service-user-id") || "");
+            });
+            try {
+                await submitDesignServiceAction("configureDesignService", {
+                    enabled: Boolean(enabledInput && enabledInput.checked),
+                    eligibleUserIds: eligibleUserIds
+                }, "形印代做接案設定已更新。");
+                closeDesignServiceSettingsModal();
+            } catch (error) {
+                showToast(error && error.message ? error.message : "形印代做設定儲存失敗。", "warning");
+            }
+        }
+
+        function openDesignServiceReviewModal(orderId) {
+            if (!canManageDesignServiceSettings()) {
+                showToast("只有形印組組長可以審核形印代做成果。", "warning");
+                return;
+            }
+            const order = getDesignServiceOrderById(orderId);
+            const modal = document.getElementById("design-service-review-modal");
+            const title = document.getElementById("design-service-review-title");
+            const note = document.getElementById("design-service-review-note");
+            if (!order || !modal) return;
+            activeDesignServiceReviewOrderId = String(order.Service_Order_ID || "");
+            if (title) title.textContent = "審核「" + (order.File_Name || order.Service_Order_ID) + "」";
+            if (note) note.value = order.Review_Note || "";
+            modal.classList.remove("hidden");
+            renderLucideIcons();
+        }
+
+        function closeDesignServiceReviewModal() {
+            const modal = document.getElementById("design-service-review-modal");
+            if (modal) modal.classList.add("hidden");
+            activeDesignServiceReviewOrderId = "";
+        }
+
+        async function submitDesignServiceReview(decision) {
+            if (!activeDesignServiceReviewOrderId) return;
+            const note = document.getElementById("design-service-review-note");
+            if (decision === "退件" && !String(note && note.value || "").trim()) {
+                showToast("退回修正前請先填寫審核意見。", "warning");
+                return;
+            }
+            try {
+                await submitDesignServiceAction("reviewDesignServiceOrder", {
+                    serviceOrderId: activeDesignServiceReviewOrderId,
+                    status: decision,
+                    reviewNote: String(note && note.value || "").trim()
+                }, decision === "通過" ? "形印代做成果已通過審核。" : "已退回形印代做成果，並通知負責人修正。");
+                closeDesignServiceReviewModal();
+            } catch (error) {
+                showToast(error && error.message ? error.message : "形印代做審核失敗。", "warning");
+            }
+        }
+
+        function refreshDesignServiceUploadRoute() {
+            const input = document.getElementById("design-service-upload-file");
+            const summary = document.getElementById("design-service-upload-summary");
+            const route = document.getElementById("design-service-upload-route");
+            const file = input && input.files ? input.files[0] : null;
+            if (summary) summary.textContent = file ? file.name + " · " + formatFileSize(file.size) : "尚未選擇成果檔案。";
+            if (route) route.textContent = file
+                ? (needsStableLargeUpload(file) ? "此檔案將使用 18–50 MB 穩定上傳頁。" : "此檔案符合 18 MB 直傳條件。")
+                : "18 MB 內直傳；較大成果會改走穩定上傳頁。";
+        }
+
+        function openDesignServiceUploadModal(orderId) {
+            const order = getDesignServiceOrderById(orderId);
+            const roleContext = getEffectiveRoleContext();
+            if (!order || (roleContext.effectiveRole !== "SuperAdmin" && String(order.Responsible_User_ID || "") !== String(currentUser && currentUser.User_ID || ""))) {
+                showToast("只有案件負責人可以上傳形印代做成果。", "warning");
+                return;
+            }
+            if (["製作中", "退回修正"].indexOf(order.Status) === -1) {
+                showToast("目前案件狀態不開放上傳成果。", "warning");
+                return;
+            }
+            activeDesignServiceUploadOrderId = String(order.Service_Order_ID || "");
+            const modal = document.getElementById("design-service-upload-modal");
+            const title = document.getElementById("design-service-upload-title");
+            const input = document.getElementById("design-service-upload-file");
+            if (!modal) return;
+            if (title) title.textContent = "上傳「" + (order.Service_Order_ID || "形印代做") + "」成果";
+            if (input) input.value = "";
+            refreshDesignServiceUploadRoute();
+            setInlineUploadProgress("design-service", { visible: false, progress: 0 });
+            modal.classList.remove("hidden");
+            renderLucideIcons();
+        }
+
+        function closeDesignServiceUploadModal() {
+            const modal = document.getElementById("design-service-upload-modal");
+            if (modal) modal.classList.add("hidden");
+            activeDesignServiceUploadOrderId = "";
+        }
+
+        function startStableDesignServiceUploadFlow() {
+            const order = getDesignServiceOrderById(activeDesignServiceUploadOrderId);
+            const input = document.getElementById("design-service-upload-file");
+            const file = input && input.files ? input.files[0] : null;
+            if (!order || !file) {
+                showToast("請先選擇成果檔案。", "warning");
+                return;
+            }
+            if (!needsStableLargeUpload(file)) {
+                showToast("這份檔案尚未超過 18 MB。", "info");
+                return;
+            }
+            if (exceedsStableLargeUploadLimit(file)) {
+                showToast("成果檔案已超過穩定上傳頁 50 MB 上限。", "warning");
+                return;
+            }
+            try {
+                openLargeUploadWindow({
+                    mode: "design-service",
+                    userId: currentUser ? currentUser.User_ID : "",
+                    teamId: order.Team_ID,
+                    stageId: order.Stage_ID,
+                    assignmentId: order.Assignment_ID,
+                    serviceOrderId: order.Service_Order_ID,
+                    sourceFileName: file.name
+                }, {
+                    serviceOrderId: order.Service_Order_ID
+                });
+                showToast("已開啟成果穩定上傳頁，請在新視窗重新選一次同檔。", "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "無法開啟成果穩定上傳頁。", "warning");
+            }
+        }
+
+        async function handleDesignServiceUploadSubmit(event) {
+            if (event) event.preventDefault();
+            const order = getDesignServiceOrderById(activeDesignServiceUploadOrderId);
+            const input = document.getElementById("design-service-upload-file");
+            const file = input && input.files ? input.files[0] : null;
+            if (!order || !file) {
+                showToast("請先選擇成果檔案。", "warning");
+                return;
+            }
+            if (exceedsStableLargeUploadLimit(file)) {
+                showToast("成果檔案已超過穩定上傳頁 50 MB 上限。", "warning");
+                return;
+            }
+            if (needsStableLargeUpload(file)) {
+                startStableDesignServiceUploadFlow();
+                return;
+            }
+            const button = document.getElementById("design-service-upload-submit");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "上傳中";
+            }
+            try {
+                const result = await uploadBrowserFileToGas("uploadDesignServiceDeliverable", file, {
+                    serviceOrderId: order.Service_Order_ID,
+                    uploadUiScope: "design-service"
+                });
+                applyBackendStateResponse({ data: result }, {
+                    preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                    allowFallback: false
+                });
+                closeDesignServiceUploadModal();
+                showToast("形印代做成果已上傳，現在等待組長審核。", "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "形印代做成果上傳失敗。", "warning");
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "上傳成果";
+                }
+            }
         }
 
         function getConnectionStatusMeta() {
@@ -7412,22 +8438,36 @@
         }
 
         async function handleLogout() {
+            if (logoutInFlight) return;
+            logoutInFlight = true;
             setLoginSubmitting(false);
             closeTopbarMenu();
-            if (isRemoteSyncEnabled() && authSessionToken) {
-                try {
-                    await requestGas("logout", {});
-                } catch (error) {
-                    console.warn("雲端登出狀態回收失敗", error);
+            const sessionTokenToRevoke = authSessionToken;
+            try {
+                if (isRemoteSyncEnabled() && sessionTokenToRevoke) {
+                    try {
+                        // Do not let a stale deployment or a blocked network request
+                        // keep the user trapped on the authenticated screen.
+                        await Promise.race([
+                            requestGas("logout", { sessionToken: sessionTokenToRevoke }),
+                            waitForMs(1600).then(function() {
+                                throw new Error("LOGOUT_TIMEOUT: GAS 登出請求逾時");
+                            })
+                        ]);
+                    } catch (error) {
+                        console.warn("雲端登出狀態回收失敗", error);
+                    }
                 }
+            } finally {
+                currentUser = null;
+                activeWorkspace = "admin";
+                clearStoredSession();
+                clearPasswordResetState();
+                authScreenMode = "login";
+                logoutInFlight = false;
+                showToast("您已登出系統", "info");
+                renderAll();
             }
-            currentUser = null;
-            activeWorkspace = "admin";
-            clearStoredSession();
-            clearPasswordResetState();
-            authScreenMode = "login";
-            showToast("您已登出系統", "info");
-            renderAll();
         }
 
         async function handleLogin(e) {
@@ -8139,6 +9179,7 @@
             }
 
             pendingStageDeleteContext = context;
+            setStageDeleteModalPending(false);
 
             const modal = document.getElementById("stage-delete-modal");
             const titleEl = document.getElementById("stage-delete-modal-title");
@@ -8181,6 +9222,7 @@
         }
 
         function closeStageDeleteModal() {
+            if (stageDeleteInFlight) return;
             pendingStageDeleteContext = null;
             const modal = document.getElementById("stage-delete-modal");
             if (modal) {
@@ -8191,14 +9233,102 @@
             }
         }
 
-        function confirmStageDelete() {
+        function setStageDeleteModalPending(isPending) {
+            const button = document.getElementById("stage-delete-modal-confirm");
+            if (!button) return;
+            button.disabled = Boolean(isPending);
+            button.textContent = isPending ? "刪除中…" : "刪除";
+        }
+
+        async function confirmStageDelete() {
             const context = pendingStageDeleteContext;
-            if (!context) return;
+            if (!context || stageDeleteInFlight) return;
 
             const stageId = context.stageId;
             const stageName = context.stage.Stage_Name;
             const assignmentIds = context.assignmentIds;
             const notificationIds = context.notificationIds;
+
+            // A destructive admin action must never silently fall back to localStorage.
+            // Otherwise the UI can disappear while the spreadsheet remains unchanged.
+            if (isRemoteSyncEnabled() && (!authSessionToken || gasConnectionStatus !== "remote")) {
+                showToast(
+                    !authSessionToken
+                        ? "目前尚未完成 GAS 登入，為避免只刪除本機資料，請重新登入後再刪除。"
+                        : "目前尚未連線至 GAS，為避免只刪除本機資料，請重新同步後再刪除。",
+                    "warning"
+                );
+                return;
+            }
+
+            if (isRemoteSyncEnabled() && authSessionToken && gasConnectionStatus === "remote") {
+                stageDeleteInFlight = true;
+                setStageDeleteModalPending(true);
+                const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
+
+                try {
+                    const response = await requestGas("deleteStage", {
+                        stageId: stageId,
+                        stateRevision: remoteStateRevision
+                    });
+                    if (!applyBackendStateResponse(response, {
+                        preferredUserId: preferredUserId,
+                        allowFallback: false
+                    })) {
+                        throw new Error("GAS 刪除完成後沒有回傳最新資料。");
+                    }
+                    gasConnectionStatus = "remote";
+                    pendingStageDeleteContext = null;
+                    const modal = document.getElementById("stage-delete-modal");
+                    if (modal) {
+                        animateSurfaceClose(modal, modal.firstElementChild, {
+                            hideDelay: 180,
+                            toBlur: 10
+                        });
+                    }
+                    const driveTrashSummary = response && response.data && response.data.driveTrashSummary
+                        ? response.data.driveTrashSummary
+                        : null;
+                    const trashedDriveCount = driveTrashSummary ? Number(driveTrashSummary.trashed || 0) : 0;
+                    const failedDriveCount = driveTrashSummary ? Number(driveTrashSummary.failed || 0) : 0;
+                    if (failedDriveCount > 0) {
+                        showToast("會審已刪除，但有 " + failedDriveCount + " 個 Google Drive 檔案未能移到垃圾桶。", "warning");
+                    } else if (trashedDriveCount > 0) {
+                        showToast("已刪除會審【" + stageName + "】與相關資料，原始檔案已移到垃圾桶", "success");
+                    } else {
+                        showToast("已從雲端刪除會審【" + stageName + "】與相關資料", "success");
+                    }
+                } catch (error) {
+                    const message = String(error && error.message || "");
+                    if (/STATE_CONFLICT/.test(message)) {
+                        try {
+                            const latest = await requestGas("bootstrap", null, "GET");
+                            applyBackendStateResponse(latest, {
+                                preferredUserId: preferredUserId,
+                                allowFallback: false
+                            });
+                            gasConnectionStatus = "remote";
+                            showToast("雲端資料剛更新，已重新載入最新版本；請再確認一次刪除。", "warning");
+                        } catch (reloadError) {
+                            gasConnectionStatus = "fallback";
+                            showToast("刪除衝突後無法重新載入雲端資料。", "error");
+                        }
+                    } else {
+                        showToast("雲端刪除失敗：" + message, "error");
+                    }
+                    console.error("GAS 會審刪除失敗", error);
+                } finally {
+                    stageDeleteInFlight = false;
+                    setStageDeleteModalPending(false);
+                    renderConnectionStatusBadge();
+                }
+                return;
+            }
+
+            if (isRemoteSyncEnabled()) {
+                showToast("GAS 雲端模式尚未準備完成，這次沒有刪除任何資料。", "warning");
+                return;
+            }
 
             const modal = document.getElementById("stage-delete-modal");
             if (modal) {
@@ -8528,6 +9658,12 @@
         }
 
         function switchTab(tabId) {
+            const roleContext = getEffectiveRoleContext();
+            const targetMenu = NAVIGATION_MENU_CONFIGS.find(function(menu) { return menu.id === tabId; });
+            if (targetMenu && !targetMenu.roles.includes(roleContext.effectiveRole)) {
+                showToast("目前帳號沒有查看此功能的權限。", "warning");
+                return;
+            }
             if (tabId !== activeTab) {
                 pendingTabEntranceTab = tabId;
             }
@@ -8815,6 +9951,23 @@
                 };
             });
 
+            const hasHourlyBreakdown = Object.keys(hourlyBuckets).length > 0;
+            function getHourlyBucket(dateKey, hour) {
+                const hourKey = dateKey + " " + getHeatmapHourKey(hour);
+                if (hourlyBuckets[hourKey]) {
+                    return hourlyBuckets[hourKey];
+                }
+
+                // Older GAS responses only contain day-level totals.  Keep
+                // those records visible in the noon bucket until the backend
+                // is redeployed with hourly detail.
+                if (!hasHourlyBreakdown && hour === 12) {
+                    return timelineMap[dateKey] || createBucket();
+                }
+
+                return createBucket();
+            }
+
             if (viewMode === "daily") {
                 const mondayOffset = (todayDate.getUTCDay() + 6) % 7;
                 const weekStartDate = new Date(todayDate.getTime());
@@ -8843,7 +9996,7 @@
 
                     for (let hour = 0; hour < 24; hour += 1) {
                         const hourKey = dateKey + " " + getHeatmapHourKey(hour);
-                        const bucket = hourlyBuckets[hourKey] || createBucket();
+                        const bucket = getHourlyBucket(dateKey, hour);
                         cells.push({
                             key: hourKey,
                             files: bucket.files,
@@ -8873,88 +10026,138 @@
             if (viewMode === "weekly") {
                 const lastDateOfMonth = new Date(Date.UTC(currentYear, currentMonthIndex + 1, 0));
                 const lastDay = lastDateOfMonth.getUTCDate();
-                const series = [];
+                const timeBlocksPerWeek = 6;
+                const weeklyBuckets = Array.from({ length: 7 * 24 }, function() {
+                    return createBucket();
+                });
+                const xLabels = [];
+                const yLabels = weekdayAxisLabels.map(function(label) {
+                    return { label: label, sublabel: "" };
+                });
 
-                for (let startDay = 1, weekIndex = 1; startDay <= lastDay; startDay += 7, weekIndex += 1) {
-                    const endDay = Math.min(lastDay, startDay + 6);
-                    const bucket = createBucket();
+                for (let columnIndex = 0; columnIndex < 24; columnIndex += 1) {
+                    const weekIndex = Math.floor(columnIndex / timeBlocksPerWeek);
+                    const timeBlockIndex = columnIndex % timeBlocksPerWeek;
+                    xLabels.push({
+                        label: timeBlockIndex === 2 ? "第" + (weekIndex + 1) + "週" : "",
+                        sublabel: timeBlockIndex === 2 ? "4 小時" : ""
+                    });
+                }
 
-                    for (let dayOfMonth = startDay; dayOfMonth <= endDay; dayOfMonth += 1) {
-                        const dateKey = formatHeatmapDateKey(new Date(Date.UTC(currentYear, currentMonthIndex, dayOfMonth)));
-                        mergeBucket(bucket, timelineMap[dateKey] || createBucket());
+                for (let dayOfMonth = 1; dayOfMonth <= lastDay; dayOfMonth += 1) {
+                    const cellDate = new Date(Date.UTC(currentYear, currentMonthIndex, dayOfMonth));
+                    const dateKey = formatHeatmapDateKey(cellDate);
+                    const weekdayIndex = (cellDate.getUTCDay() + 6) % 7;
+                    const weekIndex = Math.min(3, Math.floor((dayOfMonth - 1) / 7));
+
+                    for (let hour = 0; hour < 24; hour += 1) {
+                        const timeBlockIndex = Math.floor(hour / 4);
+                        const columnIndex = (weekIndex * timeBlocksPerWeek) + timeBlockIndex;
+                        mergeBucket(weeklyBuckets[(weekdayIndex * 24) + columnIndex], getHourlyBucket(dateKey, hour));
                     }
+                }
 
-                    const rangeLabel = (currentMonthIndex + 1) + "/" + startDay + "-" + (currentMonthIndex + 1) + "/" + endDay;
-                    series.push({
-                        key: currentYear + "-" + String(currentMonthIndex + 1).padStart(2, "0") + "-W" + weekIndex,
-                        label: "第" + weekIndex + "週",
-                        sublabel: rangeLabel,
+                const cells = [];
+                for (let weekdayIndex = 0; weekdayIndex < 7; weekdayIndex += 1) {
+                    for (let columnIndex = 0; columnIndex < 24; columnIndex += 1) {
+                        const weekIndex = Math.floor(columnIndex / timeBlocksPerWeek);
+                        const timeBlockIndex = columnIndex % timeBlocksPerWeek;
+                        const startHour = timeBlockIndex * 4;
+                        const endHour = startHour + 3;
+                        const bucket = weeklyBuckets[(weekdayIndex * 24) + columnIndex];
+                        cells.push({
+                            key: currentYear + "-" + String(currentMonthIndex + 1).padStart(2, "0") + "-W" + (weekIndex + 1) + "-D" + weekdayIndex + "-B" + timeBlockIndex,
+                            files: bucket.files,
+                            purchases: bucket.purchases,
+                            assignments: bucket.assignments,
+                            value: bucket.total,
+                            title: buildBucketTitle(
+                                currentYear + "年" + (currentMonthIndex + 1) + "月第" + (weekIndex + 1) + "週 " + getHeatmapHourKey(startHour) + ":00-" + getHeatmapHourKey(endHour) + ":59（" + weekdayAxisLabels[weekdayIndex] + "）",
+                                bucket
+                            )
+                        });
+                    }
+                }
+
+                return {
+                    note: currentYear + " 年 " + (currentMonthIndex + 1) + " 月 4 週 × 4 小時時段活動熱圖",
+                    compact: true,
+                    columns: 24,
+                    rows: 7,
+                    minWidthPx: 0,
+                    xLabels: xLabels,
+                    yLabels: yLabels,
+                    cells: cells
+                };
+            }
+
+            const monthlyBuckets = Array.from({ length: 7 * 24 }, function() {
+                return createBucket();
+            });
+            const xLabels = [];
+            const yLabels = weekdayAxisLabels.map(function(label) {
+                return { label: label, sublabel: "" };
+            });
+
+            for (let columnIndex = 0; columnIndex < 24; columnIndex += 1) {
+                const monthIndex = Math.floor(columnIndex / 2);
+                const halfIndex = columnIndex % 2;
+                xLabels.push({
+                    label: halfIndex === 0 && monthIndex % 3 === 0 ? (monthIndex + 1) + "月" : "",
+                    sublabel: ""
+                });
+            }
+
+            for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+                const lastDateOfMonth = new Date(Date.UTC(currentYear, monthIndex + 1, 0));
+                const lastDay = lastDateOfMonth.getUTCDate();
+
+                for (let dayOfMonth = 1; dayOfMonth <= lastDay; dayOfMonth += 1) {
+                    const cellDate = new Date(Date.UTC(currentYear, monthIndex, dayOfMonth));
+                    const dateKey = formatHeatmapDateKey(cellDate);
+                    const weekdayIndex = (cellDate.getUTCDay() + 6) % 7;
+                    const halfIndex = dayOfMonth <= 15 ? 0 : 1;
+                    const columnIndex = (monthIndex * 2) + halfIndex;
+
+                    for (let hour = 0; hour < 24; hour += 1) {
+                        mergeBucket(monthlyBuckets[(weekdayIndex * 24) + columnIndex], getHourlyBucket(dateKey, hour));
+                    }
+                }
+            }
+
+            const cells = [];
+            for (let weekdayIndex = 0; weekdayIndex < 7; weekdayIndex += 1) {
+                for (let columnIndex = 0; columnIndex < 24; columnIndex += 1) {
+                    const monthIndex = Math.floor(columnIndex / 2);
+                    const halfIndex = columnIndex % 2;
+                    const bucket = monthlyBuckets[(weekdayIndex * 24) + columnIndex];
+                    cells.push({
+                        key: currentYear + "-M" + (monthIndex + 1) + "-H" + halfIndex + "-D" + weekdayIndex,
                         files: bucket.files,
                         purchases: bucket.purchases,
                         assignments: bucket.assignments,
                         value: bucket.total,
-                        title: buildBucketTitle(currentYear + "年" + (currentMonthIndex + 1) + "月第" + weekIndex + "週（" + rangeLabel + "）", bucket)
+                        title: buildBucketTitle(
+                            currentYear + "年" + (monthIndex + 1) + "月" + (halfIndex === 0 ? "上半月" : "下半月") + "（" + weekdayAxisLabels[weekdayIndex] + "）",
+                            bucket
+                        )
                     });
                 }
-
-                return {
-                    note: currentYear + " 年 " + (currentMonthIndex + 1) + " 月每週活動數據",
-                    compact: false,
-                    columns: Math.max(1, series.length),
-                    rows: 1,
-                    minWidthPx: 0,
-                    xLabels: series.map(function(item) {
-                        return {
-                            label: item.label,
-                            sublabel: item.sublabel
-                        };
-                    }),
-                    yLabels: [],
-                    cells: series
-                };
-            }
-
-            const monthlySeries = [];
-            for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
-                const lastDateOfMonth = new Date(Date.UTC(currentYear, monthIndex + 1, 0));
-                const lastDay = lastDateOfMonth.getUTCDate();
-                const bucket = createBucket();
-
-                for (let dayOfMonth = 1; dayOfMonth <= lastDay; dayOfMonth += 1) {
-                    const dateKey = formatHeatmapDateKey(new Date(Date.UTC(currentYear, monthIndex, dayOfMonth)));
-                    mergeBucket(bucket, timelineMap[dateKey] || createBucket());
-                }
-
-                monthlySeries.push({
-                    key: currentYear + "-" + String(monthIndex + 1).padStart(2, "0"),
-                    label: (monthIndex + 1) + "月",
-                    sublabel: "",
-                    files: bucket.files,
-                    purchases: bucket.purchases,
-                    assignments: bucket.assignments,
-                    value: bucket.total,
-                    title: buildBucketTitle(currentYear + "年" + (monthIndex + 1) + "月", bucket)
-                });
             }
 
             return {
-                note: currentYear + " 年 12 個月份的活動數據",
-                compact: false,
-                columns: 12,
-                rows: 1,
+                note: currentYear + " 年 12 個月 × 上下半月活動熱圖",
+                compact: true,
+                columns: 24,
+                rows: 7,
                 minWidthPx: 0,
-                xLabels: monthlySeries.map(function(item) {
-                    return {
-                        label: item.label,
-                        sublabel: ""
-                    };
-                }),
-                yLabels: [],
-                cells: monthlySeries
+                xLabels: xLabels,
+                yLabels: yLabels,
+                cells: cells
             };
         }
 
-        function getHeatmapCellClass(level, compactMode) {
+        function getHeatmapCellClass(level, compactMode, squareMatrixMode) {
             const palette = {
                 0: "bg-[#E8E8ED]",
                 1: "bg-[#D1E4FF]",
@@ -8963,12 +10166,14 @@
                 4: "bg-[#0066CC]"
             };
             const shape = compactMode
-                ? "rounded-[5px] hover:scale-[1.08]"
+                ? "rounded-[10px] hover:scale-[1.08]"
+                : squareMatrixMode
+                    ? "rounded-[18px] hover:scale-[1.04]"
                 : "rounded-2xl hover:scale-[1.02]";
             return (palette[level] || palette[0]) + " " + shape + " cursor-pointer transition-all duration-150 hover:ring-1 hover:ring-[#0066CC] relative group";
         }
 
-        // 動態生成與渲染 Apple Minimalist Token 活動熱量圖
+        // 動態生成與渲染系統活動熱圖
         function renderHeatmap() {
             const grid = document.getElementById('heatmap-grid');
             const heatmapLayout = document.getElementById('heatmap-layout');
@@ -8990,6 +10195,17 @@
             const columnCount = Math.max(1, Number(viewModel && viewModel.columns ? viewModel.columns : 1));
             const rowCount = Math.max(1, Number(viewModel && viewModel.rows ? viewModel.rows : 1));
             const compactMode = Boolean(viewModel && viewModel.compact);
+            const squareMatrixMode = compactMode || Boolean(viewModel && viewModel.squareMatrix);
+            const labeledMatrixMode = squareMatrixMode && !compactMode;
+            const matrixMaxWidth = String(viewModel && viewModel.matrixMaxWidth ? viewModel.matrixMaxWidth : "");
+            // Keep the 24-hour matrix deliberately compact.  Each cell still
+            // represents one real hour, rather than inventing extra time slots
+            // just to fill the width of a large desktop card.
+            const compactMatrixMaxWidth = compactMode ? "780px" : "";
+            const resolvedMatrixMaxWidth = matrixMaxWidth || compactMatrixMaxWidth;
+            // Square views use transparent borders for visual spacing, keeping
+            // their actual grid tracks perfectly square.
+            const gapSize = squareMatrixMode ? 0 : 10;
 
             if (heatmapLayout) {
                 heatmapLayout.style.minWidth = "0px";
@@ -8998,26 +10214,55 @@
 
             if (heatmapBoard) {
                 heatmapBoard.style.gridTemplateColumns = compactMode ? "74px minmax(0, 1fr)" : "minmax(0, 1fr)";
+                heatmapBoard.style.width = resolvedMatrixMaxWidth ? "100%" : "";
+                heatmapBoard.style.maxWidth = resolvedMatrixMaxWidth;
+                heatmapBoard.style.margin = resolvedMatrixMaxWidth ? "0" : "";
             }
 
+            // Dense time matrices derive their height from the grid ratio, so
+            // their square tracks never depend on a transient 0px measurement.
+            const cellSize = 44;
+            const gridHeight = (rowCount * cellSize) + ((rowCount - 1) * gapSize);
+
             grid.style.gridTemplateColumns = "repeat(" + columnCount + ", minmax(0, 1fr))";
-            grid.style.gridTemplateRows = compactMode
-                ? "repeat(" + rowCount + ", minmax(14px, 1fr))"
-                : "repeat(" + rowCount + ", minmax(44px, 1fr))";
             grid.style.gridAutoColumns = "";
-            grid.style.gap = compactMode ? "3px" : "10px";
-            grid.style.height = compactMode ? String((rowCount * 14) + ((rowCount - 1) * 3)) + "px" : "44px";
-            grid.style.minHeight = grid.style.height;
+            grid.style.gridAutoFlow = "row";
+            grid.style.gap = gapSize + "px";
+
+            if (squareMatrixMode) {
+                grid.style.gridTemplateRows = "repeat(" + rowCount + ", minmax(0, 1fr))";
+                grid.style.gridAutoRows = "";
+                grid.style.width = "100%";
+                grid.style.maxWidth = labeledMatrixMode ? resolvedMatrixMaxWidth : "";
+                grid.style.margin = labeledMatrixMode ? "0 auto" : "";
+                grid.style.height = "auto";
+                grid.style.minHeight = "0";
+                grid.style.aspectRatio = columnCount + " / " + rowCount;
+            } else {
+                grid.style.gridTemplateRows = "repeat(" + rowCount + ", minmax(44px, 1fr))";
+                grid.style.gridAutoRows = "";
+                grid.style.maxWidth = "";
+                grid.style.margin = "";
+                grid.style.height = gridHeight + "px";
+                grid.style.minHeight = grid.style.height;
+                grid.style.aspectRatio = "";
+            }
 
             if (xAxis) {
+                xAxis.style.display = labeledMatrixMode ? "none" : "grid";
                 xAxis.style.gridTemplateColumns = "repeat(" + columnCount + ", minmax(0, 1fr))";
-                xAxis.style.gap = compactMode ? "3px" : "10px";
+                xAxis.style.gap = gapSize + "px";
             }
 
             if (yAxis) {
                 yAxis.style.display = compactMode ? "grid" : "none";
-                yAxis.style.gridTemplateRows = "repeat(" + rowCount + ", minmax(14px, 1fr))";
-                yAxis.style.gap = compactMode ? "3px" : "10px";
+                yAxis.style.gridTemplateRows = compactMode
+                    ? "repeat(" + rowCount + ", minmax(0, 1fr))"
+                    : "repeat(" + rowCount + ", minmax(44px, 1fr))";
+                yAxis.style.gap = gapSize + "px";
+                yAxis.style.alignSelf = compactMode ? "stretch" : "auto";
+                yAxis.style.paddingTop = compactMode ? "18px" : "";
+                yAxis.style.minHeight = "0";
             }
 
             if (note) {
@@ -9040,7 +10285,7 @@
             });
 
             ensureArray(viewModel && viewModel.xLabels).forEach(function(item) {
-                if (!xAxis) return;
+                if (!xAxis || labeledMatrixMode) return;
                 const axisLabel = document.createElement('div');
                 axisLabel.className = "min-w-0 text-center";
                 axisLabel.innerHTML = '<div class="' + (compactMode ? 'text-[10px]' : 'text-[10px]') + ' font-semibold tracking-[0.02em] text-[#86868B] leading-none">' + (item.label || "&nbsp;") + '</div>'
@@ -9055,10 +10300,27 @@
                 if (value > 0 && maxValue > 0) {
                     activityLevel = Math.max(1, Math.min(4, Math.ceil((value / maxValue) * 4)));
                 }
-                cell.className = getHeatmapCellClass(activityLevel, compactMode);
+                cell.className = getHeatmapCellClass(activityLevel, compactMode, squareMatrixMode);
                 cell.title = item.title;
                 cell.setAttribute("aria-label", item.title);
-                cell.style.minHeight = compactMode ? "14px" : "44px";
+                cell.style.minHeight = squareMatrixMode ? "0" : cellSize + "px";
+                cell.style.aspectRatio = "";
+                cell.style.boxSizing = squareMatrixMode ? "border-box" : "";
+                cell.style.border = squareMatrixMode
+                    ? (compactMode ? "clamp(2px, 0.24vw, 4px) solid transparent" : "3px solid transparent")
+                    : "";
+                cell.style.backgroundClip = squareMatrixMode ? "padding-box" : "";
+                cell.style.visibility = item.placeholder ? "hidden" : "";
+                cell.style.pointerEvents = item.placeholder ? "none" : "";
+
+                if (labeledMatrixMode) {
+                    const useLightText = activityLevel >= 3;
+                    cell.className += " flex flex-col items-center justify-center px-2 text-center";
+                    cell.innerHTML = '<span class="text-[10px] font-bold leading-none ' + (useLightText ? 'text-white' : 'text-[#1D1D1F]') + '">' + escapeHtml(item.label || "") + '</span>'
+                        + ((item.sublabel || "")
+                            ? '<span class="mt-1 text-[8px] font-medium leading-none ' + (useLightText ? 'text-white/80' : 'text-[#86868B]') + '">' + escapeHtml(item.sublabel) + '</span>'
+                            : '');
+                }
                 grid.appendChild(cell);
             });
 
@@ -9245,6 +10507,68 @@
             }
         }
 
+        function claimDesignServiceOrder(orderId) {
+            submitDesignServiceAction("claimDesignServiceOrder", {
+                serviceOrderId: orderId
+            }, "已接案，這筆案件現在由你負責製作。" ).catch(function(error) {
+                showToast(error && error.message ? error.message : "接案失敗，請重新整理後再試。", "warning");
+            });
+        }
+
+        function renderDesignServiceWorkbench(container, effectiveRole) {
+            const settings = getDesignServiceSettings();
+            const orders = getDesignServiceOrders().slice().sort(function(a, b) {
+                const statusRank = { "待審核": 0, "退回修正": 1, "製作中": 2, "待接案": 3, "已完成": 4 };
+                const rankDiff = (statusRank[a.Status] || 9) - (statusRank[b.Status] || 9);
+                if (rankDiff !== 0) return rankDiff;
+                return String(b.Updated_At || b.Requested_At || "").localeCompare(String(a.Updated_At || a.Requested_At || ""));
+            });
+            const pendingCount = orders.filter(function(order) { return order.Status === "待接案"; }).length;
+            const makingCount = orders.filter(function(order) { return order.Status === "製作中" || order.Status === "退回修正"; }).length;
+            const reviewCount = orders.filter(function(order) { return order.Status === "待審核"; }).length;
+            const eligible = getDesignServiceEligibleUsers();
+            const currentUserCanClaim = effectiveRole === "Admin" && eligible.some(function(user) {
+                return String(user.User_ID || "") === String(currentUser && currentUser.User_ID || "");
+            });
+
+            container.innerHTML = `
+                <div class="space-y-4" data-service-workbench>
+                    <section class="rounded-3xl border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
+                        <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                            <div><div class="flex items-center gap-2"><i data-lucide="briefcase" class="h-5 w-5 text-[#0066CC]"></i><h3 class="text-base font-bold text-[#1D1D1F]">形印代做</h3></div><p class="mt-1 text-xs leading-relaxed text-[#86868B]">不處理金額，只追蹤申請小組、案件負責人、成果檔案與組長審核。</p></div>
+                            ${effectiveRole === "SuperAdmin" ? `<button type="button" onclick="openDesignServiceSettingsModal()" class="inline-flex items-center gap-1.5 self-start rounded-xl border border-[#E8E8ED] px-3.5 py-2 text-xs font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]"><i data-lucide="settings-2" class="h-3.5 w-3.5"></i>接案設定</button>` : `<span class="inline-flex items-center gap-1.5 self-start rounded-full ${settings.Enabled ? "bg-[#E8F7ED] text-[#14833B]" : "bg-[#F2F2F7] text-[#86868B]"} px-3 py-1.5 text-[10px] font-bold"><span class="h-1.5 w-1.5 rounded-full ${settings.Enabled ? "bg-[#34C759]" : "bg-[#AEAEB2]"}"></span>${settings.Enabled ? "目前開放申請" : "目前未開放"}</span>`}
+                        </div>
+                        <div class="mt-5 grid grid-cols-3 gap-2 md:gap-3">
+                            <div class="rounded-2xl bg-[#F5F5F7] p-3 md:p-4"><p class="text-[10px] font-semibold text-[#86868B]">待接案</p><p class="mt-1 text-2xl font-extrabold text-[#1D1D1F]">${pendingCount}</p></div>
+                            <div class="rounded-2xl bg-[#F5F5F7] p-3 md:p-4"><p class="text-[10px] font-semibold text-[#86868B]">製作中</p><p class="mt-1 text-2xl font-extrabold text-[#1D1D1F]">${makingCount}</p></div>
+                            <div class="rounded-2xl bg-[#F5F5F7] p-3 md:p-4"><p class="text-[10px] font-semibold text-[#86868B]">待審核</p><p class="mt-1 text-2xl font-extrabold text-[#1D1D1F]">${reviewCount}</p></div>
+                        </div>
+                        ${effectiveRole === "Admin" && !currentUserCanClaim ? `<div class="mt-4 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-3 text-[11px] leading-relaxed text-[#86868B]">目前未被組長指定為可接案成員；你仍可查看已分派給自己的案件。</div>` : ''}
+                    </section>
+                    <section class="rounded-3xl border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
+                        <div class="flex items-center justify-between gap-3"><div><h4 class="text-sm font-bold text-[#1D1D1F]">案件清單</h4><p class="mt-1 text-[10px] text-[#86868B]">案件接案後會鎖定負責人，完成成果上傳後交由組長審核。</p></div><span class="text-[10px] font-semibold text-[#86868B]">共 ${orders.length} 件</span></div>
+                        <div class="mt-4 space-y-2">
+                            ${orders.length === 0 ? `<div class="rounded-2xl bg-[#F5F5F7] px-4 py-8 text-center text-xs text-[#86868B]">目前還沒有形印代做案件。</div>` : orders.map(function(order) {
+                                const assignment = state.Assignments.find(function(item) { return String(item.Assignment_ID || "") === String(order.Assignment_ID || ""); });
+                                const team = state.Teams.find(function(item) { return String(item.Team_ID || "") === String(order.Team_ID || ""); });
+                                const canClaim = effectiveRole === "Admin" && currentUserCanClaim && order.Status === "待接案";
+                                const isResponsible = effectiveRole === "Admin" && String(order.Responsible_User_ID || "") === String(currentUser && currentUser.User_ID || "");
+                                const canUpload = isResponsible && ["製作中", "退回修正"].includes(order.Status);
+                                const canReview = effectiveRole === "SuperAdmin" && order.Status === "待審核";
+                                const fileLink = order.Google_Drive_URL ? `<a href="${escapeHtml(order.Google_Drive_URL)}" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex max-w-full items-center gap-1 text-[10px] font-bold text-[#0066CC] hover:underline"><i data-lucide="external-link" class="h-3 w-3"></i><span class="truncate">${escapeHtml(order.File_Name || "開啟成果檔案")}</span></a>` : '';
+                                return `<article class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:-translate-y-0.5 hover:border-[#D5D5DD] hover:bg-white" data-service-card>
+                                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                        <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-[#86868B]">${escapeHtml(order.Service_Order_ID)}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${getDesignServiceStatusClass(order.Status)}">${getDesignServiceStatusLabel(order.Status)}</span></div><h5 class="mt-2 text-sm font-bold text-[#1D1D1F]">${escapeHtml(assignment ? assignment.Title : order.Assignment_ID)}</h5><p class="mt-1 text-[11px] text-[#86868B]">申請小組：${escapeHtml(team ? team.Team_Name : order.Team_ID)} · 申請時間：${escapeHtml(formatCompactDateTimeLabel(order.Requested_At))}</p>${fileLink}</div>
+                                        <div class="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">${order.Responsible_Name ? `<span class="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-[#1D1D1F]">負責人：${escapeHtml(order.Responsible_Name)}</span>` : ''}${canClaim ? `<button type="button" onclick="claimDesignServiceOrder('${escapeHtml(order.Service_Order_ID)}')" class="rounded-xl bg-[#0066CC] px-3.5 py-2 text-[11px] font-bold text-white hover:opacity-90">接案</button>` : ''}${canUpload ? `<button type="button" onclick="openDesignServiceUploadModal('${escapeHtml(order.Service_Order_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC]">上傳成果</button>` : ''}${canReview ? `<button type="button" onclick="openDesignServiceReviewModal('${escapeHtml(order.Service_Order_ID)}')" class="rounded-xl bg-[#1D1D1F] px-3.5 py-2 text-[11px] font-bold text-white">審核成果</button>` : ''}</div>
+                                    </div>${order.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]">審核意見：${escapeHtml(order.Review_Note)}</div>` : ''}
+                                </article>`;
+                            }).join('')}
+                        </div>
+                    </section>
+                </div>
+            `;
+        }
+
         function renderActiveTabContent(activeStage, effectiveRole, effectiveTeamID) {
             const container = document.getElementById('main-view-container');
             if (!container) return;
@@ -9253,7 +10577,7 @@
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
 
             if (activeTab === "overview") {
-                // 會審儀表板視窗
+                // 會審總覽視窗
                 const visibleAssignments = isExhibitionAdmin
                     ? ensureArray(state.Assignments)
                     : ensureArray(state.Assignments).filter(function(assignment) {
@@ -9322,12 +10646,12 @@
                         </div>
                     </div>
 
-                    <!-- Token 活動熱量圖 (形印籌備組專用亮點) -->
+                    <!-- 系統活動熱圖 (形印籌備組專用) -->
                     ${isExhibitionAdmin ? `
                     <div class="bg-white border border-[#E8E8ED] rounded-3xl p-5 md:p-6 shadow-sm" data-notification-entrance="shell">
                         <div class="flex items-start justify-between gap-4 mb-3">
                             <div>
-                                <h3 class="font-bold text-base text-[#1D1D1F]">Token 活動</h3>
+                                <h3 class="font-bold text-base text-[#1D1D1F]">系統活動</h3>
                                 <p id="heatmap-range-note" class="text-xs text-[#86868B] mt-0.5">本週 7 天 × 24 小時活動熱圖</p>
                             </div>
                             <div class="relative grid grid-cols-3 gap-1 p-1 bg-[#F5F5F7] rounded-full border border-[#E8E8ED] overflow-hidden min-w-[204px]" data-pill-group="heatmapView">
@@ -9362,8 +10686,8 @@
                                 前往繳交專區 <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                             </button>
                         </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-xs">
+                        <div class="overflow-x-auto mobile-table-scroll">
+                            <table class="w-full text-left text-xs mobile-stack-table">
                                 <thead>
                                     <tr class="border-b border-[#E8E8ED] text-[#86868B] uppercase font-bold">
                                         <th class="py-3 px-4">項目標題</th>
@@ -9374,7 +10698,7 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-[#E8E8ED]">
-                                    ${recentAssignments.length === 0 ? `<tr><td colspan="5" class="py-4 text-center text-[#86868B]">目前沒有任何繳交項目</td></tr>` : recentAssignments.map(function(assignment) {
+                                    ${recentAssignments.length === 0 ? `<tr><td colspan="5" class="mobile-stack-primary py-4 text-center text-[#86868B]">目前沒有任何繳交項目</td></tr>` : recentAssignments.map(function(assignment) {
                                         const stage = state.Config_Stages.find(function(stg) { return stg.Stage_ID === assignment.Stage_ID; });
                                         const teamLabels = getAssignmentTargetTeamLabels(assignment);
                                         const targetIds = getAssignmentTargetTeamIds(assignment);
@@ -9400,16 +10724,16 @@
 
                                         return `
                                             <tr class="hover:bg-[#FBFBFD] transition-all">
-                                                <td class="py-3.5 px-4 font-bold text-[#1D1D1F]">
+                                                <td data-mobile-label="繳交項目" class="mobile-stack-primary py-3.5 px-4 font-bold text-[#1D1D1F]">
                                                     <div class="flex flex-col gap-1">
                                                         <span>${assignment.Title}</span>
                                                         <span class="inline-flex w-fit items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F2F2F7] text-[#1D1D1F]">${getAssignmentSubmissionModeLabel(assignment.Submission_Mode)}</span>
                                                     </div>
                                                 </td>
-                                                <td class="py-3.5 px-4 text-[#86868B]">${stage ? stage.Stage_Name : "未定"}</td>
-                                                <td class="py-3.5 px-4 text-[#86868B]">${teamLabels}</td>
-                                                <td class="py-3.5 px-4 text-[#86868B]">${getAssignmentDueAtLabel(assignment)}</td>
-                                                <td class="py-3.5 px-4 text-center">
+                                                <td data-mobile-label="會期" class="mobile-stack-secondary py-3.5 px-4 text-[#86868B]">${stage ? stage.Stage_Name : "未定"}</td>
+                                                <td data-mobile-label="目標組別" class="mobile-stack-secondary py-3.5 px-4 text-[#86868B]">${teamLabels}</td>
+                                                <td data-mobile-label="截止" class="py-3.5 px-4 text-[#86868B]">${getAssignmentDueAtLabel(assignment)}</td>
+                                                <td data-mobile-label="狀態" class="mobile-stack-status py-3.5 px-4 text-center">
                                                     <span class="inline-flex min-w-[76px] items-center justify-center whitespace-nowrap px-3 py-1 text-[10px] font-bold rounded-full ${badgeColor}">${statusLabel}</span>
                                                 </td>
                                             </tr>
@@ -9421,6 +10745,9 @@
                     </div>
                 `;
             } 
+            else if (activeTab === "design-service" && isExhibitionAdmin) {
+                renderDesignServiceWorkbench(container, effectiveRole);
+            }
             else if (activeTab === "notifications") {
                 const notifications = getNotificationsForBrowserView();
                 const allNotifications = getNotificationsForCurrentUser();
@@ -9450,6 +10777,11 @@
                     { value: "file-rejected", label: "檔案退件" },
                     { value: "file-approved", label: "檔案通過" },
                     { value: "file-version", label: "版本更新" },
+                    { value: "design-service-request", label: "代做申請" },
+                    { value: "design-service-claimed", label: "代做接案" },
+                    { value: "design-service-deliverable", label: "代做成果" },
+                    { value: "design-service-approved", label: "代做通過" },
+                    { value: "design-service-rejected", label: "代做退回" },
                     { value: "review-comment", label: "留言註解" },
                     { value: "budget", label: "預算提醒" },
                     { value: "invite", label: "邀請通知" },
@@ -9641,6 +10973,9 @@
                     return sum + submittedPairs.size;
                     }, 0);
                 const completionRatio = targetSlots > 0 ? Math.round((submittedSlots / targetSlots) * 100) : 0;
+                const comparisonAssignments = state.Assignments.filter(function(assignment) {
+                    return !activeStage || assignment.Stage_ID === activeStage.Stage_ID;
+                });
 
                 container.innerHTML = `
                     <div class="bg-white border border-[#E5E5EA] rounded-[28px] p-5 md:p-6 shadow-sm" data-files-entrance="shell">
@@ -9697,6 +11032,8 @@
                             </span>
                         </div>
                     </div>
+
+                    ${isExhibitionAdmin ? buildTeamCompletionComparisonMarkup(comparisonAssignments) : ''}
 
                     <div class="mt-4 rounded-[24px] border border-[#ECECF1] bg-[#FCFCFD] p-4 shadow-sm" data-files-entrance="filters">
                         <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
@@ -9853,7 +11190,7 @@
                 container.innerHTML = `
                     ${isExhibitionAdmin ? `
                         <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
-                            <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">📝 登記發包印刷品項</h3>
+                            <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">📝 新增發包品項</h3>
                             <p class="text-xs text-[#86868B] mb-5">形印組在此統一登記本會期的大宗印刷。新增後金額將即時反映於上方總預算控盤。</p>
                             
                             <form onsubmit="handleRegisterPurchase(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -9879,11 +11216,11 @@
                     ` : ''}
 
                     <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
-                        <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">當前會審大宗發包品項明細</h3>
+                        <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">當前會審發包品項</h3>
                         <p class="text-xs text-[#86868B] mb-5">發包品項由形印籌備組大宗統一向廠商發包，學生組員可在此查看形印組預備製作的發包品項清單（金額不流向小組）。</p>
 
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-xs">
+                        <div class="overflow-x-auto mobile-table-scroll">
+                            <table class="w-full text-left text-xs mobile-stack-table">
                                 <thead>
                                     <tr class="border-b border-[#E8E8ED] text-[#86868B] uppercase font-bold">
                                         <th class="py-3 px-4">印刷品項</th>
@@ -9896,16 +11233,16 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-[#E8E8ED]">
-                                    ${stagePurchases.length === 0 ? `<tr><td colspan="5" class="py-6 text-center text-[#86868B]">目前無任何已登記的發包品項</td></tr>` : 
+                                    ${stagePurchases.length === 0 ? `<tr><td colspan="5" class="mobile-stack-primary py-6 text-center text-[#86868B]">目前無任何已登記的發包品項</td></tr>` : 
                                     stagePurchases.map(function(item) {
                                         return `
                                             <tr class="hover:bg-[#FBFBFD]">
-                                                <td class="py-3.5 px-4 font-bold text-[#1D1D1F]">${item.Item_Name}</td>
+                                                <td data-mobile-label="品項" class="mobile-stack-primary py-3.5 px-4 font-bold text-[#1D1D1F]">${item.Item_Name}</td>
                                                 ${isExhibitionAdmin ? `
-                                                    <td class="py-3.5 px-4 text-right text-[#86868B] font-mono">NT$ ${item.Vendor_Price.toLocaleString()}</td>
-                                                    <td class="py-3.5 px-4 text-center text-[#86868B] font-mono">${item.Quantity}</td>
-                                                    <td class="py-3.5 px-4 text-right font-bold text-[#0066CC] font-mono">NT$ ${item.Subtotal.toLocaleString()}</td>
-                                                    <td class="py-3.5 px-4 text-right">
+                                                    <td data-mobile-label="單價" class="mobile-stack-secondary py-3.5 px-4 text-right text-[#86868B] font-mono">NT$ ${item.Vendor_Price.toLocaleString()}</td>
+                                                    <td data-mobile-label="數量" class="mobile-stack-secondary py-3.5 px-4 text-center text-[#86868B] font-mono">${item.Quantity}</td>
+                                                    <td data-mobile-label="小計" class="mobile-stack-status py-3.5 px-4 text-right font-bold text-[#0066CC] font-mono">NT$ ${item.Subtotal.toLocaleString()}</td>
+                                                    <td data-mobile-label="操作" class="py-3.5 px-4 text-right">
                                                         <button data-purchase-delete-id="${item.Item_ID}" onclick="deletePurchaseItem('${item.Item_ID}')" class="text-xs text-[#FF3B30] font-bold hover:underline flex items-center gap-1 justify-end ml-auto disabled:pointer-events-none">
                                                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>刪除</span>
                                                         </button>
@@ -10303,6 +11640,7 @@
                 fileInput.value = "";
             }
             updateFileSelectionSummary('upload-file-summary', null);
+            updateUploadRouteSummary();
             if (uploadModal) {
                 animateSurfaceClose(uploadModal, uploadModal.firstElementChild, {
                     hideDelay: 220
@@ -10324,6 +11662,21 @@
             }
             terminal.appendChild(p);
             terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function setGasUploadProgress(progress, status, detail, tone = "normal") {
+            const value = Math.max(0, Math.min(100, Number(progress || 0)));
+            const statusEl = document.getElementById('gas-upload-status');
+            const percentEl = document.getElementById('gas-upload-percent');
+            const detailEl = document.getElementById('gas-upload-detail');
+            const bar = document.getElementById('gas-upload-bar');
+            if (statusEl) statusEl.textContent = status || '正在處理繳交';
+            if (percentEl) percentEl.textContent = value + '%';
+            if (detailEl) detailEl.textContent = detail || '請保持此視窗開啟，系統正在完成雲端處理。';
+            if (bar) {
+                bar.style.width = value + '%';
+                bar.style.backgroundColor = tone === 'error' ? '#FF6B6B' : tone === 'success' ? '#34C759' : '#64D2FF';
+            }
         }
 
         function commitLocalUploadRecord(uploadPayload) {
@@ -10431,92 +11784,83 @@
             const team = state.Teams.find(function(t) { return t.Team_ID === currentUser.Team_ID; });
             const teamName = team ? team.Team_Name : "獨立小組";
 
-            const logSteps = [
-                { text: "⏳ [GAS] 正在連線至 Google Apps Script 網路接點 API...", delay: 400 },
-                { text: "🔑 [GAS] 驗證憑證成功：Scopes [https://www.googleapis.com/auth/drive.file]", delay: 800 },
-                { text: "📂 [GAS] 正在檢索工作表，鎖定活躍會期名稱... => 找到了：「" + activeStage.Stage_Name + "」", delay: 1300 },
-                { text: "📁 [Drive] 正在搜尋 Google Drive 目錄，檢查會審資料夾是否存在...", delay: 1800 },
-                { text: "📁 [Drive] 會審資料夾已定位。繼續檢查小組子資料夾 [ " + teamName + " ] ...", delay: 2300 },
-                { text: "⚡ [Drive] 小組資料夾尚未建立！Google Drive API 正在自動為該學生組別建立資料夾...", delay: 2800 },
-                { text: "🚀 [Upload] 自建分類路徑成功建立 => 「" + activeStage.Stage_Name + " / " + teamName + " /」", delay: 3300 },
-                { text: "🧩 [Browser] 已讀取本機檔案：" + fileName + (selectedFile ? "（" + formatFileSize(selectedFile.size) + "）" : ""), delay: 3600 },
-                { text: "📤 [Upload] 開始分塊上傳作業附件：" + storedFileName, delay: 3800 },
-                { text: "💾 [Sheets] 正在向 Google Sheets【Files】分頁寫入繳交紀錄...", delay: 4400 }
-            ];
-
             const closeGasBtn = document.getElementById('btn-close-gas-modal');
             if (closeGasBtn) closeGasBtn.disabled = true;
+            try {
+                let resultFileId = "";
+                let resultFolderPath = activeStage.Stage_Name + " / " + teamName;
+                setGasUploadProgress(8, "正在確認繳交條件", "已驗證會期、小組與檔案規則。");
+                appendGasTerminalLine(terminal, "已確認「" + activeStage.Stage_Name + " / " + teamName + "」的繳交位置。", "drive");
 
-            logSteps.forEach(function(step) {
-                setTimeout(function() {
-                    appendGasTerminalLine(terminal, step.text, step.text.includes("[Drive]") ? "drive" : "default");
-                }, step.delay);
-            });
+                if (isRemoteSyncEnabled()) {
+                    setGasUploadProgress(18, "正在讀取附件", "正在準備「" + fileName + "」的上傳資料。");
+                    const fileContentBase64 = await readFileAsBase64(selectedFile, function(ratio) {
+                        const percent = Math.round(18 + Math.max(0, Math.min(1, ratio)) * 42);
+                        setGasUploadProgress(percent, "正在讀取附件", "已讀取 " + Math.round(Math.max(0, Math.min(1, ratio)) * 100) + "%：" + fileName);
+                    });
 
-            setTimeout(async function() {
-                try {
-                    let resultFileId = "";
-                    let resultFolderPath = activeStage.Stage_Name + " / " + teamName;
+                    setGasUploadProgress(62, "正在上傳至 Google Drive", "檔案正在傳送並自動分類，請勿關閉此視窗。");
+                    appendGasTerminalLine(terminal, "正在傳送附件至 Google Drive：" + storedFileName);
+                    const response = await requestGas("uploadFile", {
+                        userId: currentUser ? currentUser.User_ID : "",
+                        fileName: fileName,
+                        stageId: activeStage.Stage_ID,
+                        teamId: currentUser ? currentUser.Team_ID : "",
+                        groupKey: groupKey,
+                        baseName: baseName,
+                        extension: extension,
+                        nextVersion: nextVersion,
+                        mimeType: selectedFile && selectedFile.type ? selectedFile.type : "application/octet-stream",
+                        fileSize: selectedFile ? Number(selectedFile.size || 0) : 0,
+                        fileContentBase64: fileContentBase64
+                    });
 
-                    if (isRemoteSyncEnabled()) {
-                        const response = await requestGas("uploadFile", {
-                            userId: currentUser ? currentUser.User_ID : "",
-                            fileName: fileName,
-                            stageId: activeStage.Stage_ID,
-                            teamId: currentUser ? currentUser.Team_ID : "",
-                            groupKey: groupKey,
-                            baseName: baseName,
-                            extension: extension,
-                            nextVersion: nextVersion,
-                            mimeType: selectedFile && selectedFile.type ? selectedFile.type : "application/octet-stream",
-                            fileSize: selectedFile ? Number(selectedFile.size || 0) : 0,
-                            fileContentBase64: await readFileAsBase64(selectedFile)
-                        });
+                    setGasUploadProgress(90, "正在建立繳交紀錄", "雲端檔案已收到，正在回寫 Google 試算表。 ");
+                    applyBackendStateResponse(response, {
+                        preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : ""
+                    });
 
-                        applyBackendStateResponse(response, {
-                            preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : ""
-                        });
-
-                        resultFileId = response && response.data && response.data.file ? response.data.file.File_ID : "";
-                        resultFolderPath = response && response.data && response.data.drive && response.data.drive.folderPath
-                            ? response.data.drive.folderPath
-                            : resultFolderPath;
-                    } else {
-                        const localResult = commitLocalUploadRecord({
-                            activeStage: activeStage,
-                            teamId: currentUser.Team_ID,
-                            teamName: teamName,
-                            storedFileName: storedFileName,
-                            url: "",
-                            baseName: baseName,
-                            extension: extension,
-                            nextVersion: nextVersion,
-                            groupKey: groupKey,
-                            uploadNote: uploadNote
-                        });
-                        resultFileId = localResult.fileId;
-                    }
-
-                    const uploadInput = document.getElementById('upload-form-file');
-                    if (uploadInput) {
-                        uploadInput.value = '';
-                    }
-                    updateFileSelectionSummary('upload-file-summary', null);
-                    pendingUploadContext = null;
-                    gasModalLastResult = "success";
-
-                    appendGasTerminalLine(terminal, "✨ [Success] 回寫工作表完成！File_ID: " + resultFileId + "，繳交類型：" + uploadNote + "，審核狀態預設為「未審」", "success");
-                    appendGasTerminalLine(terminal, "📦 [Drive] 檔案已歸檔至：" + resultFolderPath, "drive");
-                    appendGasTerminalLine(terminal, "🏁 [Finished] GAS 雲端繳交自動化程序執行完畢！可安全關閉本終端面板。", "success");
-                } catch (error) {
-                    gasModalLastResult = "error";
-                    console.error("GAS 繳交失敗", error);
-                    appendGasTerminalLine(terminal, "✖ [Failed] GAS 繳交失敗：" + error.message, "error");
-                    appendGasTerminalLine(terminal, "請確認 GAS Web App 網址、試算表設定，以及目前檔案大小是否位於直傳上限內。", "error");
-                } finally {
-                    if (closeGasBtn) closeGasBtn.disabled = false;
+                    resultFileId = response && response.data && response.data.file ? response.data.file.File_ID : "";
+                    resultFolderPath = response && response.data && response.data.drive && response.data.drive.folderPath
+                        ? response.data.drive.folderPath
+                        : resultFolderPath;
+                } else {
+                    setGasUploadProgress(62, "正在建立本機繳交紀錄", "目前為本機模式，僅建立本機紀錄。 ");
+                    const localResult = commitLocalUploadRecord({
+                        activeStage: activeStage,
+                        teamId: currentUser.Team_ID,
+                        teamName: teamName,
+                        storedFileName: storedFileName,
+                        url: "",
+                        baseName: baseName,
+                        extension: extension,
+                        nextVersion: nextVersion,
+                        groupKey: groupKey,
+                        uploadNote: uploadNote
+                    });
+                    resultFileId = localResult.fileId;
                 }
-            }, 4900);
+
+                const uploadInput = document.getElementById('upload-form-file');
+                if (uploadInput) {
+                    uploadInput.value = '';
+                }
+                updateFileSelectionSummary('upload-file-summary', null);
+                updateUploadRouteSummary();
+                pendingUploadContext = null;
+                gasModalLastResult = "success";
+                setGasUploadProgress(100, "繳交完成", "已完成雲端歸檔與繳交紀錄建立。", "success");
+
+                appendGasTerminalLine(terminal, "繳交紀錄已完成。File_ID: " + resultFileId + "，類型：" + uploadNote + "。", "success");
+                appendGasTerminalLine(terminal, "檔案已歸檔至：" + resultFolderPath, "drive");
+            } catch (error) {
+                gasModalLastResult = "error";
+                console.error("GAS 繳交失敗", error);
+                setGasUploadProgress(100, "繳交失敗", error && error.message ? error.message : "請重新選擇檔案後再試。", "error");
+                appendGasTerminalLine(terminal, "繳交失敗：" + (error && error.message ? error.message : "未知錯誤"), "error");
+            } finally {
+                if (closeGasBtn) closeGasBtn.disabled = false;
+            }
         }
 
         function closeGasModal() {
@@ -10568,7 +11912,7 @@
                     subtitle: "快速了解系統功能與主要操作流程。",
                     body: `
                         <div class="space-y-3 text-sm leading-relaxed text-[#1D1D1F]">
-                            <p>登入系統後，您可依帳號權限使用會審儀表板、通知中心、繳交專區、印刷品登記與小組成員管理等功能。</p>
+                            <p>登入系統後，您可依帳號權限使用會審總覽、通知中心、繳交專區、發包管理與小組成員等功能。</p>
                             <div class="rounded-2xl bg-[#F5F5F7] border border-[#E8E8ED] p-4">
                                 <p class="text-[11px] font-bold text-[#86868B] uppercase tracking-wider mb-2">建議操作步驟</p>
                                 <ol class="space-y-2 text-[12px] text-[#1D1D1F] list-decimal list-inside">

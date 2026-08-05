@@ -149,6 +149,37 @@ var TABLE_SCHEMAS = {
     ],
     types: {}
   },
+  Design_Service_Settings: {
+    headers: ['Settings_ID', 'Enabled', 'Eligible_User_IDs', 'Updated_At', 'Updated_By_User_ID'],
+    types: {
+      Enabled: 'boolean',
+      Eligible_User_IDs: 'json'
+    }
+  },
+  Design_Service_Orders: {
+    headers: [
+      'Service_Order_ID',
+      'Assignment_ID',
+      'Stage_ID',
+      'Team_ID',
+      'Requested_By_User_ID',
+      'Requested_At',
+      'Responsible_User_ID',
+      'Responsible_Name',
+      'Claimed_At',
+      'Status',
+      'File_Name',
+      'Google_Drive_URL',
+      'Drive_File_ID',
+      'Drive_Folder_ID',
+      'Submitted_At',
+      'Reviewed_By_User_ID',
+      'Reviewed_At',
+      'Review_Note',
+      'Updated_At'
+    ],
+    types: {}
+  },
   Password_Reset_Tokens: {
     headers: [
       'Reset_ID',
@@ -323,6 +354,13 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'deleteStage') {
+      result = withLock_(function() {
+        return handleDeleteStage_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'getActivityLogs') {
       result = handleGetActivityLogs_(payload);
       return jsonResponse_(true, result);
@@ -345,6 +383,41 @@ function doPost(e) {
     if (action === 'uploadAssignmentAsset') {
       result = withLock_(function() {
         return handleUploadAssignmentAsset_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'configureDesignService') {
+      result = withLock_(function() {
+        return handleConfigureDesignService_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'requestDesignService') {
+      result = withLock_(function() {
+        return handleRequestDesignService_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'claimDesignServiceOrder') {
+      result = withLock_(function() {
+        return handleClaimDesignServiceOrder_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'uploadDesignServiceDeliverable') {
+      result = withLock_(function() {
+        return handleUploadDesignServiceDeliverable_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'reviewDesignServiceOrder') {
+      result = withLock_(function() {
+        return handleReviewDesignServiceOrder_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -406,7 +479,7 @@ function renderLargeUploadErrorPage_(error) {
 
 function buildLargeUploadPageModel_(params) {
   var mode = String(params.mode || '').trim();
-  if (['file', 'assignment-asset'].indexOf(mode) === -1) {
+  if (['file', 'assignment-asset', 'design-service'].indexOf(mode) === -1) {
     throw new Error('穩定上傳頁缺少正確的 mode 參數。');
   }
 
@@ -421,16 +494,40 @@ function buildLargeUploadPageModel_(params) {
   var extension = String(params.extension || parsedSource.extension || '').trim();
   var sessionKey = String(params.sessionKey || '').trim();
   var groupKey = String(params.groupKey || '').trim();
+  var serviceOrderId = String(params.serviceOrderId || '').trim();
 
-  var currentUser = requireStudentUploadActor_(state, params);
+  var currentUser = mode === 'design-service'
+    ? requireSessionUser_(state, params, ['SuperAdmin', 'Admin'])
+    : requireStudentUploadActor_(state, params);
   if (userId && userId !== String(currentUser.User_ID || '')) {
     throw new Error('FORBIDDEN: 穩定上傳頁的使用者資訊不符。');
   }
-  if (teamId && teamId !== String(currentUser.Team_ID || '')) {
+  if (mode !== 'design-service' && teamId && teamId !== String(currentUser.Team_ID || '')) {
     throw new Error('FORBIDDEN: 穩定上傳頁的小組資訊不符。');
   }
   userId = String(currentUser.User_ID || '');
-  teamId = String(currentUser.Team_ID || '');
+  if (mode !== 'design-service') {
+    teamId = String(currentUser.Team_ID || '');
+  }
+
+  var serviceOrder = null;
+  if (mode === 'design-service') {
+    serviceOrder = getDesignServiceOrderById_(state, serviceOrderId);
+    if (!serviceOrder) {
+      throw new Error('找不到指定的形印代做案件。');
+    }
+    if (String(currentUser.Role || '') !== 'SuperAdmin'
+      && String(serviceOrder.Responsible_User_ID || '') !== String(currentUser.User_ID || '')) {
+      throw new Error('FORBIDDEN: 只有案件負責人可以使用穩定上傳。');
+    }
+    if (['製作中', '退回修正'].indexOf(String(serviceOrder.Status || '')) === -1) {
+      throw new Error('目前案件狀態不開放上傳成果。');
+    }
+    assignmentId = String(serviceOrder.Assignment_ID || '');
+    stageId = String(serviceOrder.Stage_ID || '');
+    teamId = String(serviceOrder.Team_ID || '');
+  }
+
   var team = ensureArray_(state.Teams).find(function(item) {
     return String(item.Team_ID || '') === teamId;
   }) || null;
@@ -472,9 +569,28 @@ function buildLargeUploadPageModel_(params) {
     }
   }
 
+  if (mode === 'design-service') {
+    if (!team || team.Team_ID === 'T00') {
+      throw new Error('找不到形印代做案件的申請小組。');
+    }
+    if (!assignment) {
+      throw new Error('找不到形印代做案件的作業。');
+    }
+    if (!stage) {
+      stage = ensureArray_(state.Config_Stages).find(function(item) {
+        return String(item.Stage_ID || '') === String(assignment.Stage_ID || '');
+      }) || null;
+    }
+    if (!stage) {
+      throw new Error('找不到形印代做案件所屬的會審期數。');
+    }
+  }
+
   var pathSegments = mode === 'assignment-asset'
     ? [stage ? stage.Stage_Name : '', team ? team.Team_Name : '', '公告作業', assignment ? assignment.Title : '']
-    : [stage ? stage.Stage_Name : '', team ? team.Team_Name : ''];
+    : mode === 'design-service'
+      ? [stage ? stage.Stage_Name : '', team ? team.Team_Name : '', '形印代做', assignment ? assignment.Title : '', serviceOrderId]
+      : [stage ? stage.Stage_Name : '', team ? team.Team_Name : ''];
   var pathLabel = pathSegments.filter(function(segment) {
     return String(segment || '').trim();
   }).join(' / ');
@@ -487,6 +603,7 @@ function buildLargeUploadPageModel_(params) {
     teamId: teamId,
     stageId: stage ? String(stage.Stage_ID || '') : stageId,
     assignmentId: assignmentId,
+    serviceOrderId: serviceOrderId,
     groupKey: groupKey,
     baseName: baseName,
     extension: extension,
@@ -497,10 +614,16 @@ function buildLargeUploadPageModel_(params) {
     pathLabel: pathLabel,
     maxDirectMb: Math.round(MAX_BROWSER_UPLOAD_SIZE_BYTES / 1024 / 1024),
     maxStableMb: Math.round(MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES / 1024 / 1024),
-    title: mode === 'assignment-asset' ? '繳交項目穩定上傳' : '大檔穩定上傳',
+    title: mode === 'assignment-asset'
+      ? '繳交項目穩定上傳'
+      : mode === 'design-service'
+        ? '形印代做成果上傳'
+        : '大檔穩定上傳',
     subtitle: mode === 'assignment-asset'
       ? '大於 18 MB 的作業附件會先直接送到雲端，再回主頁完成繳交。'
-      : '大於 18 MB 的收件檔案會透過穩定上傳頁直接寫入 Google 雲端硬碟。',
+      : mode === 'design-service'
+        ? '成果會直接寫入案件專屬資料夾，完成後回主頁等待形印組長審核。'
+        : '大於 18 MB 的收件檔案會透過穩定上傳頁直接寫入 Google 雲端硬碟。',
     helperText: sourceFileName
       ? '請在下方重新選擇同一份檔案：' + sourceFileName
       : '請重新選擇要上傳的檔案。'
@@ -523,6 +646,10 @@ function processLargeUploadForm_(formObject) {
 
   if (mode === 'assignment-asset') {
     return handleLargeAssignmentAssetFormUpload_(payload);
+  }
+
+  if (mode === 'design-service') {
+    return handleLargeDesignServiceFormUpload_(payload);
   }
 
   throw new Error('未知的穩定上傳模式。');
@@ -829,6 +956,8 @@ function loadState_() {
     Files: readTable_(spreadsheet, 'Files'),
     Notifications: readTable_(spreadsheet, 'Notifications'),
     Discussion_Comments: readTable_(spreadsheet, 'Discussion_Comments'),
+    Design_Service_Settings: readTable_(spreadsheet, 'Design_Service_Settings'),
+    Design_Service_Orders: readTable_(spreadsheet, 'Design_Service_Orders'),
     Meta: readMetaSheet_(spreadsheet)
   };
 
@@ -859,7 +988,7 @@ function persistState_(inputState, options) {
 
   var state = normalizeState_(cloneObject_(inputState));
   var existingState = options.existingState || loadState_();
-  state = mergeSensitiveState_(state, existingState);
+  state = mergeSensitiveState_(state, existingState, options);
   state.Meta = state.Meta && typeof state.Meta === 'object' ? state.Meta : {};
   state.Meta.State_Revision = typeof options.nextRevision === 'number'
     ? options.nextRevision
@@ -1088,6 +1217,12 @@ function cloneServerMeta_(state) {
   return cloneObject_(state && state.Meta && typeof state.Meta === 'object' ? state.Meta : {});
 }
 
+function preserveDesignServiceState_(nextState, existingState) {
+  nextState.Design_Service_Settings = cloneObject_(ensureArray_(existingState && existingState.Design_Service_Settings));
+  nextState.Design_Service_Orders = cloneObject_(ensureArray_(existingState && existingState.Design_Service_Orders));
+  return nextState;
+}
+
 function mergeOwnNotificationReadState_(nextState, incomingState, user) {
   var incomingById = {};
   ensureArray_(incomingState.Notifications).forEach(function(notification) {
@@ -1277,6 +1412,7 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
 
   if (String(actor.Role || '') === 'SuperAdmin') {
     nextState = incoming;
+    preserveDesignServiceState_(nextState, existing);
     nextState.Meta = cloneServerMeta_(existing);
     return nextState;
   }
@@ -1295,6 +1431,7 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
     nextState.Assignments = incoming.Assignments;
     nextState.Discussion_Comments = incoming.Discussion_Comments;
     mergeOwnNotificationReadState_(nextState, incoming, actor);
+    preserveDesignServiceState_(nextState, existing);
     nextState.Meta = cloneServerMeta_(existing);
     return nextState;
   }
@@ -1304,6 +1441,7 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
   mergeStudentDiscussionComments_(nextState, incoming, actor);
   mergeLeaderInvites_(nextState, incoming, actor);
   mergeOwnNotificationReadState_(nextState, incoming, actor);
+  preserveDesignServiceState_(nextState, existing);
   nextState.Meta = cloneServerMeta_(existing);
   return nextState;
 }
@@ -1362,6 +1500,144 @@ function handleDeletePurchaseItem_(payload) {
   });
 }
 
+// Delete a review stage and all records that are scoped to it in one locked
+// server transaction. This avoids a stale browser snapshot restoring data
+// after the interface has already removed it optimistically.
+function handleDeleteStage_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var stageId = String(payload && payload.stageId || '').trim();
+  if (!stageId) {
+    throw new Error('deleteStage requires `stageId`.');
+  }
+
+  var targetStage = ensureArray_(previousState.Config_Stages).find(function(stage) {
+    return String(stage && stage.Stage_ID || '') === stageId;
+  });
+  if (!targetStage) {
+    throw new Error('NOT_FOUND: 找不到要刪除的會審期數，資料可能已被其他使用者更新。');
+  }
+  if (ensureArray_(previousState.Config_Stages).length <= 1) {
+    throw new Error('FORBIDDEN: 系統至少要保留一個會審期數。');
+  }
+  if (targetStage.Is_Active === true) {
+    throw new Error('FORBIDDEN: 請先設定其他會審為目前活躍期數，再刪除這一期。');
+  }
+
+  var assignmentIds = {};
+  var fileIds = {};
+  var fileGroupKeys = {};
+  var driveFileIds = {};
+  ensureArray_(previousState.Assignments).forEach(function(assignment) {
+    if (String(assignment && assignment.Stage_ID || '') === stageId) {
+      assignmentIds[String(assignment.Assignment_ID || '')] = true;
+    }
+  });
+  ensureArray_(previousState.Files).forEach(function(file) {
+    if (String(file && file.Stage_ID || '') === stageId) {
+      fileIds[String(file.File_ID || '')] = true;
+      if (String(file.Drive_File_ID || '').trim()) {
+        driveFileIds[String(file.Drive_File_ID).trim()] = true;
+      }
+      if (file.File_Group_Key) {
+        fileGroupKeys[String(file.File_Group_Key)] = true;
+      }
+    }
+  });
+  ensureArray_(previousState.Assignment_Submissions).forEach(function(submission) {
+    if (assignmentIds[String(submission && submission.Assignment_ID || '')]
+        && String(submission.Drive_File_ID || '').trim()) {
+      driveFileIds[String(submission.Drive_File_ID).trim()] = true;
+    }
+  });
+
+  var nextState = cloneObject_(previousState);
+  nextState.Config_Stages = ensureArray_(nextState.Config_Stages).filter(function(stage) {
+    return String(stage && stage.Stage_ID || '') !== stageId;
+  });
+  nextState.Assignments = ensureArray_(nextState.Assignments).filter(function(assignment) {
+    return String(assignment && assignment.Stage_ID || '') !== stageId;
+  });
+  nextState.Assignment_Submissions = ensureArray_(nextState.Assignment_Submissions).filter(function(submission) {
+    return !assignmentIds[String(submission && submission.Assignment_ID || '')];
+  });
+  nextState.Files = ensureArray_(nextState.Files).filter(function(file) {
+    return String(file && file.Stage_ID || '') !== stageId;
+  });
+  nextState.Purchase_Items = ensureArray_(nextState.Purchase_Items).filter(function(item) {
+    return String(item && item.Stage_ID || '') !== stageId;
+  });
+  nextState.Notifications = ensureArray_(nextState.Notifications).filter(function(notification) {
+    var refType = String(notification && notification.Ref_Type || '');
+    var refId = String(notification && notification.Ref_ID || '');
+    return !(refType === 'stage' && refId === stageId)
+      && !(refType === 'assignment' && assignmentIds[refId])
+      && !(refType === 'file' && fileIds[refId])
+      && !(refType === 'file-group' && fileGroupKeys[refId]);
+  });
+  nextState.Discussion_Comments = ensureArray_(nextState.Discussion_Comments).filter(function(comment) {
+    var refType = String(comment && comment.Ref_Type || '');
+    var refId = String(comment && comment.Ref_ID || '');
+    return !(refType === 'stage' && refId === stageId)
+      && !(refType === 'assignment' && assignmentIds[refId])
+      && !(refType === 'file' && fileIds[refId])
+      && !(refType === 'file-group' && fileGroupKeys[refId]);
+  });
+
+  // Remove reminder-log entries now, rather than leaving stale references
+  // until the next background reminder pass cleans them up.
+  nextState.Meta = nextState.Meta && typeof nextState.Meta === 'object' ? nextState.Meta : {};
+  var reminderLog = getAssignmentReminderLog_(nextState);
+  Object.keys(reminderLog).forEach(function(key) {
+    var assignmentId = String(reminderLog[key] && reminderLog[key].assignmentId || key.split('|')[0] || '');
+    if (assignmentIds[assignmentId]) {
+      delete reminderLog[key];
+    }
+  });
+  nextState.Meta[ASSIGNMENT_REMINDER_LOG_META_KEY] = reminderLog;
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1
+  });
+  var persistedState = loadState_();
+  appendActivityLogEntries_(buildStateAuditEntries_(previousState, persistedState, actor));
+  var driveTrashSummary = trashDriveFiles_(Object.keys(driveFileIds));
+  return buildClientStateResultForUser_(persistedState, actor, {
+    driveTrashSummary: driveTrashSummary
+  });
+}
+
+// Move only the original files recorded for the deleted stage into Drive trash.
+// A missing file or insufficient Drive permission must not undo the spreadsheet
+// deletion, so failures are reported in the response instead of being thrown.
+function trashDriveFiles_(driveFileIds) {
+  var ids = ensureArray_(driveFileIds).map(function(fileId) {
+    return String(fileId || '').trim();
+  }).filter(function(fileId, index, list) {
+    return fileId && list.indexOf(fileId) === index;
+  });
+  var summary = {
+    requested: ids.length,
+    trashed: 0,
+    failed: 0
+  };
+
+  ids.forEach(function(fileId) {
+    try {
+      DriveApp.getFileById(fileId).setTrashed(true);
+      summary.trashed += 1;
+    } catch (error) {
+      summary.failed += 1;
+      console.warn('Unable to move Drive file to trash: ' + fileId + ' / ' + String(error && error.message || error));
+    }
+  });
+
+  return summary;
+}
+
 function handleGetActivityLogs_(payload) {
   var state = loadState_();
   var viewer = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
@@ -1407,6 +1683,8 @@ function writeStateTables_(spreadsheet, state) {
   writeTable_(spreadsheet, 'Files', state.Files);
   writeTable_(spreadsheet, 'Notifications', state.Notifications);
   writeTable_(spreadsheet, 'Discussion_Comments', state.Discussion_Comments);
+  writeTable_(spreadsheet, 'Design_Service_Settings', state.Design_Service_Settings);
+  writeTable_(spreadsheet, 'Design_Service_Orders', state.Design_Service_Orders);
   writeMetaSheet_(spreadsheet, state.Meta || {});
 }
 
@@ -1651,6 +1929,16 @@ function filterStateForUser_(state, user) {
     return String(comment.Team_ID || '') === teamId
       || (String(comment.Ref_Type || '') === 'assignment' && visibleAssignmentIds[String(comment.Ref_ID || '')]);
   });
+  safeState.Design_Service_Settings = safeState.Design_Service_Settings.map(function(settings) {
+    return {
+      Settings_ID: settings.Settings_ID,
+      Enabled: settings.Enabled === true,
+      Updated_At: settings.Updated_At
+    };
+  });
+  safeState.Design_Service_Orders = safeState.Design_Service_Orders.filter(function(order) {
+    return String(order.Team_ID || '') === teamId;
+  });
   safeState.Meta = { State_Revision: getStateRevision_(state) };
   return safeState;
 }
@@ -1665,7 +1953,8 @@ function buildClientStateResultForUser_(state, user, extraData) {
   return result;
 }
 
-function mergeSensitiveState_(nextState, existingState) {
+function mergeSensitiveState_(nextState, existingState, options) {
+  options = options || {};
   var usersById = {};
   var usersByEmail = {};
   var assignmentsById = {};
@@ -1711,6 +2000,19 @@ function mergeSensitiveState_(nextState, existingState) {
 
     return nextAssignment;
   });
+
+  // 代做案件只能透過專用 action 修改，避免舊版前端 saveState 把最新派案覆蓋掉。
+  if (options.preserveDesignServiceState !== false) {
+    nextState.Design_Service_Settings = cloneObject_(ensureArray_(existingState && existingState.Design_Service_Settings));
+    nextState.Design_Service_Orders = cloneObject_(ensureArray_(existingState && existingState.Design_Service_Orders));
+  } else {
+    nextState.Design_Service_Settings = ensureArray_(nextState.Design_Service_Settings).map(function(settings) {
+      return hydrateDesignServiceSettingsRecord_(settings);
+    });
+    nextState.Design_Service_Orders = ensureArray_(nextState.Design_Service_Orders).map(function(order) {
+      return hydrateDesignServiceOrderRecord_(order);
+    });
+  }
 
   return nextState;
 }
@@ -1872,6 +2174,12 @@ function normalizeState_(state) {
   state.Files = ensureArray_(state.Files);
   state.Notifications = ensureArray_(state.Notifications);
   state.Discussion_Comments = ensureArray_(state.Discussion_Comments);
+  state.Design_Service_Settings = ensureArray_(state.Design_Service_Settings).map(function(settings) {
+    return hydrateDesignServiceSettingsRecord_(settings);
+  });
+  state.Design_Service_Orders = ensureArray_(state.Design_Service_Orders).map(function(order) {
+    return hydrateDesignServiceOrderRecord_(order);
+  });
   state.Meta = state.Meta && typeof state.Meta === 'object' ? state.Meta : {};
 
   state.Files = state.Files.map(function(file) {
@@ -1891,6 +2199,52 @@ function normalizeState_(state) {
   }
 
   return state;
+}
+
+function hydrateDesignServiceSettingsRecord_(settings) {
+  if (!settings || typeof settings !== 'object') {
+    settings = {};
+  }
+
+  settings.Settings_ID = String(settings.Settings_ID || 'SERVICE_DEFAULT');
+  settings.Enabled = settings.Enabled === true;
+  settings.Eligible_User_IDs = ensureArray_(settings.Eligible_User_IDs).map(function(userId) {
+    return String(userId || '').trim();
+  }).filter(function(userId, index, list) {
+    return userId && list.indexOf(userId) === index;
+  });
+  settings.Updated_At = String(settings.Updated_At || '');
+  settings.Updated_By_User_ID = String(settings.Updated_By_User_ID || '');
+
+  return settings;
+}
+
+function hydrateDesignServiceOrderRecord_(order) {
+  if (!order || typeof order !== 'object') {
+    order = {};
+  }
+
+  order.Service_Order_ID = String(order.Service_Order_ID || '');
+  order.Assignment_ID = String(order.Assignment_ID || '');
+  order.Stage_ID = String(order.Stage_ID || '');
+  order.Team_ID = String(order.Team_ID || '');
+  order.Requested_By_User_ID = String(order.Requested_By_User_ID || '');
+  order.Requested_At = String(order.Requested_At || '');
+  order.Responsible_User_ID = String(order.Responsible_User_ID || '');
+  order.Responsible_Name = String(order.Responsible_Name || '');
+  order.Claimed_At = String(order.Claimed_At || '');
+  order.Status = String(order.Status || '待接案');
+  order.File_Name = String(order.File_Name || '');
+  order.Google_Drive_URL = String(order.Google_Drive_URL || '');
+  order.Drive_File_ID = String(order.Drive_File_ID || '');
+  order.Drive_Folder_ID = String(order.Drive_Folder_ID || '');
+  order.Submitted_At = String(order.Submitted_At || '');
+  order.Reviewed_By_User_ID = String(order.Reviewed_By_User_ID || '');
+  order.Reviewed_At = String(order.Reviewed_At || '');
+  order.Review_Note = String(order.Review_Note || '');
+  order.Updated_At = String(order.Updated_At || order.Requested_At || '');
+
+  return order;
 }
 
 function hydratePurchaseItemRecord_(item) {
@@ -2765,10 +3119,51 @@ function ensureHeatmapBucket_(bucketMap, dateKey) {
   return bucketMap[dateKey];
 }
 
+function ensureHourlyHeatmapBucket_(bucketMap, dateKey, hour) {
+  var normalizedHour = Math.max(0, Math.min(23, Number(hour) || 0));
+  var hourKey = dateKey + ' ' + ('0' + normalizedHour).slice(-2);
+
+  if (!bucketMap[hourKey]) {
+    bucketMap[hourKey] = {
+      date: dateKey,
+      hour: normalizedHour,
+      files: 0,
+      purchases: 0,
+      assignments: 0,
+      total: 0
+    };
+  }
+
+  return bucketMap[hourKey];
+}
+
+function extractHeatmapDateTimeParts_(value) {
+  var config = getConfig_();
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return {
+      dateKey: Utilities.formatDate(value, config.timeZone, 'yyyy-MM-dd'),
+      hour: parseInt(Utilities.formatDate(value, config.timeZone, 'H'), 10)
+    };
+  }
+
+  var raw = String(value || '').trim();
+  var match = raw.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s]+(\d{1,2})(?::\d{2})?)?/);
+  if (!match) {
+    return { dateKey: '', hour: 12 };
+  }
+
+  return {
+    dateKey: match[1],
+    // Historical records without a timestamp retain the neutral noon bucket.
+    hour: typeof match[2] === 'string' ? Math.max(0, Math.min(23, Number(match[2]))) : 12
+  };
+}
+
 function buildHeatmapStats_(state) {
   var config = getConfig_();
   var range = getAcademicYearRange_();
   var buckets = {};
+  var hourlyBuckets = {};
   var summary = {
     files: 0,
     purchases: 0,
@@ -2779,34 +3174,33 @@ function buildHeatmapStats_(state) {
     peakValue: 0
   };
 
-  ensureArray_(state && state.Files).forEach(function(file) {
-    var dateKey = extractHeatmapDateKey_(file && file.Upload_Time);
-    if (!dateKey || dateKey < range.startKey || dateKey > range.endKey) {
-      return;
+  function registerHeatmapActivity(value, bucketField) {
+    var parts = extractHeatmapDateTimeParts_(value);
+    if (!parts.dateKey || parts.dateKey < range.startKey || parts.dateKey > range.endKey) {
+      return false;
     }
 
-    ensureHeatmapBucket_(buckets, dateKey).files += 1;
-    summary.files += 1;
+    ensureHeatmapBucket_(buckets, parts.dateKey)[bucketField] += 1;
+    ensureHourlyHeatmapBucket_(hourlyBuckets, parts.dateKey, parts.hour)[bucketField] += 1;
+    return true;
+  }
+
+  ensureArray_(state && state.Files).forEach(function(file) {
+    if (registerHeatmapActivity(file && file.Upload_Time, 'files')) {
+      summary.files += 1;
+    }
   });
 
   ensureArray_(state && state.Purchase_Items).forEach(function(item) {
-    var dateKey = extractHeatmapDateKey_(item && item.Created_At);
-    if (!dateKey || dateKey < range.startKey || dateKey > range.endKey) {
-      return;
+    if (registerHeatmapActivity(item && item.Created_At, 'purchases')) {
+      summary.purchases += 1;
     }
-
-    ensureHeatmapBucket_(buckets, dateKey).purchases += 1;
-    summary.purchases += 1;
   });
 
   ensureArray_(state && state.Assignment_Submissions).forEach(function(submission) {
-    var submissionDateKey = extractHeatmapDateKey_(submission && (submission.Submitted_At || submission.Updated_At));
-    if (!submissionDateKey || submissionDateKey < range.startKey || submissionDateKey > range.endKey) {
-      return;
+    if (registerHeatmapActivity(submission && (submission.Submitted_At || submission.Updated_At), 'assignments')) {
+      summary.assignments += 1;
     }
-
-    ensureHeatmapBucket_(buckets, submissionDateKey).assignments += 1;
-    summary.assignments += 1;
   });
 
   var timeline = [];
@@ -2827,6 +3221,11 @@ function buildHeatmapStats_(state) {
     cursor.setDate(cursor.getDate() + 1);
   }
 
+  Object.keys(hourlyBuckets).forEach(function(hourKey) {
+    var hourlyBucket = hourlyBuckets[hourKey];
+    hourlyBucket.total = Number(hourlyBucket.files || 0) + Number(hourlyBucket.purchases || 0) + Number(hourlyBucket.assignments || 0);
+  });
+
   summary.total = summary.files + summary.purchases + summary.assignments;
 
   return {
@@ -2836,6 +3235,7 @@ function buildHeatmapStats_(state) {
       academicYearLabel: range.academicYearLabel
     },
     timeline: timeline,
+    hourlyBuckets: hourlyBuckets,
     summary: summary
   };
 }
@@ -3541,6 +3941,448 @@ function handleUploadAssignmentAsset_(payload) {
   };
 }
 
+function getDesignServiceSettings_(state) {
+  var settings = ensureArray_(state && state.Design_Service_Settings)[0] || {};
+  return hydrateDesignServiceSettingsRecord_(settings);
+}
+
+function getDesignServiceOrderById_(state, serviceOrderId) {
+  var targetId = String(serviceOrderId || '').trim();
+  return ensureArray_(state && state.Design_Service_Orders).find(function(order) {
+    return String(order.Service_Order_ID || '') === targetId;
+  }) || null;
+}
+
+function getDesignServiceEligibleUserIds_(state, settings) {
+  var requestedIds = ensureArray_(settings && settings.Eligible_User_IDs).map(function(userId) {
+    return String(userId || '').trim();
+  });
+  return ensureArray_(state && state.Users).filter(function(user) {
+    return requestedIds.indexOf(String(user.User_ID || '')) >= 0
+      && String(user.Role || '') === 'Admin'
+      && String(user.Status || '') === 'Active';
+  }).map(function(user) {
+    return String(user.User_ID || '');
+  });
+}
+
+function getDesignServiceAssignmentContext_(state, assignmentId, teamId) {
+  var targetAssignmentId = String(assignmentId || '').trim();
+  var targetTeamId = String(teamId || '').trim();
+  var assignment = ensureArray_(state && state.Assignments).find(function(item) {
+    return String(item.Assignment_ID || '') === targetAssignmentId;
+  }) || null;
+  if (!assignment) {
+    throw new Error('找不到指定的繳交項目。');
+  }
+  if (!targetTeamId || targetTeamId === 'T00' || !isAssignmentVisibleToTeam_(state, assignment, targetTeamId)) {
+    throw new Error('FORBIDDEN: 這份繳交項目不在你的作業範圍內。');
+  }
+
+  var team = ensureArray_(state && state.Teams).find(function(item) {
+    return String(item.Team_ID || '') === targetTeamId;
+  }) || null;
+  if (!team) {
+    throw new Error('找不到申請小組。');
+  }
+
+  var stage = ensureArray_(state && state.Config_Stages).find(function(item) {
+    return String(item.Stage_ID || '') === String(assignment.Stage_ID || '');
+  }) || null;
+  if (!stage) {
+    throw new Error('找不到這份作業所屬的會審期數。');
+  }
+
+  return {
+    assignment: assignment,
+    team: team,
+    stage: stage
+  };
+}
+
+function getDesignServiceRequestStatusLabel_(status) {
+  var labels = {
+    '待接案': '待形印組接案',
+    '製作中': '製作中',
+    '待審核': '待形印組長審核',
+    '退回修正': '退回修正',
+    '已完成': '已完成'
+  };
+  return labels[String(status || '')] || String(status || '處理中');
+}
+
+function updateDesignServiceSettings_(state, settings) {
+  state.Design_Service_Settings = [hydrateDesignServiceSettingsRecord_(settings)];
+}
+
+function handleConfigureDesignService_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin']);
+  var requestedIds = payload && payload.eligibleUserIds;
+  if (typeof requestedIds === 'string') {
+    try {
+      requestedIds = JSON.parse(requestedIds);
+    } catch (ignoreError) {
+      requestedIds = requestedIds.split(',');
+    }
+  }
+
+  var eligibleIds = ensureArray_(requestedIds).map(function(userId) {
+    return String(userId || '').trim();
+  }).filter(function(userId, index, list) {
+    return userId && list.indexOf(userId) === index;
+  });
+  var invalidIds = eligibleIds.filter(function(userId) {
+    return !ensureArray_(state.Users).some(function(user) {
+      return String(user.User_ID || '') === userId
+        && String(user.Role || '') === 'Admin'
+        && String(user.Status || '') === 'Active';
+    });
+  });
+  if (invalidIds.length > 0) {
+    throw new Error('只能指定目前為啟用中的形印組員接案。');
+  }
+
+  var previousState = cloneObject_(state);
+  var settings = getDesignServiceSettings_(state);
+  settings.Enabled = payload.enabled === true || String(payload.enabled || '').toLowerCase() === 'true';
+  settings.Eligible_User_IDs = eligibleIds;
+  settings.Updated_At = nowString_();
+  settings.Updated_By_User_ID = String(actor.User_ID || '');
+  updateDesignServiceSettings_(state, settings);
+
+  persistState_(state, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+  state = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '設定形印代做',
+      '已' + (settings.Enabled ? '開啟' : '關閉') + '形印代做，指定 ' + eligibleIds.length + ' 位形印組員可接案。',
+      'design-service',
+      settings.Settings_ID,
+      'normal',
+      { source: 'configureDesignService', enabled: settings.Enabled, eligibleUserIds: eligibleIds }
+    )
+  ]);
+
+  return buildClientStateResultForUser_(state, actor, {
+    designServiceSettings: getDesignServiceSettings_(state)
+  });
+}
+
+function handleRequestDesignService_(payload) {
+  var state = loadState_();
+  var previousState = cloneObject_(state);
+  var actor = requireSessionUser_(state, payload, ['Leader', 'Member', 'Admin']);
+  if (String(actor.Team_ID || '') === 'T00') {
+    throw new Error('只有正式小組可以申請形印代做。');
+  }
+  var settings = getDesignServiceSettings_(state);
+  if (settings.Enabled !== true) {
+    throw new Error('目前尚未開放形印代做申請。');
+  }
+
+  var context = getDesignServiceAssignmentContext_(state, payload.assignmentId, actor.Team_ID);
+  var existingOrder = ensureArray_(state.Design_Service_Orders).find(function(order) {
+    return String(order.Assignment_ID || '') === String(context.assignment.Assignment_ID || '')
+      && String(order.Team_ID || '') === String(actor.Team_ID || '')
+      && String(order.Status || '') !== '取消';
+  }) || null;
+  if (existingOrder) {
+    throw new Error('這份作業已經有形印代做案件，請直接查看目前案件狀態。');
+  }
+
+  var requestedAt = nowString_();
+  var order = hydrateDesignServiceOrderRecord_({
+    Service_Order_ID: generateSequentialId_('DS', state.Design_Service_Orders, 'Service_Order_ID'),
+    Assignment_ID: context.assignment.Assignment_ID,
+    Stage_ID: context.stage.Stage_ID,
+    Team_ID: actor.Team_ID,
+    Requested_By_User_ID: actor.User_ID,
+    Requested_At: requestedAt,
+    Status: '待接案',
+    Updated_At: requestedAt
+  });
+  state.Design_Service_Orders.unshift(order);
+
+  var adminIds = getDesignServiceEligibleUserIds_(state, settings);
+  var leaderIds = ensureArray_(state.Users).filter(function(user) {
+    return String(user.Role || '') === 'SuperAdmin' && String(user.Status || '') === 'Active';
+  }).map(function(user) {
+    return String(user.User_ID || '');
+  });
+  createNotifications_(state, {
+    type: 'design-service-request',
+    title: '收到形印代做申請',
+    message: context.team.Team_Name + ' 申請「' + context.assignment.Title + '」由形印組協助製作，等待接案。',
+    tab: 'design-service',
+    refType: 'design-service-order',
+    refId: order.Service_Order_ID,
+    audience: { userIds: adminIds.concat(leaderIds) },
+    createdAt: requestedAt,
+    priority: 'high'
+  });
+
+  persistState_(state, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+  state = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '申請形印代做',
+      context.team.Team_Name + ' 已申請「' + context.assignment.Title + '」由形印組協助製作。',
+      'design-service',
+      order.Service_Order_ID,
+      'normal',
+      { source: 'requestDesignService', assignmentId: context.assignment.Assignment_ID, teamId: actor.Team_ID }
+    )
+  ]);
+
+  return buildClientStateResultForUser_(state, actor, {
+    designServiceOrder: getDesignServiceOrderById_(state, order.Service_Order_ID)
+  });
+}
+
+function handleClaimDesignServiceOrder_(payload) {
+  var state = loadState_();
+  var previousState = cloneObject_(state);
+  var actor = requireSessionUser_(state, payload, ['Admin']);
+  var settings = getDesignServiceSettings_(state);
+  if (settings.Enabled !== true) {
+    throw new Error('目前未開放新的形印代做接案。');
+  }
+  if (getDesignServiceEligibleUserIds_(state, settings).indexOf(String(actor.User_ID || '')) === -1) {
+    throw new Error('目前尚未被組長指定為可接案的形印組員。');
+  }
+
+  var order = getDesignServiceOrderById_(state, payload.serviceOrderId);
+  if (!order) {
+    throw new Error('找不到指定的形印代做案件。');
+  }
+  if (order.Status !== '待接案') {
+    throw new Error('這個案件已被其他人接案或已進入下一個流程。');
+  }
+
+  var claimedAt = nowString_();
+  order.Responsible_User_ID = String(actor.User_ID || '');
+  order.Responsible_Name = String(actor.Name || '');
+  order.Claimed_At = claimedAt;
+  order.Status = '製作中';
+  order.Updated_At = claimedAt;
+
+  createNotifications_(state, {
+    type: 'design-service-claimed',
+    title: '形印代做已接案',
+    message: '「' + order.Service_Order_ID + '」已由 ' + actor.Name + ' 接案製作。',
+    tab: 'design-service',
+    refType: 'design-service-order',
+    refId: order.Service_Order_ID,
+    audience: { teamIds: [order.Team_ID] },
+    createdAt: claimedAt,
+    priority: 'normal'
+  });
+
+  persistState_(state, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+  state = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '接案形印代做',
+      '已接下形印代做案件「' + order.Service_Order_ID + '」。',
+      'design-service',
+      order.Service_Order_ID,
+      'normal',
+      { source: 'claimDesignServiceOrder', teamId: order.Team_ID }
+    )
+  ]);
+
+  return buildClientStateResultForUser_(state, actor, {
+    designServiceOrder: getDesignServiceOrderById_(state, order.Service_Order_ID)
+  });
+}
+
+function updateDesignServiceOrderWithDrive_(state, actor, order, driveResult) {
+  var submittedAt = nowString_();
+  order.File_Name = String(driveResult.fileName || '');
+  order.Google_Drive_URL = String(driveResult.fileUrl || '');
+  order.Drive_File_ID = String(driveResult.fileId || '');
+  order.Drive_Folder_ID = String(driveResult.folderId || '');
+  order.Submitted_At = submittedAt;
+  order.Reviewed_By_User_ID = '';
+  order.Reviewed_At = '';
+  order.Review_Note = '';
+  order.Status = '待審核';
+  order.Updated_At = submittedAt;
+
+  createNotifications_(state, {
+    type: 'design-service-deliverable',
+    title: '形印代做成果已送審',
+    message: '「' + order.Service_Order_ID + '」已由 ' + String(actor.Name || '形印組員') + ' 上傳成果，等待組長審核。',
+    tab: 'design-service',
+    refType: 'design-service-order',
+    refId: order.Service_Order_ID,
+    audience: {
+      roles: ['SuperAdmin'],
+      teamIds: [order.Team_ID]
+    },
+    createdAt: submittedAt,
+    priority: 'high'
+  });
+
+  return submittedAt;
+}
+
+function handleUploadDesignServiceDeliverable_(payload) {
+  var state = loadState_();
+  var previousState = cloneObject_(state);
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  var order = getDesignServiceOrderById_(state, payload.serviceOrderId);
+  if (!order) {
+    throw new Error('找不到指定的形印代做案件。');
+  }
+  if (String(actor.Role || '') !== 'SuperAdmin' && String(order.Responsible_User_ID || '') !== String(actor.User_ID || '')) {
+    throw new Error('FORBIDDEN: 只有案件負責人可以上傳形印代做成果。');
+  }
+  if (['製作中', '退回修正'].indexOf(String(order.Status || '')) === -1) {
+    throw new Error('目前案件狀態不開放上傳成果。');
+  }
+
+  var fileName = String(payload.fileName || payload.sourceFileName || '').trim();
+  var fileContentBase64 = String(payload.fileContentBase64 || payload.base64 || '').trim();
+  var mimeType = String(payload.mimeType || 'application/octet-stream').trim();
+  var fileSize = Number(payload.fileSize || 0);
+  if (!fileName || !fileContentBase64) {
+    throw new Error('請直接選擇要上傳的成果檔案。');
+  }
+  if (fileSize > MAX_BROWSER_UPLOAD_SIZE_BYTES) {
+    throw new Error('成果檔案超過目前直傳上限 18 MB，請改用穩定上傳頁。');
+  }
+
+  var parsedFile = parseFileMeta_(fileName);
+  if (!parsedFile.extension || !isSupportedUploadExtension_(parsedFile.extension)) {
+    throw new Error('目前只支援 ai、pdf、psd、indd、圖像格式與 zip。');
+  }
+  var assignment = ensureArray_(state.Assignments).find(function(item) {
+    return String(item.Assignment_ID || '') === String(order.Assignment_ID || '');
+  }) || null;
+  var stage = ensureArray_(state.Config_Stages).find(function(item) {
+    return String(item.Stage_ID || '') === String(order.Stage_ID || '');
+  }) || null;
+  var team = ensureArray_(state.Teams).find(function(item) {
+    return String(item.Team_ID || '') === String(order.Team_ID || '');
+  }) || null;
+  if (!assignment || !stage || !team) {
+    throw new Error('找不到形印代做案件的作業、會審或小組資料。');
+  }
+
+  var driveResult = createDriveFileFromBase64_(
+    fileContentBase64,
+    mimeType,
+    fileName,
+    [stage.Stage_Name, team.Team_Name, '形印代做', assignment.Title, order.Service_Order_ID],
+    fileName
+  );
+  updateDesignServiceOrderWithDrive_(state, actor, order, driveResult);
+
+  persistState_(state, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+  state = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '上傳形印代做成果',
+      '已將「' + driveResult.fileName + '」送入形印代做案件「' + order.Service_Order_ID + '」等待審核。',
+      'design-service',
+      order.Service_Order_ID,
+      'normal',
+      { source: 'uploadDesignServiceDeliverable', driveFileId: driveResult.fileId }
+    )
+  ]);
+
+  return buildClientStateResultForUser_(state, actor, {
+    designServiceOrder: getDesignServiceOrderById_(state, order.Service_Order_ID),
+    drive: driveResult
+  });
+}
+
+function handleReviewDesignServiceOrder_(payload) {
+  var state = loadState_();
+  var previousState = cloneObject_(state);
+  var reviewer = requireSessionUser_(state, payload, ['SuperAdmin']);
+  var order = getDesignServiceOrderById_(state, payload.serviceOrderId);
+  var decision = String(payload.status || '').trim();
+  var reviewNote = String(payload.reviewNote || payload.comment || '').trim();
+  if (!order) {
+    throw new Error('找不到指定的形印代做案件。');
+  }
+  if (['通過', '退件'].indexOf(decision) === -1) {
+    throw new Error('請選擇通過或退回修正。');
+  }
+  if (order.Status !== '待審核') {
+    throw new Error('只有待審核的形印代做成果可以進行審核。');
+  }
+
+  var reviewedAt = nowString_();
+  order.Status = decision === '通過' ? '已完成' : '退回修正';
+  order.Reviewed_By_User_ID = String(reviewer.User_ID || '');
+  order.Reviewed_At = reviewedAt;
+  order.Review_Note = decision === '退件' ? (reviewNote || '請依形印組長意見修正後重新上傳。') : reviewNote;
+  order.Updated_At = reviewedAt;
+
+  createNotifications_(state, {
+    type: decision === '通過' ? 'design-service-approved' : 'design-service-rejected',
+    title: decision === '通過' ? '形印代做成果已完成' : '形印代做成果需要修正',
+    message: decision === '通過'
+      ? '案件「' + order.Service_Order_ID + '」已通過形印組長審核。'
+      : '案件「' + order.Service_Order_ID + '」已退回修正。' + (order.Review_Note ? ' 審核意見：' + order.Review_Note : ''),
+    tab: 'design-service',
+    refType: 'design-service-order',
+    refId: order.Service_Order_ID,
+    audience: {
+      teamIds: [order.Team_ID],
+      userIds: order.Responsible_User_ID ? [order.Responsible_User_ID] : []
+    },
+    createdAt: reviewedAt,
+    priority: decision === '通過' ? 'normal' : 'high'
+  });
+
+  persistState_(state, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+  state = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      reviewer,
+      decision === '通過' ? '通過形印代做審核' : '退回形印代做成果',
+      '已將形印代做案件「' + order.Service_Order_ID + '」標記為「' + order.Status + '」。',
+      'design-service',
+      order.Service_Order_ID,
+      decision === '通過' ? 'normal' : 'warning',
+      { source: 'reviewDesignServiceOrder', decision: decision, reviewNote: order.Review_Note }
+    )
+  ]);
+
+  return buildClientStateResultForUser_(state, reviewer, {
+    designServiceOrder: getDesignServiceOrderById_(state, order.Service_Order_ID)
+  });
+}
+
 function handleLargeFileFormUpload_(payload) {
   var state = loadState_();
   var currentUser = requireStudentUploadActor_(state, payload);
@@ -3768,6 +4610,88 @@ function handleLargeAssignmentAssetFormUpload_(payload) {
     driveFolderId: driveResult.folderId,
     folderPath: driveResult.folderPath,
     uploadedAt: nowString_()
+  };
+}
+
+function handleLargeDesignServiceFormUpload_(payload) {
+  var state = loadState_();
+  var previousState = cloneObject_(state);
+  var currentUser = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  var serviceOrderId = String(payload.serviceOrderId || '').trim();
+  var order = getDesignServiceOrderById_(state, serviceOrderId);
+  if (!order) {
+    throw new Error('找不到指定的形印代做案件。');
+  }
+  if (String(currentUser.Role || '') !== 'SuperAdmin'
+    && String(order.Responsible_User_ID || '') !== String(currentUser.User_ID || '')) {
+    throw new Error('FORBIDDEN: 只有案件負責人可以上傳形印代做成果。');
+  }
+  if (['製作中', '退回修正'].indexOf(String(order.Status || '')) === -1) {
+    throw new Error('目前案件狀態不開放上傳成果。');
+  }
+
+  var blob = resolveUploadBlob_(payload.uploadFile);
+  var fileSize = getBlobSizeBytes_(blob);
+  if (fileSize > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES) {
+    throw new Error('檔案超過穩定上傳頁 50 MB 上限。');
+  }
+
+  var sourceFileName = String(payload.sourceFileName || '').trim();
+  var actualFileName = sanitizeDriveEntryName_(blob.getName && blob.getName(), sourceFileName || 'design-service-deliverable.bin');
+  var parsedFile = parseFileMeta_(actualFileName);
+  if (!parsedFile.extension || !isSupportedUploadExtension_(parsedFile.extension)) {
+    throw new Error('目前只支援 ai、pdf、psd、indd、圖像格式與 zip。');
+  }
+
+  var assignment = ensureArray_(state.Assignments).find(function(item) {
+    return String(item.Assignment_ID || '') === String(order.Assignment_ID || '');
+  }) || null;
+  var stage = ensureArray_(state.Config_Stages).find(function(item) {
+    return String(item.Stage_ID || '') === String(order.Stage_ID || '');
+  }) || null;
+  var team = ensureArray_(state.Teams).find(function(item) {
+    return String(item.Team_ID || '') === String(order.Team_ID || '');
+  }) || null;
+  if (!assignment || !stage || !team) {
+    throw new Error('找不到形印代做案件的作業、會審或小組資料。');
+  }
+
+  var driveResult = createDriveFileFromBlob_(
+    blob,
+    [stage.Stage_Name, team.Team_Name, '形印代做', assignment.Title, order.Service_Order_ID],
+    actualFileName
+  );
+  updateDesignServiceOrderWithDrive_(state, currentUser, order, driveResult);
+
+  persistState_(state, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+  state = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      currentUser,
+      '上傳形印代做成果',
+      '已透過穩定上傳將「' + driveResult.fileName + '」送入案件「' + order.Service_Order_ID + '」等待審核。',
+      'design-service',
+      order.Service_Order_ID,
+      'normal',
+      { source: 'largeDesignServiceUpload', driveFileId: driveResult.fileId }
+    )
+  ]);
+
+  return {
+    status: 'success',
+    mode: 'design-service',
+    sessionKey: String(payload.sessionKey || '').trim(),
+    serviceOrderId: order.Service_Order_ID,
+    fileName: driveResult.fileName,
+    fileUrl: driveResult.fileUrl,
+    driveFileId: driveResult.fileId,
+    driveFolderId: driveResult.folderId,
+    folderPath: driveResult.folderPath,
+    uploadedAt: order.Submitted_At
   };
 }
 
