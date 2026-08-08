@@ -1291,6 +1291,35 @@
         </div>
     </div>
 
+    <!-- 繳交紀錄審核 Modal -->
+    <div id="assignment-review-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[84] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeAssignmentReviewModal()">
+        <div class="w-full max-w-md space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex items-center gap-2 text-[#0066CC]">
+                    <i data-lucide="clipboard-check" class="h-5 w-5"></i>
+                    <div>
+                        <h3 class="font-bold text-base text-[#1D1D1F]">審核繳交紀錄</h3>
+                        <p id="assignment-review-submission-title" class="mt-0.5 text-[10px] text-[#86868B]">請確認小組提交的內容。</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeAssignmentReviewModal()" class="text-[#86868B] hover:text-[#1D1D1F]">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            <div id="assignment-review-submission-summary" class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-3 text-[11px] leading-relaxed text-[#6E6E73]"></div>
+            <div>
+                <label class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">審核意見</label>
+                <textarea id="assignment-review-note" rows="4" class="w-full resize-none rounded-2xl border border-[#E8E8ED] px-4 py-3 text-xs focus:border-[#0066CC] focus:outline-none" placeholder="通過可留下補充說明；退回修正時請填寫具體修改方向。"></textarea>
+                <p id="assignment-review-note-hint" class="mt-1.5 text-[10px] text-[#86868B]">退回修正時，這段意見會同步提供給原繳交小組。</p>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closeAssignmentReviewModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button>
+                <button type="button" id="assignment-review-reject-button" onclick="submitAssignmentReview('退回修正')" class="rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B]">退回修正</button>
+                <button type="button" id="assignment-review-approve-button" onclick="submitAssignmentReview('通過')" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white">通過</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 形印代做申請 Modal -->
     <div id="design-service-request-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceRequestModal()">
         <div class="w-full max-w-md space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
@@ -1527,6 +1556,7 @@
         let selectedNotificationIds = [];
         let activeFileGroupKey = null;
         let activeAssignmentId = "";
+        let activeAssignmentReviewSubmissionId = "";
         let pendingUploadContext = null;
         let pendingStageDeleteContext = null;
         let stageDeleteInFlight = false;
@@ -2943,6 +2973,24 @@
 
             if (applyBackendStateResponse(response, {
                 preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : ""
+            })) {
+                gasConnectionStatus = "remote";
+            }
+
+            return response;
+        }
+
+        async function submitRemoteAssignmentReview(submissionId, status, reviewNote) {
+            const response = await requestGas("reviewAssignmentSubmission", {
+                submissionId: submissionId,
+                status: status,
+                reviewNote: reviewNote || "",
+                stateRevision: remoteStateRevision
+            });
+
+            if (applyBackendStateResponse(response, {
+                preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                allowFallback: false
             })) {
                 gasConnectionStatus = "remote";
             }
@@ -5009,8 +5057,21 @@
             submission.Notes = String(submission.Notes || "");
             submission.Drive_File_ID = String(submission.Drive_File_ID || "");
             submission.Drive_Folder_ID = String(submission.Drive_Folder_ID || "");
+            submission.Reviewed_By_User_ID = String(submission.Reviewed_By_User_ID || "");
+            submission.Reviewed_At = normalizeAssignmentDateTime(submission.Reviewed_At || "");
+            submission.Review_Note = String(submission.Review_Note || "");
 
             return submission;
+        }
+
+        function isAssignmentSubmissionRejected(submission) {
+            return /退件|退回|修正/.test(String(submission && submission.Status || ""));
+        }
+
+        function canResubmitAssignmentSubmission(assignment, submission) {
+            return Boolean(assignment && submission)
+                && assignment.Allow_ReSubmit === true
+                && isAssignmentSubmissionRejected(submission);
         }
 
         function getAssignmentTargetTeamIds(assignment) {
@@ -5051,6 +5112,14 @@
         function getLatestAssignmentSubmissionForTeam(assignmentId, teamId) {
             return getAssignmentSubmissionsForAssignment(assignmentId).find(function(submission) {
                 return submission.Team_ID === teamId;
+            }) || null;
+        }
+
+        function getLatestAssignmentSubmissionForTargetTeams(assignment) {
+            if (!assignment) return null;
+            const targetTeamIds = new Set(getAssignmentTargetTeamIds(assignment));
+            return getAssignmentSubmissionsForAssignment(assignment.Assignment_ID).find(function(submission) {
+                return targetTeamIds.has(submission.Team_ID);
             }) || null;
         }
 
@@ -5112,17 +5181,61 @@
             });
 
             const progress = targetCount > 0 ? Math.round((submittedPairs.size / targetCount) * 100) : 0;
-            const canSubmit = !isExhibitionAdmin && (assignment.Target_Mode !== "selected" || targetIds.includes(effectiveTeamID)) && (!latestSubmission || assignment.Allow_ReSubmit);
-            const isSubmitted = Boolean(latestSubmission);
+            const canSubmit = !isExhibitionAdmin
+                && (assignment.Target_Mode !== "selected" || targetIds.includes(effectiveTeamID))
+                && (!latestSubmission || canResubmitAssignmentSubmission(assignment, latestSubmission));
+            const adminLatestSubmission = isExhibitionAdmin ? getLatestAssignmentSubmissionForTargetTeams(assignment) : null;
+            const latestTargetSubmissions = targetIds.map(function(teamId) {
+                return getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, teamId);
+            }).filter(Boolean);
+            const submittedTargetCount = latestTargetSubmissions.length;
+            const approvedTargetCount = latestTargetSubmissions.filter(function(submission) {
+                return getAssignmentReviewSubmissionStatus(submission).key === "approved";
+            }).length;
+            const rejectedTargetCount = latestTargetSubmissions.filter(function(submission) {
+                return getAssignmentReviewSubmissionStatus(submission).key === "rejected";
+            }).length;
+            const isSubmitted = isExhibitionAdmin
+                ? targetCount > 0 && submittedPairs.size >= targetCount
+                : Boolean(latestSubmission);
+            const hasAnySubmission = isExhibitionAdmin
+                ? submittedPairs.size > 0
+                : Boolean(latestSubmission);
             const isOverdue = isAssignmentOverdue(assignment);
             const countdownLabel = formatAssignmentCountdownLabel(assignment);
 
             let statusLabel = "待繳交";
             let statusTone = "bg-[#FF9500] bg-opacity-10 text-[#FF9500]";
 
-            if (isSubmitted) {
-                statusLabel = "已繳交";
-                statusTone = "bg-[#34C759] bg-opacity-10 text-[#34C759]";
+            if (isExhibitionAdmin) {
+                if (targetCount > 0 && approvedTargetCount >= targetCount) {
+                    statusLabel = "審核完成";
+                    statusTone = "bg-[#34C759] bg-opacity-10 text-[#34C759]";
+                } else if (rejectedTargetCount > 0) {
+                    statusLabel = "有退回修正";
+                    statusTone = "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]";
+                } else if (isSubmitted) {
+                    statusLabel = "待審核";
+                    statusTone = "bg-[#FF9500] bg-opacity-10 text-[#FF9500]";
+                } else if (hasAnySubmission) {
+                    statusLabel = "部分繳交";
+                    statusTone = "bg-[#0066CC] bg-opacity-10 text-[#0066CC]";
+                } else if (isOverdue) {
+                    statusLabel = "已逾期";
+                    statusTone = "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]";
+                }
+            } else if (latestSubmission) {
+                const submissionStatus = getAssignmentReviewSubmissionStatus(latestSubmission);
+                if (submissionStatus.key === "approved") {
+                    statusLabel = "已通過";
+                    statusTone = "bg-[#34C759] bg-opacity-10 text-[#34C759]";
+                } else if (submissionStatus.key === "rejected") {
+                    statusLabel = "退回修正";
+                    statusTone = "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]";
+                } else {
+                    statusLabel = "待審核";
+                    statusTone = "bg-[#FF9500] bg-opacity-10 text-[#FF9500]";
+                }
             } else if (isOverdue) {
                 statusLabel = "已逾期";
                 statusTone = "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]";
@@ -5130,6 +5243,8 @@
                 statusLabel = "可繳交";
                 statusTone = "bg-[#0066CC] bg-opacity-10 text-[#0066CC]";
             }
+
+            const displaySubmission = isExhibitionAdmin ? adminLatestSubmission : latestSubmission;
 
             return {
                 progress: progress,
@@ -5139,9 +5254,12 @@
                 statusLabel: statusLabel,
                 statusTone: statusTone,
                 countdownLabel: countdownLabel,
+                submittedTargetCount: submittedTargetCount,
+                approvedTargetCount: approvedTargetCount,
+                rejectedTargetCount: rejectedTargetCount,
                 submissionCount: getAssignmentSubmissionsForAssignment(assignment.Assignment_ID).length,
-                latestSubmissionSummary: latestSubmission
-                    ? (formatCompactDateTimeLabel(latestSubmission.Submitted_At || latestSubmission.Updated_At) + " · " + (latestSubmission.File_Name || latestSubmission.Text_Content || "已繳交"))
+                latestSubmissionSummary: displaySubmission
+                    ? (formatCompactDateTimeLabel(displaySubmission.Submitted_At || displaySubmission.Updated_At) + " · " + (displaySubmission.File_Name || displaySubmission.Text_Content || "已繳交") + " · " + getAssignmentReviewSubmissionStatus(displaySubmission).label)
                     : "尚未繳交",
                 targetLabels: getAssignmentTargetTeamLabels(assignment)
             };
@@ -5460,13 +5578,25 @@
                 const targetTeamCount = targetTeamIds.length;
                 const submittedTeamIds = new Set(getAssignmentSubmissionsForAssignment(assignment.Assignment_ID).map(function(item) {
                     return item.Team_ID;
+                }).filter(function(teamId) {
+                    return targetTeamIds.includes(teamId);
                 }));
                 assignment.__progress = targetTeamCount > 0 ? Math.round((submittedTeamIds.size / targetTeamCount) * 100) : 0;
-                assignment.__latestSubmission = latestSubmission;
-                assignment.__isSubmitted = Boolean(latestSubmission);
+                assignment.__latestSubmission = isExhibitionAdmin
+                    ? getLatestAssignmentSubmissionForTargetTeams(assignment)
+                    : latestSubmission;
+                assignment.__isSubmitted = isExhibitionAdmin
+                    ? targetTeamCount > 0 && submittedTeamIds.size >= targetTeamCount
+                    : Boolean(latestSubmission);
                 assignment.__isOverdue = isAssignmentOverdue(assignment);
-                assignment.__statusTag = assignment.__isSubmitted ? "已繳交" : (assignment.__isOverdue ? "已逾期" : "待繳交");
-                assignment.__currentUserCanSubmit = !isExhibitionAdmin && (assignment.Target_Mode !== "selected" || targetTeamIds.includes(effectiveTeamID)) && (!latestSubmission || assignment.Allow_ReSubmit);
+                assignment.__statusTag = assignment.__isSubmitted
+                    ? "已繳交"
+                    : (isExhibitionAdmin && submittedTeamIds.size > 0
+                        ? "部分繳交"
+                        : (assignment.__isOverdue ? "已逾期" : "待繳交"));
+                assignment.__currentUserCanSubmit = !isExhibitionAdmin
+                    && (assignment.Target_Mode !== "selected" || targetTeamIds.includes(effectiveTeamID))
+                    && (!latestSubmission || canResubmitAssignmentSubmission(assignment, latestSubmission));
                 assignment.__targetTeamLabels = getAssignmentTargetTeamLabels(assignment);
                 assignment.__nowText = nowText;
                 return assignment;
@@ -6964,6 +7094,164 @@
             }
         }
 
+        function openAssignmentReviewModal(submissionId, initialDecision) {
+            const roleContext = getEffectiveRoleContext();
+            if (!canManageAssignmentBoard(roleContext.effectiveRole)) {
+                showToast("只有形印組管理者可以審核繳交紀錄。", "warning");
+                return;
+            }
+
+            const submission = ensureArray(state.Assignment_Submissions).find(function(item) {
+                return String(item.Submission_ID || "") === String(submissionId || "");
+            });
+            const assignment = submission
+                ? state.Assignments.find(function(item) { return item.Assignment_ID === submission.Assignment_ID; })
+                : null;
+            if (!submission || !assignment) {
+                showToast("找不到要審核的繳交紀錄。", "warning");
+                return;
+            }
+
+            const submissionStatus = getAssignmentReviewSubmissionStatus(submission);
+            if (submissionStatus.key === "approved") {
+                showToast("這筆繳交紀錄已經審核通過。", "info");
+                return;
+            }
+
+            const team = state.Teams.find(function(item) {
+                return item.Team_ID === submission.Team_ID;
+            });
+            if (roleContext.effectiveRole === "Admin" && currentUser && currentUser.Team_ID === submission.Team_ID) {
+                showToast("利益衝突迴避：不可審核自己小組的繳交紀錄。", "warning");
+                return;
+            }
+
+            activeAssignmentReviewSubmissionId = String(submission.Submission_ID || "");
+            const modal = document.getElementById("assignment-review-modal");
+            const title = document.getElementById("assignment-review-submission-title");
+            const summary = document.getElementById("assignment-review-submission-summary");
+            const note = document.getElementById("assignment-review-note");
+            const hint = document.getElementById("assignment-review-note-hint");
+            const rejectButton = document.getElementById("assignment-review-reject-button");
+            const approveButton = document.getElementById("assignment-review-approve-button");
+            if (!modal || !title || !summary || !note) return;
+
+            title.textContent = (team ? team.Team_Name : submission.Team_ID) + " · " + assignment.Title;
+            summary.innerHTML = `
+                <p><span class="font-semibold text-[#1D1D1F]">繳交時間：</span>${escapeHtml(formatCompactDateTimeLabel(submission.Submitted_At || submission.Updated_At))} · 第 ${Number(submission.Submission_No || 1)} 次繳交</p>
+                ${submission.File_Name ? `<p class="mt-1"><span class="font-semibold text-[#1D1D1F]">附件：</span>${escapeHtml(submission.File_Name)}</p>` : ''}
+                ${submission.Text_Content ? `<p class="mt-1 whitespace-pre-wrap"><span class="font-semibold text-[#1D1D1F]">文字：</span>${escapeHtml(submission.Text_Content)}</p>` : ''}
+            `;
+            note.value = submission.Review_Note || "";
+            const decision = String(initialDecision || "退回修正");
+            if (hint) {
+                hint.textContent = decision === "通過"
+                    ? "可留下補充說明；儲存後此筆紀錄會標示為審核通過。"
+                    : "退回修正時，這段意見會同步提供給原繳交小組。";
+            }
+            if (rejectButton) rejectButton.classList.toggle("ring-2", decision === "退回修正");
+            if (approveButton) approveButton.classList.toggle("ring-2", decision === "通過");
+
+            animateSurfaceOpen(modal, modal.firstElementChild, {
+                fromY: 16,
+                fromScale: 0.98,
+                duration: 360
+            });
+            renderLucideIcons();
+        }
+
+        function closeAssignmentReviewModal() {
+            activeAssignmentReviewSubmissionId = "";
+            const modal = document.getElementById("assignment-review-modal");
+            if (modal) {
+                animateSurfaceClose(modal, modal.firstElementChild, {
+                    hideDelay: 180
+                });
+            }
+        }
+
+        async function submitAssignmentReview(decision) {
+            const submissionId = String(activeAssignmentReviewSubmissionId || "");
+            const noteInput = document.getElementById("assignment-review-note");
+            const reviewNote = String(noteInput && noteInput.value || "").trim();
+            if (!submissionId) return;
+            if (decision === "退回修正" && !reviewNote) {
+                showToast("退回修正前請先填寫審核意見。", "warning");
+                if (noteInput) noteInput.focus();
+                return;
+            }
+
+            const approveButton = document.getElementById("assignment-review-approve-button");
+            const rejectButton = document.getElementById("assignment-review-reject-button");
+            const originalApproveLabel = approveButton ? approveButton.textContent : "通過";
+            const originalRejectLabel = rejectButton ? rejectButton.textContent : "退回修正";
+            if (approveButton) approveButton.disabled = true;
+            if (rejectButton) rejectButton.disabled = true;
+            if (decision === "通過" && approveButton) approveButton.textContent = "處理中…";
+            if (decision === "退回修正" && rejectButton) rejectButton.textContent = "處理中…";
+
+            try {
+                if (isRemoteSyncEnabled()) {
+                    await submitRemoteAssignmentReview(submissionId, decision, reviewNote);
+                } else {
+                    const submission = state.Assignment_Submissions.find(function(item) {
+                        return String(item.Submission_ID || "") === submissionId;
+                    });
+                    if (!submission) throw new Error("找不到要審核的繳交紀錄。");
+                    if (getEffectiveRoleContext().effectiveRole === "Admin" && currentUser && currentUser.Team_ID === submission.Team_ID) {
+                        throw new Error("利益衝突迴避：不可審核自己小組的繳交紀錄。");
+                    }
+                    const now = formatDateTimeTaipei(new Date());
+                    submission.Status = decision;
+                    submission.Reviewed_By_User_ID = currentUser ? currentUser.User_ID : "";
+                    submission.Reviewed_At = now;
+                    submission.Review_Note = reviewNote;
+                    submission.Updated_At = now;
+                    const assignment = state.Assignments.find(function(item) { return item.Assignment_ID === submission.Assignment_ID; });
+                    const team = state.Teams.find(function(item) { return item.Team_ID === submission.Team_ID; });
+                    createNotification({
+                        type: "assignment-review",
+                        title: decision === "退回修正" ? "繳交項目退回修正" : "繳交項目審核通過",
+                        message: "「" + (assignment ? assignment.Title : "繳交項目") + "」已" + (decision === "退回修正" ? "退回修正" : "審核通過") + (reviewNote ? "。審核意見：" + reviewNote : "。"),
+                        tab: "files",
+                        refType: "assignment",
+                        refId: submission.Assignment_ID,
+                        audience: { teamIds: [submission.Team_ID] },
+                        createdAt: now,
+                        priority: decision === "退回修正" ? "high" : "normal"
+                    }, { silent: true });
+                    createDiscussionComment({
+                        refType: "assignment",
+                        refId: submission.Assignment_ID,
+                        userId: currentUser ? currentUser.User_ID : "",
+                        teamId: submission.Team_ID,
+                        authorName: currentUser ? currentUser.Name : "形印系統",
+                        authorRole: currentUser ? currentUser.Role : "Admin",
+                        kind: "system",
+                        message: (team ? team.Team_Name : submission.Team_ID) + " 第 " + Number(submission.Submission_No || 1) + " 次繳交已" + (decision === "退回修正" ? "退回修正" : "審核通過") + (reviewNote ? "。審核意見：" + reviewNote : "。"),
+                        createdAt: now
+                    }, { silent: true, notify: false });
+                    saveState();
+                }
+
+                closeAssignmentReviewModal();
+                if (activeAssignmentId) renderAssignmentDetailModal();
+                showToast(decision === "退回修正" ? "已退回修正，該小組可重新繳交。" : "已通過這筆繳交紀錄。", decision === "退回修正" ? "warning" : "success");
+            } catch (error) {
+                console.error("繳交紀錄審核失敗", error);
+                showToast(error && error.message ? error.message : "繳交紀錄審核失敗。", "warning");
+            } finally {
+                if (approveButton) {
+                    approveButton.disabled = false;
+                    approveButton.textContent = originalApproveLabel;
+                }
+                if (rejectButton) {
+                    rejectButton.disabled = false;
+                    rejectButton.textContent = originalRejectLabel;
+                }
+            }
+        }
+
         function renderAssignmentDetailModal() {
             const modalBody = document.getElementById('assignment-detail-modal-body');
             if (!modalBody) return;
@@ -6988,7 +7276,9 @@
             });
             const submissions = getAssignmentSubmissionsForAssignment(assignment.Assignment_ID);
             const mySubmission = currentUser ? getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, effectiveTeamID) : null;
-            const canSubmit = !isExhibitionAdmin && (assignment.Target_Mode !== "selected" || getAssignmentTargetTeamIds(assignment).includes(effectiveTeamID)) && (!mySubmission || assignment.Allow_ReSubmit);
+            const mySubmissionStatus = mySubmission ? getAssignmentReviewSubmissionStatus(mySubmission) : null;
+            const lmsMeta = getAssignmentLmsStatusMeta(assignment, mySubmission, isExhibitionAdmin, effectiveTeamID);
+            const canSubmit = lmsMeta.canSubmit;
             const designServiceOrder = !isExhibitionAdmin && currentUser
                 ? getDesignServiceOrderForAssignment(assignment.Assignment_ID, effectiveTeamID)
                 : null;
@@ -6998,12 +7288,8 @@
                 && !designServiceOrder
                 && (assignment.Target_Mode !== "selected" || getAssignmentTargetTeamIds(assignment).includes(effectiveTeamID));
             const targetLabels = getAssignmentTargetTeamLabels(assignment);
-            const statusTone = mySubmission
-                ? "bg-[#34C759] bg-opacity-10 text-[#34C759]"
-                : isAssignmentOverdue(assignment)
-                    ? "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]"
-                    : "bg-[#FF9500] bg-opacity-10 text-[#FF9500]";
-            const progressWidth = Math.min(100, Math.max(0, Number(assignment.__progress || 0)));
+            const statusTone = lmsMeta.statusTone;
+            const progressWidth = Math.min(100, Math.max(0, Number(lmsMeta.progress || 0)));
             const groupedLatestByTeam = {};
 
             submissions.forEach(function(submission) {
@@ -7017,6 +7303,8 @@
                 const team = state.Teams.find(function(item) {
                     return item.Team_ID === teamId;
                 });
+                const submissionStatus = getAssignmentReviewSubmissionStatus(submission);
+                const canReviewSubmission = isExhibitionAdmin && submissionStatus.key !== "approved";
                 return `
                     <div class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
                         <div class="flex items-start justify-between gap-3">
@@ -7024,25 +7312,31 @@
                                 <p class="text-xs font-bold text-[#1D1D1F]">${team ? team.Team_Name : teamId}</p>
                                 <p class="text-[10px] text-[#86868B] mt-1">${formatCompactDateTimeLabel(submission.Submitted_At || submission.Updated_At)} · 第 ${submission.Submission_No} 次繳交</p>
                             </div>
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#34C759] bg-opacity-10 text-[#34C759]">${submission.Status || "已繳交"}</span>
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${submissionStatus.badge}">${submissionStatus.label}</span>
                         </div>
                         <p class="text-xs text-[#1D1D1F] mt-2 leading-relaxed whitespace-pre-wrap">${escapeHtml(submission.Text_Content || "（未填寫文字說明）")}</p>
                         ${submission.File_Name ? `<p class="text-[10px] text-[#0066CC] mt-2 break-all">${escapeHtml(submission.File_Name)}</p>` : ''}
-                        ${submission.Google_Drive_URL ? `<a href="${submission.Google_Drive_URL}" target="_blank" rel="noopener noreferrer" class="inline-flex mt-2 text-[10px] font-bold text-[#0066CC] hover:underline">開啟已上傳檔案</a>` : ''}
+                        ${submission.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]"><span class="font-bold">審核意見：</span>${escapeHtml(submission.Review_Note)}</div>` : ''}
+                        ${submission.Reviewed_At ? `<p class="mt-2 text-[10px] text-[#86868B]">審核時間：${escapeHtml(formatCompactDateTimeLabel(submission.Reviewed_At))}</p>` : ''}
+                        <div class="mt-3 flex flex-wrap items-center gap-2">
+                            ${submission.Google_Drive_URL ? `<a href="${submission.Google_Drive_URL}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-xl border border-[#E8E8ED] px-3 py-2 text-[10px] font-bold text-[#0066CC] hover:bg-white">開啟已上傳檔案</a>` : ''}
+                            ${canReviewSubmission ? `
+                                <button type="button" onclick="openAssignmentReviewModal('${escapeHtml(submission.Submission_ID)}', '退回修正')" class="inline-flex items-center rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] font-bold text-[#C9342B] hover:bg-[#FFF0EE]">退回修正</button>
+                                <button type="button" onclick="openAssignmentReviewModal('${escapeHtml(submission.Submission_ID)}', '通過')" class="inline-flex items-center rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white hover:opacity-90">通過</button>
+                            ` : ''}
+                        </div>
                     </div>
                 `;
             }).join('');
 
-            const latestSubmissionSummary = mySubmission
-                ? (formatCompactDateTimeLabel(mySubmission.Submitted_At || mySubmission.Updated_At) + " · " + (mySubmission.File_Name || mySubmission.Text_Content || "已繳交"))
-                : "尚未繳交";
+            const latestSubmissionSummary = lmsMeta.latestSubmissionSummary;
 
             modalBody.innerHTML = `
                 <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4 border-b border-[#E8E8ED] pb-4">
                     <div class="space-y-2">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#F5F5F7] text-[#1D1D1F]">${stage ? stage.Stage_Name : "未定會期"}</span>
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${statusTone}">${mySubmission ? "已繳交" : (isAssignmentOverdue(assignment) ? "已逾期" : "待繳交")}</span>
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${statusTone}">${lmsMeta.statusLabel}</span>
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#0066CC] bg-opacity-10 text-[#0066CC]">${getAssignmentSubmissionModeLabel(assignment.Submission_Mode)}</span>
                             ${assignment.Allow_ReSubmit ? '<span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#5E5CE6] bg-opacity-10 text-[#5E5CE6]">可重交</span>' : ''}
                         </div>
@@ -7176,11 +7470,16 @@
                                 <div class="text-xs text-[#86868B] bg-[#F5F5F7] rounded-2xl p-4">目前還沒有任何繳交紀錄。</div>
                             ` : isExhibitionAdmin ? teamSubmissionRows : `
                                 <div class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
-                                    <p class="text-xs font-bold text-[#1D1D1F]">最近一次繳交</p>
+                                    <div class="flex items-center justify-between gap-3">
+                                        <p class="text-xs font-bold text-[#1D1D1F]">最近一次繳交</p>
+                                        ${mySubmissionStatus ? `<span class="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold ${mySubmissionStatus.badge}">${mySubmissionStatus.label}</span>` : ''}
+                                    </div>
                                     <p class="text-[10px] text-[#86868B] mt-1">${mySubmission ? formatCompactDateTimeLabel(mySubmission.Submitted_At || mySubmission.Updated_At) : "尚未繳交"}</p>
                                     <p class="text-xs text-[#1D1D1F] mt-2 leading-relaxed whitespace-pre-wrap">${mySubmission ? escapeHtml(mySubmission.Text_Content || "（未填寫文字說明）") : "請完成繳交後再回來查看。"}</p>
                                     ${mySubmission && mySubmission.File_Name ? `<p class="text-[10px] text-[#0066CC] mt-2 break-all">${escapeHtml(mySubmission.File_Name)}</p>` : ''}
                                     ${mySubmission && mySubmission.Google_Drive_URL ? `<a href="${mySubmission.Google_Drive_URL}" target="_blank" rel="noopener noreferrer" class="inline-flex mt-2 text-[10px] font-bold text-[#0066CC] hover:underline">開啟已上傳檔案</a>` : ''}
+                                    ${mySubmission && mySubmission.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]"><span class="font-bold">審核意見：</span>${escapeHtml(mySubmission.Review_Note)}</div>` : ''}
+                                    ${mySubmission && mySubmission.Reviewed_At ? `<p class="mt-2 text-[10px] text-[#86868B]">審核時間：${escapeHtml(formatCompactDateTimeLabel(mySubmission.Reviewed_At))}</p>` : ''}
                                 </div>
                             `}
                         </div>
@@ -7227,8 +7526,8 @@
             }
 
             const latestSubmission = getLatestAssignmentSubmissionForTeam(assignment.Assignment_ID, effectiveTeamID);
-            if (latestSubmission && !assignment.Allow_ReSubmit) {
-                showToast("此作業不開放重交。", "warning");
+            if (latestSubmission && !canResubmitAssignmentSubmission(assignment, latestSubmission)) {
+                showToast("只有被退回修正後，才能重新繳交。", "warning");
                 return;
             }
 
