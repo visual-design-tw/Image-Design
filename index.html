@@ -360,6 +360,23 @@
             color: #86868B;
             cursor: not-allowed;
         }
+        .auth-password-toggle {
+            color: #86868B;
+            transition: color 0.18s ease, transform 0.18s ease;
+        }
+        .auth-password-toggle:hover {
+            color: #1D1D1F;
+        }
+        .auth-password-toggle:active {
+            transform: scale(0.92);
+        }
+        .auth-password-toggle:disabled {
+            opacity: 0.42;
+            cursor: not-allowed;
+        }
+        .auth-remember-checkbox {
+            accent-color: #0066CC;
+        }
         @keyframes authSpin {
             to {
                 transform: rotate(360deg);
@@ -869,13 +886,22 @@
             <form id="form-login" onsubmit="handleLogin(event)" class="space-y-4">
                 <div>
                     <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">電子郵件信箱</label>
-                    <input type="email" id="login-email" required class="auth-input w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="example@test.com">
+                    <input type="email" id="login-email" required autocomplete="username" class="auth-input w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="example@test.com">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">密碼</label>
-                    <input type="password" id="login-password" required class="auth-input w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="輸入密碼">
+                    <div class="relative">
+                        <input type="password" id="login-password" required autocomplete="current-password" class="auth-input w-full px-4 pr-12 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="輸入密碼">
+                        <button id="btn-toggle-login-password" type="button" onclick="toggleLoginPasswordVisibility()" class="auth-password-toggle absolute inset-y-0 right-0 flex w-12 items-center justify-center" aria-label="顯示密碼" title="顯示密碼">
+                            <i id="login-password-eye-icon" data-lucide="eye" class="h-4 w-4"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="flex items-center justify-end">
+                <div class="flex items-center justify-between gap-3">
+                    <label class="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E6E73]">
+                        <input id="login-remember" type="checkbox" class="auth-remember-checkbox h-4 w-4 rounded border-[#D2D2D7]" autocomplete="off">
+                        <span>記住密碼</span>
+                    </label>
                     <button id="btn-forgot-password" type="button" onclick="openForgotPasswordRequest()" class="auth-link-button text-xs font-semibold text-[#0066CC] hover:underline">
                         忘記密碼？
                     </button>
@@ -1521,6 +1547,7 @@
         const STORAGE_KEY = "shapeprint_state_v5_pro";
         const GAS_API_STORAGE_KEY = "shapeprint_gas_api_url";
         const SESSION_STORAGE_KEY = "shapeprint_auth_session_v1";
+        const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
         const SUPPORTED_UPLOAD_EXTENSIONS = [".ai", ".pdf", ".psd", ".indd", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".zip"];
@@ -1571,6 +1598,7 @@
         let gasModalLastResult = "idle";
         let gasConnectionStatus = "local";
         let authScreenMode = "login";
+        let rememberedLoginRestored = false;
         let topbarMenuOpen = false;
         let lastTopbarMenuVisualState = false;
         let passwordResetToken = "";
@@ -1717,6 +1745,8 @@
             const submitLabel = document.getElementById('btn-login-label');
             const emailInput = document.getElementById('login-email');
             const passwordInput = document.getElementById('login-password');
+            const passwordToggle = document.getElementById('btn-toggle-login-password');
+            const rememberInput = document.getElementById('login-remember');
             const forgotButton = document.getElementById('btn-forgot-password');
             const loginTab = document.getElementById('tab-btn-login');
             const registerTab = document.getElementById('tab-btn-register');
@@ -1732,7 +1762,7 @@
 
             animateLoginButtonState(loginSubmitInFlight);
 
-            [emailInput, passwordInput, forgotButton, loginTab, registerTab].forEach(function(element) {
+            [emailInput, passwordInput, passwordToggle, rememberInput, forgotButton, loginTab, registerTab].forEach(function(element) {
                 if (element) {
                     element.disabled = loginSubmitInFlight;
                 }
@@ -2436,10 +2466,12 @@
 
                 await initializePasswordResetFlowFromUrl();
                 renderAll();
+                restoreRememberedLogin();
                 setBootLoaderPhase("ready");
             } catch (error) {
                 console.error("初始化畫面失敗", error);
                 renderAll();
+                restoreRememberedLogin();
                 setBootLoaderPhase("fallback", {
                     title: "初始化途中發生問題",
                     message: "系統已先顯示可用介面，你仍然可以重新整理或改以本機模式繼續。",
@@ -8865,6 +8897,77 @@
             }
         }
 
+        function getRememberedLogin() {
+            try {
+                const raw = localStorage.getItem(REMEMBERED_LOGIN_KEY);
+                const remembered = raw ? JSON.parse(raw) : null;
+                if (!remembered || !remembered.email || !remembered.password) {
+                    return null;
+                }
+                return {
+                    email: String(remembered.email).trim(),
+                    password: String(remembered.password)
+                };
+            } catch (error) {
+                console.warn("讀取記住密碼資料失敗", error);
+                return null;
+            }
+        }
+
+        function restoreRememberedLogin() {
+            if (rememberedLoginRestored) {
+                return;
+            }
+            rememberedLoginRestored = true;
+
+            const remembered = getRememberedLogin();
+            const emailInput = document.getElementById('login-email');
+            const passwordInput = document.getElementById('login-password');
+            const rememberInput = document.getElementById('login-remember');
+            if (!remembered || !emailInput || !passwordInput) {
+                return;
+            }
+
+            emailInput.value = remembered.email;
+            passwordInput.value = remembered.password;
+            if (rememberInput) {
+                rememberInput.checked = true;
+            }
+        }
+
+        function persistRememberedLogin(email, password, shouldRemember) {
+            try {
+                if (!shouldRemember) {
+                    localStorage.removeItem(REMEMBERED_LOGIN_KEY);
+                    return;
+                }
+                localStorage.setItem(REMEMBERED_LOGIN_KEY, JSON.stringify({
+                    email: String(email || '').trim(),
+                    password: String(password || '')
+                }));
+            } catch (error) {
+                console.warn("儲存記住密碼資料失敗", error);
+            }
+        }
+
+        function toggleLoginPasswordVisibility() {
+            const passwordInput = document.getElementById('login-password');
+            const toggleButton = document.getElementById('btn-toggle-login-password');
+            const icon = document.getElementById('login-password-eye-icon');
+            if (!passwordInput || !toggleButton) {
+                return;
+            }
+
+            const shouldShow = passwordInput.type === 'password';
+            passwordInput.type = shouldShow ? 'text' : 'password';
+            toggleButton.setAttribute('aria-label', shouldShow ? '隱藏密碼' : '顯示密碼');
+            toggleButton.setAttribute('title', shouldShow ? '隱藏密碼' : '顯示密碼');
+            if (icon) {
+                icon.setAttribute('data-lucide', shouldShow ? 'eye-off' : 'eye');
+                renderLucideIcons();
+            }
+        }
+
         async function handleLogin(e) {
             e.preventDefault();
             if (loginSubmitInFlight) {
@@ -8873,6 +8976,8 @@
 
             const email = document.getElementById('login-email').value.trim();
             const pass = document.getElementById('login-password').value;
+            const rememberInput = document.getElementById('login-remember');
+            const shouldRemember = Boolean(rememberInput && rememberInput.checked);
             const minimumFeedback = waitForMs(460);
 
             showBootLoader("auth", {
@@ -8895,10 +9000,11 @@
                             email: email,
                             password: pass
                         }, {
-                            renderImmediately: false
-                        }),
-                        minimumFeedback
-                    ]);
+                        renderImmediately: false
+                    }),
+                    minimumFeedback
+                ]);
+                    persistRememberedLogin(email, pass, shouldRemember);
                     renderAll();
                     showToast("登入成功，歡迎回到系統！", "success");
                     return;
@@ -8921,6 +9027,7 @@
                 activeTab = "overview";
                 activeWorkspace = resolveWorkspaceForUser(currentUser);
                 persistCurrentSession();
+                persistRememberedLogin(email, pass, shouldRemember);
                 await minimumFeedback;
                 renderAll();
                 showToast("登入成功，歡迎回到系統！", "success");
