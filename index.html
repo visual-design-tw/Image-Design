@@ -1260,9 +1260,9 @@
                         </div>
                     </div>
                     <div class="flex items-center justify-between gap-3">
-                        <p id="upload-large-file-note" class="text-[10px] text-[#5F6975]">穩定上傳頁最高支援約 50 MB。</p>
-                        <button type="button" onclick="startStableFileUploadFlow()" class="px-4 py-2 rounded-xl bg-[#0066CC] text-white text-[11px] font-bold hover:opacity-95 transition shadow-sm">
-                            開啟穩定上傳頁
+                        <p id="upload-large-file-note" class="text-[10px] text-[#5F6975]">18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。</p>
+                        <button type="button" id="upload-large-file-button" onclick="startStableFileUploadFlow()" class="px-4 py-2 rounded-xl bg-[#0066CC] text-white text-[11px] font-bold hover:opacity-95 transition shadow-sm">
+                            上傳大檔
                         </button>
                     </div>
                 </div>
@@ -1384,7 +1384,7 @@
             <form id="design-service-upload-form" onsubmit="handleDesignServiceUploadSubmit(event)" class="space-y-4">
                 <div><label class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">選擇成果檔案</label><input id="design-service-upload-file" type="file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" onchange="refreshDesignServiceUploadRoute()" required class="block w-full text-xs text-[#1D1D1F] file:mr-3 file:rounded-xl file:border-0 file:bg-[#F5F5F7] file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-[#1D1D1F]"><p id="design-service-upload-summary" class="mt-2 text-[10px] text-[#86868B]">尚未選擇成果檔案。</p><p id="design-service-upload-route" class="mt-1.5 text-[10px] leading-relaxed text-[#86868B]">18 MB 內直傳；較大成果會改走穩定上傳頁。</p></div>
                 <div id="design-service-upload-transfer-status" class="hidden rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] px-3.5 py-3" aria-live="polite"><div class="flex items-center justify-between gap-3"><p id="design-service-upload-transfer-title" class="text-[11px] font-bold text-[#1D1D1F]">正在準備成果</p><span id="design-service-upload-transfer-value" class="text-[10px] font-bold text-[#0066CC]">0%</span></div><div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE8F8]"><div id="design-service-upload-transfer-bar" class="h-full w-0 rounded-full bg-[#0066CC] transition-all duration-300"></div></div><p id="design-service-upload-transfer-detail" class="mt-2 text-[10px] leading-relaxed text-[#5F6975]">系統正在確認檔案。</p></div>
-                <div class="flex items-center justify-between gap-2 pt-1"><button type="button" onclick="closeDesignServiceUploadModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><div class="flex gap-2"><button type="button" onclick="startStableDesignServiceUploadFlow()" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-4 py-2 text-xs font-bold text-[#0066CC]">大檔穩定上傳</button><button id="design-service-upload-submit" type="submit" class="rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90">上傳成果</button></div></div>
+                <div class="flex items-center justify-between gap-2 pt-1"><button type="button" onclick="closeDesignServiceUploadModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><div class="flex gap-2"><button type="button" onclick="startStableDesignServiceUploadFlow()" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-4 py-2 text-xs font-bold text-[#0066CC]">上傳大檔</button><button id="design-service-upload-submit" type="submit" class="rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90">上傳成果</button></div></div>
             </form>
         </div>
     </div>
@@ -1575,6 +1575,7 @@
         const SUPPORTED_UPLOAD_EXTENSIONS = [".ai", ".pdf", ".psd", ".indd", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".zip"];
         const MAX_BROWSER_UPLOAD_SIZE_BYTES = 18 * 1024 * 1024;
         const MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
+        const MAX_RESUMABLE_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
         const LARGE_UPLOAD_MESSAGE_SOURCE = "shapeprint-large-upload";
         const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -3592,8 +3593,15 @@
                 && getFileByteSize(file) <= MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES;
         }
 
-        function exceedsStableLargeUploadLimit(file) {
-            return Boolean(file) && getFileByteSize(file) > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES;
+        function needsResumableLargeUpload(file) {
+            return isRemoteSyncEnabled()
+                && Boolean(file)
+                && getFileByteSize(file) > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES
+                && getFileByteSize(file) <= MAX_RESUMABLE_UPLOAD_SIZE_BYTES;
+        }
+
+        function exceedsLargeUploadLimit(file) {
+            return Boolean(file) && getFileByteSize(file) > MAX_RESUMABLE_UPLOAD_SIZE_BYTES;
         }
 
         function formatFileSize(bytes) {
@@ -3612,8 +3620,10 @@
                 return;
             }
 
-            const transferLabel = exceedsStableLargeUploadLimit(file)
-                ? "超過 50 MB 上限"
+            const transferLabel = exceedsLargeUploadLimit(file)
+                ? "超過 2 GB 上限"
+                : needsResumableLargeUpload(file)
+                    ? "分段上傳"
                 : needsStableLargeUpload(file)
                     ? "穩定上傳"
                     : "直接上傳";
@@ -3624,18 +3634,27 @@
             if (!file) {
                 return {
                     title: "等待選擇附件",
-                    detail: "18 MB 內會直接上傳；較大檔案會改走穩定上傳頁。",
+                    detail: "18 MB 內直傳；18～50 MB 穩定上傳；超過 50 MB 自動分段上傳。",
                     badge: "待檢查",
                     tone: "muted"
                 };
             }
 
-            if (exceedsStableLargeUploadLimit(file)) {
+            if (exceedsLargeUploadLimit(file)) {
                 return {
-                    title: "檔案超過穩定上傳上限",
-                    detail: "目前選擇「" + file.name + "」為 " + formatFileSize(file.size) + "，請壓縮至 50 MB 內後再上傳。",
+                    title: "檔案超過分段上傳上限",
+                    detail: "目前選擇「" + file.name + "」為 " + formatFileSize(file.size) + "，請壓縮至 2 GB 內後再上傳。",
                     badge: "需調整",
                     tone: "error"
+                };
+            }
+
+            if (needsResumableLargeUpload(file)) {
+                return {
+                    title: "將使用分段上傳",
+                    detail: "「" + file.name + "」超過 50 MB，會切成小段傳送至 Google Drive；單段失敗時只會重試該段。",
+                    badge: "分段上傳",
+                    tone: "blue"
                 };
             }
 
@@ -3914,7 +3933,7 @@
                     delete largeUploadSessions[sessionKey];
                 }
                 closeUploadModal();
-                refreshStateFromBackendAfterLargeUpload("大檔已透過穩定上傳頁送出，版本紀錄已更新。");
+                refreshStateFromBackendAfterLargeUpload("大檔已完成雲端上傳，版本紀錄已更新。");
                 return;
             }
 
@@ -3986,12 +4005,13 @@
                 showToast("請先選擇要上傳的附件。", "warning");
                 return;
             }
-            if (!needsStableLargeUpload(selectedFile)) {
-                showToast("目前這份檔案還不需要切換到穩定上傳頁。", "warning");
+            const resumable = needsResumableLargeUpload(selectedFile);
+            if (!needsStableLargeUpload(selectedFile) && !resumable) {
+                showToast("目前這份檔案不需要使用大檔上傳頁。", "warning");
                 return;
             }
-            if (exceedsStableLargeUploadLimit(selectedFile)) {
-                showToast("這份檔案已超過穩定上傳頁 50 MB 上限。", "warning");
+            if (exceedsLargeUploadLimit(selectedFile)) {
+                showToast("這份檔案已超過分段上傳 2 GB 上限。", "warning");
                 return;
             }
             if (!currentUser || !activeStage) {
@@ -4018,14 +4038,20 @@
                     groupKey: groupKey,
                     baseName: baseName,
                     extension: extension,
-                    sourceFileName: selectedFile.name
+                    sourceFileName: selectedFile.name,
+                    uploadProtocol: resumable ? "resumable" : "stable"
                 }, {
                     teamId: currentUser.Team_ID,
                     teamName: team ? team.Team_Name : ""
                 });
-                showToast("已開啟穩定上傳頁，請在新視窗重新選一次同檔。", "success");
+                showToast(
+                    resumable
+                        ? "已開啟分段上傳頁，請在新視窗重新選一次同檔。"
+                        : "已開啟穩定上傳頁，請在新視窗重新選一次同檔。",
+                    "success"
+                );
             } catch (error) {
-                showToast(error && error.message ? error.message : "無法開啟穩定上傳頁。", "warning");
+                showToast(error && error.message ? error.message : "無法開啟大檔上傳頁。", "warning");
             }
         }
 
@@ -4052,12 +4078,13 @@
                 showToast("請先選擇要上傳的附件。", "warning");
                 return;
             }
-            if (!needsStableLargeUpload(selectedFile)) {
-                showToast("目前這份附件還不需要切換到穩定上傳頁。", "warning");
+            const resumable = needsResumableLargeUpload(selectedFile);
+            if (!needsStableLargeUpload(selectedFile) && !resumable) {
+                showToast("目前這份附件不需要使用大檔上傳頁。", "warning");
                 return;
             }
-            if (exceedsStableLargeUploadLimit(selectedFile)) {
-                showToast("這份附件已超過穩定上傳頁 50 MB 上限。", "warning");
+            if (exceedsLargeUploadLimit(selectedFile)) {
+                showToast("這份附件已超過分段上傳 2 GB 上限。", "warning");
                 return;
             }
             if (!currentUser || !effectiveTeamID) {
@@ -4071,14 +4098,20 @@
                     userId: currentUser.User_ID,
                     teamId: effectiveTeamID,
                     assignmentId: assignment.Assignment_ID,
-                    sourceFileName: selectedFile.name
+                    sourceFileName: selectedFile.name,
+                    uploadProtocol: resumable ? "resumable" : "stable"
                 }, {
                     teamId: effectiveTeamID,
                     assignmentId: assignment.Assignment_ID
                 });
-                showToast("已開啟穩定上傳頁，完成後回來按一次送出繳交。", "success");
+                showToast(
+                    resumable
+                        ? "已開啟分段上傳頁，完成後回來按一次送出繳交。"
+                        : "已開啟穩定上傳頁，完成後回來按一次送出繳交。",
+                    "success"
+                );
             } catch (error) {
-                showToast(error && error.message ? error.message : "無法開啟穩定上傳頁。", "warning");
+                showToast(error && error.message ? error.message : "無法開啟大檔上傳頁。", "warning");
             }
         }
 
@@ -4166,11 +4199,13 @@
                 selectedFile
                     ? (fileSize <= MAX_BROWSER_UPLOAD_SIZE_BYTES
                         ? buildRuleItem("pass", "檔案大小位於目前直傳上限內。")
-                        : exceedsStableLargeUploadLimit(selectedFile)
-                            ? buildRuleItem("fail", "檔案已超過穩定上傳頁 50 MB 上限。", "這份檔案已超過穩定上傳頁 50 MB 上限。")
-                            : canUseStableUpload
-                                ? buildRuleItem("fail", "檔案超過 18 MB，請改用穩定上傳頁。", "檔案超過 18 MB，請改用穩定上傳頁。")
-                                : buildRuleItem("fail", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。"))
+                            : exceedsLargeUploadLimit(selectedFile)
+                                ? buildRuleItem("fail", "檔案已超過分段上傳 2 GB 上限。", "這份檔案已超過分段上傳 2 GB 上限。")
+                                : canUseStableUpload
+                                    ? (needsResumableLargeUpload(selectedFile)
+                                        ? buildRuleItem("fail", "檔案超過 50 MB，請先走分段上傳頁。", "檔案超過 50 MB，請先走分段上傳頁。")
+                                        : buildRuleItem("fail", "檔案超過 18 MB，請改用穩定上傳頁。", "檔案超過 18 MB，請改用穩定上傳頁。"))
+                                    : buildRuleItem("fail", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。"))
                     : buildRuleItem("pending", "等待檢查檔案大小。"),
                 normalizedBaseName
                     ? buildRuleItem("pass", "附件主名稱可辨識。")
@@ -4200,6 +4235,7 @@
             const submitBtn = document.getElementById('btn-submit-upload');
             const largeFilePanel = document.getElementById('upload-large-file-panel');
             const largeFileNote = document.getElementById('upload-large-file-note');
+            const largeFileButton = document.getElementById('upload-large-file-button');
             const selectedFile = getSelectedFileFromInput('upload-form-file');
             const canUseStableUpload = isRemoteSyncEnabled() && Boolean(getGasApiUrl());
             const validation = getUploadFileRuleValidation();
@@ -4207,12 +4243,20 @@
             updateUploadRouteSummary();
 
             if (largeFilePanel) {
-                const shouldShowLargeFilePanel = canUseStableUpload && needsStableLargeUpload(selectedFile);
+                const shouldShowLargeFilePanel = canUseStableUpload
+                    && (needsStableLargeUpload(selectedFile) || needsResumableLargeUpload(selectedFile));
                 largeFilePanel.classList.toggle('hidden', !shouldShowLargeFilePanel);
                 if (largeFileNote && selectedFile) {
-                    largeFileNote.textContent = shouldShowLargeFilePanel
-                        ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定上傳頁最高支援約 50 MB。"
-                        : "穩定上傳頁最高支援約 50 MB。";
+                    largeFileNote.textContent = needsResumableLargeUpload(selectedFile)
+                        ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。送出後會切成小段上傳，最高支援 2 GB。"
+                        : shouldShowLargeFilePanel
+                            ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定上傳頁最高支援 50 MB。"
+                            : "18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。";
+                }
+                if (largeFileButton) {
+                    largeFileButton.textContent = needsResumableLargeUpload(selectedFile)
+                        ? "開始分段上傳"
+                        : "開啟穩定上傳頁";
                 }
             }
 
@@ -4262,7 +4306,7 @@
             if (requiresFile) {
                 items.push(
                     pendingLargeAsset
-                        ? buildRuleItem("pass", "已透過穩定上傳頁完成大檔上傳。")
+                        ? buildRuleItem("pass", "已透過大檔上傳頁完成雲端上傳。")
                         : selectedFile
                             ? buildRuleItem("pass", "已選擇要繳交的附件。")
                             : buildRuleItem("pending", "等待選擇要繳交的附件。", "請先選擇要繳交的附件。")
@@ -4281,14 +4325,16 @@
                 );
                 items.push(
                     pendingLargeAsset
-                        ? buildRuleItem("pass", "大檔已改走穩定上傳流程。")
+                        ? buildRuleItem("pass", "大檔已完成雲端上傳流程。")
                         : selectedFile
                             ? (fileSize <= MAX_BROWSER_UPLOAD_SIZE_BYTES
                                 ? buildRuleItem("pass", "檔案大小位於目前直傳上限內。")
-                                : exceedsStableLargeUploadLimit(selectedFile)
-                                    ? buildRuleItem("fail", "檔案已超過穩定上傳頁 50 MB 上限。", "這份檔案已超過穩定上傳頁 50 MB 上限。")
+                                : exceedsLargeUploadLimit(selectedFile)
+                                    ? buildRuleItem("fail", "檔案已超過分段上傳 2 GB 上限。", "這份檔案已超過分段上傳 2 GB 上限。")
                                     : canUseStableUpload
-                                        ? buildRuleItem("fail", "檔案超過 18 MB，請先走穩定上傳頁。", "檔案超過 18 MB，請先走穩定上傳頁。")
+                                        ? (needsResumableLargeUpload(selectedFile)
+                                            ? buildRuleItem("fail", "檔案超過 50 MB，請先走分段上傳頁。", "檔案超過 50 MB，請先走分段上傳頁。")
+                                            : buildRuleItem("fail", "檔案超過 18 MB，請先走穩定上傳頁。", "檔案超過 18 MB，請先走穩定上傳頁。"))
                                         : buildRuleItem("fail", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。"))
                             : buildRuleItem("pending", "等待檢查檔案大小。")
                 );
@@ -4340,15 +4386,19 @@
             );
 
             if (largeUploadPanel) {
-                const shouldShow = needsStableLargeUpload(selectedFile) || Boolean(pendingLargeAsset);
+                const shouldShow = needsStableLargeUpload(selectedFile)
+                    || needsResumableLargeUpload(selectedFile)
+                    || Boolean(pendingLargeAsset);
                 largeUploadPanel.classList.toggle('hidden', !shouldShow);
                 if (largeUploadStatus) {
                     if (pendingLargeAsset) {
-                        largeUploadStatus.textContent = "已由穩定上傳頁完成：" + pendingLargeAsset.fileName + "。";
+                        largeUploadStatus.textContent = "已由大檔上傳頁完成：" + pendingLargeAsset.fileName + "。";
                     } else if (selectedFile) {
-                        largeUploadStatus.textContent = "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定上傳頁最高支援約 50 MB。";
+                        largeUploadStatus.textContent = needsResumableLargeUpload(selectedFile)
+                            ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。會切成小段上傳，最高支援 2 GB。"
+                            : "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定上傳頁最高支援 50 MB。";
                     } else {
-                        largeUploadStatus.textContent = "穩定上傳頁最高支援約 50 MB。";
+                        largeUploadStatus.textContent = "18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。";
                     }
                 }
             }
@@ -7765,13 +7815,13 @@
                                         <i data-lucide="hard-drive-upload" class="w-4 h-4 text-[#0066CC] mt-0.5"></i>
                                         <div class="space-y-1">
                                             <p class="text-[11px] font-bold text-[#1D1D1F]">這份附件超過 18 MB，請改用穩定上傳頁</p>
-                                            <p id="assignment-large-upload-caption" class="text-[10px] text-[#5F6975] leading-relaxed">新視窗會直接把檔案送到你的 Google Drive；完成後回到這裡按一次「送出繳交」即可。</p>
+                                            <p id="assignment-large-upload-caption" class="text-[10px] text-[#5F6975] leading-relaxed">新視窗會直接把檔案送到你的 Google Drive；超過 50 MB 時會改用分段傳送，完成後回到這裡按一次「送出繳交」即可。</p>
                                         </div>
                                     </div>
                                     <div class="flex items-center justify-between gap-3">
-                                        <p id="assignment-large-upload-status" class="text-[10px] text-[#5F6975]">穩定上傳頁最高支援約 50 MB。</p>
+                                        <p id="assignment-large-upload-status" class="text-[10px] text-[#5F6975]">18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。</p>
                                         <button type="button" onclick="startStableAssignmentAssetUploadFlow()" class="px-4 py-2 rounded-xl bg-[#0066CC] text-white text-[11px] font-bold hover:opacity-95 transition shadow-sm">
-                                            先上傳大檔
+                                            上傳大檔
                                         </button>
                                     </div>
                                 </div>
@@ -8413,8 +8463,14 @@
             const file = input && input.files ? input.files[0] : null;
             if (summary) summary.textContent = file ? file.name + " · " + formatFileSize(file.size) : "尚未選擇成果檔案。";
             if (route) route.textContent = file
-                ? (needsStableLargeUpload(file) ? "此檔案將使用 18–50 MB 穩定上傳頁。" : "此檔案符合 18 MB 直傳條件。")
-                : "18 MB 內直傳；較大成果會改走穩定上傳頁。";
+                ? (exceedsLargeUploadLimit(file)
+                    ? "此檔案超過目前 2 GB 上限。"
+                    : needsResumableLargeUpload(file)
+                        ? "此檔案超過 50 MB，會使用分段上傳頁。"
+                        : needsStableLargeUpload(file)
+                            ? "此檔案將使用 18–50 MB 穩定上傳頁。"
+                            : "此檔案符合 18 MB 直傳條件。")
+                : "18 MB 內直傳；18～50 MB 穩定上傳；超過 50 MB 分段上傳。";
         }
 
         function openDesignServiceUploadModal(orderId) {
@@ -8455,12 +8511,13 @@
                 showToast("請先選擇成果檔案。", "warning");
                 return;
             }
-            if (!needsStableLargeUpload(file)) {
+            const resumable = needsResumableLargeUpload(file);
+            if (!needsStableLargeUpload(file) && !resumable) {
                 showToast("這份檔案尚未超過 18 MB。", "info");
                 return;
             }
-            if (exceedsStableLargeUploadLimit(file)) {
-                showToast("成果檔案已超過穩定上傳頁 50 MB 上限。", "warning");
+            if (exceedsLargeUploadLimit(file)) {
+                showToast("成果檔案已超過分段上傳 2 GB 上限。", "warning");
                 return;
             }
             try {
@@ -8471,13 +8528,19 @@
                     stageId: order.Stage_ID,
                     assignmentId: order.Assignment_ID,
                     serviceOrderId: order.Service_Order_ID,
-                    sourceFileName: file.name
+                    sourceFileName: file.name,
+                    uploadProtocol: resumable ? "resumable" : "stable"
                 }, {
                     serviceOrderId: order.Service_Order_ID
                 });
-                showToast("已開啟成果穩定上傳頁，請在新視窗重新選一次同檔。", "success");
+                showToast(
+                    resumable
+                        ? "已開啟成果分段上傳頁，請在新視窗重新選一次同檔。"
+                        : "已開啟成果大檔上傳頁，請在新視窗重新選一次同檔。",
+                    "success"
+                );
             } catch (error) {
-                showToast(error && error.message ? error.message : "無法開啟成果穩定上傳頁。", "warning");
+                showToast(error && error.message ? error.message : "無法開啟成果大檔上傳頁。", "warning");
             }
         }
 
@@ -8490,11 +8553,11 @@
                 showToast("請先選擇成果檔案。", "warning");
                 return;
             }
-            if (exceedsStableLargeUploadLimit(file)) {
-                showToast("成果檔案已超過穩定上傳頁 50 MB 上限。", "warning");
+            if (exceedsLargeUploadLimit(file)) {
+                showToast("成果檔案已超過分段上傳 2 GB 上限。", "warning");
                 return;
             }
-            if (needsStableLargeUpload(file)) {
+            if (needsStableLargeUpload(file) || needsResumableLargeUpload(file)) {
                 startStableDesignServiceUploadFlow();
                 return;
             }
