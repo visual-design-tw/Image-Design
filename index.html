@@ -1507,6 +1507,28 @@
         </div>
     </div>
 
+    <!-- Apple Style 繳交項目刪除確認彈窗 -->
+    <div id="assignment-delete-modal" class="fixed inset-0 bg-[rgba(15,23,42,0.18)] backdrop-blur-[10px] z-[92] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeAssignmentDeleteModal()">
+        <div class="w-full max-w-[380px] overflow-hidden rounded-[26px] border border-white/75 bg-[rgba(255,255,255,0.88)] shadow-[0_14px_34px_rgba(15,23,42,0.12),0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
+            <div class="px-5 pt-5 pb-4 text-center">
+                <div class="mx-auto mb-3.5 flex h-12 w-12 items-center justify-center rounded-[16px] border border-[#FFD7D4] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,242,242,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_8px_20px_rgba(255,59,48,0.08)] text-[#FF3B30]">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </div>
+                <h3 id="assignment-delete-modal-title" class="text-[20px] leading-tight font-semibold tracking-[-0.03em] text-[#1D1D1F]">刪除繳交項目？</h3>
+                <p id="assignment-delete-modal-message" class="mt-2 text-[12px] leading-5 text-[#6E6E73]">刪除後將無法復原。</p>
+                <div id="assignment-delete-modal-impact" class="mt-3.5 hidden"></div>
+            </div>
+            <div class="grid grid-cols-2 border-t border-[rgba(15,23,42,0.05)] bg-[rgba(255,255,255,0.18)]">
+                <button type="button" onclick="closeAssignmentDeleteModal()" class="min-h-[52px] px-4 text-[16px] font-normal text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none">
+                    取消
+                </button>
+                <button type="button" id="assignment-delete-modal-confirm" onclick="confirmAssignmentDelete()" class="min-h-[52px] border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
+                    刪除
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Apple Style 預算編輯彈窗 -->
     <div id="stage-budget-modal" class="fixed inset-0 bg-[rgba(15,23,42,0.18)] backdrop-blur-[10px] z-[90] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeStageBudgetModal()">
         <div class="w-full max-w-[420px] overflow-hidden rounded-[26px] border border-white/75 bg-[rgba(255,255,255,0.88)] shadow-[0_14px_34px_rgba(15,23,42,0.12),0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
@@ -1587,6 +1609,8 @@
         let pendingUploadContext = null;
         let pendingStageDeleteContext = null;
         let stageDeleteInFlight = false;
+        let pendingAssignmentDeleteContext = null;
+        let assignmentDeleteInFlight = false;
         let pendingStageBudgetContext = null;
         let pendingNotificationCardMotionIds = [];
         let fileBrowserPillGeometry = {};
@@ -7173,6 +7197,231 @@
             }
         }
 
+        function getAssignmentDeleteContext(assignmentId) {
+            const normalizedAssignmentId = String(assignmentId || "").trim();
+            const assignment = ensureArray(state.Assignments).find(function(item) {
+                return String(item && item.Assignment_ID || "") === normalizedAssignmentId;
+            });
+            if (!assignment) return null;
+
+            const submissions = ensureArray(state.Assignment_Submissions).filter(function(item) {
+                return String(item && item.Assignment_ID || "") === normalizedAssignmentId;
+            });
+            const notifications = ensureArray(state.Notifications).filter(function(item) {
+                return String(item && item.Ref_Type || "") === "assignment"
+                    && String(item && item.Ref_ID || "") === normalizedAssignmentId;
+            });
+            const discussionComments = ensureArray(state.Discussion_Comments).filter(function(item) {
+                return String(item && item.Ref_Type || "") === "assignment"
+                    && String(item && item.Ref_ID || "") === normalizedAssignmentId;
+            });
+            const serviceOrders = ensureArray(state.Design_Service_Orders).filter(function(item) {
+                return String(item && item.Assignment_ID || "") === normalizedAssignmentId;
+            });
+            const driveFileIds = new Set();
+            submissions.concat(serviceOrders).forEach(function(record) {
+                const fileId = String(record && record.Drive_File_ID || "").trim();
+                if (fileId) driveFileIds.add(fileId);
+            });
+
+            const impactItems = [
+                { label: "繳交項目", count: 1, unit: "則" }
+            ];
+            if (submissions.length > 0) impactItems.push({ label: "作業繳交", count: submissions.length, unit: "筆" });
+            if (serviceOrders.length > 0) impactItems.push({ label: "形印代做案件", count: serviceOrders.length, unit: "筆" });
+            if (notifications.length > 0) impactItems.push({ label: "相關通知", count: notifications.length, unit: "則" });
+            if (discussionComments.length > 0) impactItems.push({ label: "留言註解", count: discussionComments.length, unit: "則" });
+            if (driveFileIds.size > 0) impactItems.push({ label: "Google Drive 附件", count: driveFileIds.size, unit: "個" });
+
+            return {
+                assignment: assignment,
+                assignmentId: normalizedAssignmentId,
+                submissions: submissions,
+                notifications: notifications,
+                notificationIds: new Set(notifications.map(function(item) { return item.Notification_ID; })),
+                discussionComments: discussionComments,
+                discussionCommentIds: new Set(discussionComments.map(function(item) { return item.Comment_ID; })),
+                serviceOrders: serviceOrders,
+                driveFileIds: driveFileIds,
+                impactItems: impactItems
+            };
+        }
+
+        function openAssignmentDeleteModal(assignmentId) {
+            const roleContext = getEffectiveRoleContext();
+            if (!canManageAssignmentBoard(roleContext.effectiveRole)) {
+                showToast("只有形印組管理者可以刪除繳交項目。", "warning");
+                return;
+            }
+
+            const context = getAssignmentDeleteContext(assignmentId);
+            if (!context) {
+                showToast("找不到要刪除的繳交項目。", "warning");
+                return;
+            }
+
+            pendingAssignmentDeleteContext = context;
+            setAssignmentDeleteModalPending(false);
+            const modal = document.getElementById("assignment-delete-modal");
+            const titleEl = document.getElementById("assignment-delete-modal-title");
+            const messageEl = document.getElementById("assignment-delete-modal-message");
+            const impactEl = document.getElementById("assignment-delete-modal-impact");
+            if (!modal || !titleEl || !messageEl || !impactEl) return;
+
+            titleEl.textContent = "刪除「" + context.assignment.Title + "」？";
+            messageEl.textContent = "刪除後會同步移除這份繳交項目的相關資料，且無法從系統復原。";
+            impactEl.innerHTML = `
+                <div class="rounded-[22px] border border-[#ECECF1] bg-[rgba(255,255,255,0.72)] overflow-hidden text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                    <div class="px-4 pt-3 pb-2 text-[10px] font-bold tracking-[0.16em] uppercase text-[#8E8E93]">將一併移除</div>
+                    ${context.impactItems.map(function(item, index) {
+                        return `
+                            <div class="flex items-center justify-between gap-4 px-4 py-3 ${index === 0 ? '' : 'border-t border-[#ECECF1]'}">
+                                <span class="text-[12px] font-semibold text-[#6E6E73]">${item.label}</span>
+                                <span class="text-[12px] font-bold text-[#1D1D1F]">${item.count} ${item.unit}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+            impactEl.classList.remove("hidden");
+
+            renderLucideIcons();
+            animateSurfaceOpen(modal, modal.firstElementChild, {
+                fromY: 16,
+                fromScale: 0.972,
+                fromBlur: 14,
+                duration: 420
+            });
+        }
+
+        function closeAssignmentDeleteModal(force) {
+            if (assignmentDeleteInFlight && force !== true) return;
+            pendingAssignmentDeleteContext = null;
+            const modal = document.getElementById("assignment-delete-modal");
+            if (modal) {
+                animateSurfaceClose(modal, modal.firstElementChild, {
+                    hideDelay: 200,
+                    toBlur: 10
+                });
+            }
+        }
+
+        function setAssignmentDeleteModalPending(isPending) {
+            const button = document.getElementById("assignment-delete-modal-confirm");
+            if (!button) return;
+            button.disabled = Boolean(isPending);
+            button.textContent = isPending ? "刪除中…" : "刪除";
+        }
+
+        async function confirmAssignmentDelete() {
+            const context = pendingAssignmentDeleteContext;
+            if (!context || assignmentDeleteInFlight) return;
+
+            const assignmentId = context.assignmentId;
+            const assignmentTitle = context.assignment.Title;
+
+            // Destructive actions must be confirmed by GAS. Never hide the item
+            // locally while a remote session or connection is unavailable.
+            if (isRemoteSyncEnabled() && (!authSessionToken || gasConnectionStatus !== "remote")) {
+                showToast(
+                    !authSessionToken
+                        ? "目前尚未完成 GAS 登入，為避免只刪除本機資料，請重新登入後再刪除。"
+                        : "目前尚未連線至 GAS，為避免只刪除本機資料，請重新同步後再刪除。",
+                    "warning"
+                );
+                return;
+            }
+
+            if (isRemoteSyncEnabled() && authSessionToken && gasConnectionStatus === "remote") {
+                assignmentDeleteInFlight = true;
+                setAssignmentDeleteModalPending(true);
+                const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
+
+                try {
+                    const response = await requestGas("deleteAssignment", {
+                        assignmentId: assignmentId,
+                        stateRevision: remoteStateRevision
+                    });
+                    if (!applyBackendStateResponse(response, {
+                        preferredUserId: preferredUserId,
+                        allowFallback: false
+                    })) {
+                        throw new Error("GAS 刪除完成後沒有回傳最新資料。");
+                    }
+                    gasConnectionStatus = "remote";
+                    closeAssignmentDeleteModal(true);
+                    closeAssignmentDetailModal();
+
+                    const driveTrashSummary = response && response.data && response.data.driveTrashSummary
+                        ? response.data.driveTrashSummary
+                        : null;
+                    const failedDriveCount = driveTrashSummary ? Number(driveTrashSummary.failed || 0) : 0;
+                    const trashedDriveCount = driveTrashSummary ? Number(driveTrashSummary.trashed || 0) : 0;
+                    if (failedDriveCount > 0) {
+                        showToast("繳交項目已刪除，但有 " + failedDriveCount + " 個 Google Drive 附件未能移到垃圾桶。", "warning");
+                    } else if (trashedDriveCount > 0) {
+                        showToast("已刪除繳交項目【" + assignmentTitle + "】，附件已移到 Google Drive 垃圾桶。", "success");
+                    } else {
+                        showToast("已從雲端刪除繳交項目【" + assignmentTitle + "】與相關資料。", "success");
+                    }
+                } catch (error) {
+                    const message = String(error && error.message || "");
+                    if (/STATE_CONFLICT/.test(message)) {
+                        try {
+                            const latest = await requestGas("bootstrap", null, "GET");
+                            applyBackendStateResponse(latest, {
+                                preferredUserId: preferredUserId,
+                                allowFallback: false
+                            });
+                            gasConnectionStatus = "remote";
+                            closeAssignmentDeleteModal(true);
+                            showToast("雲端資料剛更新，已重新載入最新版本；請再確認一次刪除。", "warning");
+                        } catch (reloadError) {
+                            gasConnectionStatus = "fallback";
+                            showToast("刪除衝突後無法重新載入雲端資料。", "error");
+                        }
+                    } else {
+                        showToast("雲端刪除失敗：" + message, "error");
+                    }
+                    console.error("GAS 繳交項目刪除失敗", error);
+                } finally {
+                    assignmentDeleteInFlight = false;
+                    setAssignmentDeleteModalPending(false);
+                    renderConnectionStatusBadge();
+                }
+                return;
+            }
+
+            if (isRemoteSyncEnabled()) {
+                showToast("GAS 雲端模式尚未準備完成，這次沒有刪除任何資料。", "warning");
+                return;
+            }
+
+            state.Assignments = ensureArray(state.Assignments).filter(function(item) {
+                return String(item && item.Assignment_ID || "") !== assignmentId;
+            });
+            state.Assignment_Submissions = ensureArray(state.Assignment_Submissions).filter(function(item) {
+                return String(item && item.Assignment_ID || "") !== assignmentId;
+            });
+            state.Notifications = ensureArray(state.Notifications).filter(function(item) {
+                return !context.notificationIds.has(item.Notification_ID);
+            });
+            state.Discussion_Comments = ensureArray(state.Discussion_Comments).filter(function(item) {
+                return !context.discussionCommentIds.has(item.Comment_ID);
+            });
+            state.Design_Service_Orders = ensureArray(state.Design_Service_Orders).filter(function(item) {
+                return String(item && item.Assignment_ID || "") !== assignmentId;
+            });
+            clearNotificationSelection();
+            selectedNotificationIds = selectedNotificationIds.filter(function(notificationId) {
+                return !context.notificationIds.has(notificationId);
+            });
+            closeAssignmentDeleteModal(true);
+            closeAssignmentDetailModal();
+            saveState();
+            showToast("已刪除繳交項目【" + assignmentTitle + "】與相關資料。", "success");
+        }
+
         function openAssignmentReviewModal(submissionId, initialDecision) {
             const roleContext = getEffectiveRoleContext();
             if (!canManageAssignmentBoard(roleContext.effectiveRole)) {
@@ -7422,10 +7671,20 @@
                         <h3 class="text-lg font-bold text-[#1D1D1F]">${escapeHtml(assignment.Title)}</h3>
                         <p class="text-xs text-[#86868B] leading-relaxed">發布者：${creator ? creator.Name : "系統"} · 截止：${getAssignmentDueAtLabel(assignment)}</p>
                     </div>
-                    ${canSubmit ? `
-                        <button onclick="document.getElementById('assignment-submit-form').scrollIntoView({behavior:'smooth', block:'start'})" class="bg-[#0066CC] text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition shadow-sm">
-                            前往繳交
-                        </button>
+                    ${canSubmit || isExhibitionAdmin ? `
+                        <div class="flex flex-wrap items-center gap-2 shrink-0">
+                            ${canSubmit ? `
+                                <button onclick="document.getElementById('assignment-submit-form').scrollIntoView({behavior:'smooth', block:'start'})" class="bg-[#0066CC] text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition shadow-sm">
+                                    前往繳交
+                                </button>
+                            ` : ''}
+                            ${isExhibitionAdmin ? `
+                                <button type="button" onclick="openAssignmentDeleteModal('${escapeHtml(assignment.Assignment_ID)}')" class="inline-flex items-center gap-1.5 rounded-xl border border-[#FFD7D4] bg-[#FFF8F7] px-3.5 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF0EE]">
+                                    <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                                    刪除項目
+                                </button>
+                            ` : ''}
+                        </div>
                     ` : ''}
                 </div>
 
