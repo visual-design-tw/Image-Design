@@ -2901,16 +2901,18 @@
 
         async function syncStateToBackend() {
             if (!isRemoteSyncEnabled() || !authSessionToken || !currentUser) {
-                return;
+                return { ok: false, skipped: true };
             }
 
             if (remoteSaveInFlight) {
                 pendingRemoteSave = true;
-                return;
+                return { ok: false, queued: true };
             }
 
             remoteSaveInFlight = true;
             pendingRemoteSave = false;
+            let syncSucceeded = false;
+            let syncResponse = null;
             renderConnectionStatusBadge();
             const stateSnapshot = cloneStateSnapshot(state);
             const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
@@ -2920,10 +2922,12 @@
                     state: stateSnapshot,
                     stateRevision: remoteStateRevision
                 });
+                syncResponse = response;
                 if (applyBackendStateResponse(response, {
                     preferredUserId: preferredUserId
                 })) {
                     gasConnectionStatus = "remote";
+                    syncSucceeded = true;
                 }
             } catch (error) {
                 const message = String(error && error.message || "");
@@ -2961,6 +2965,10 @@
                     pendingRemoteSave = false;
                     syncStateToBackend();
                 }
+                return {
+                    ok: syncSucceeded,
+                    response: syncResponse
+                };
             }
         }
 
@@ -5027,6 +5035,13 @@
             assignment.Allow_ReSubmit = assignment.Allow_ReSubmit !== false;
             assignment.Notify_By_Email = assignment.Notify_By_Email === true;
             assignment.Email_Notification_Sent = assignment.Email_Notification_Sent === true;
+            assignment.Email_Notification_Status = String(
+                assignment.Email_Notification_Status
+                    || (assignment.Email_Notification_Sent ? "已寄送" : assignment.Notify_By_Email ? "待寄送" : "未啟用")
+            );
+            assignment.Email_Notification_Recipient_Count = Number(assignment.Email_Notification_Recipient_Count || 0);
+            assignment.Email_Notification_Sent_At = String(assignment.Email_Notification_Sent_At || "");
+            assignment.Email_Notification_Last_Error = String(assignment.Email_Notification_Last_Error || "");
 
             return assignment;
         }
@@ -6962,7 +6977,7 @@
             updateAssignmentPostDuePreview();
         }
 
-        function handlePublishAssignment(event) {
+        async function handlePublishAssignment(event) {
             event.preventDefault();
 
             const roleContext = getEffectiveRoleContext();
@@ -7040,7 +7055,11 @@
                 Status: "進行中",
                 Allow_ReSubmit: allowReSubmit,
                 Notify_By_Email: notifyByEmail,
-                Email_Notification_Sent: false
+                Email_Notification_Sent: false,
+                Email_Notification_Status: notifyByEmail ? "待寄送" : "未啟用",
+                Email_Notification_Recipient_Count: 0,
+                Email_Notification_Sent_At: "",
+                Email_Notification_Last_Error: ""
             });
 
             state.Assignments.unshift(assignment);
@@ -7056,15 +7075,43 @@
                 },
                 createdAt: createdAt,
                 priority: "normal"
-            });
+            }, { silent: true });
+
+            // 發布公告時只做一次完整同步，確保 GAS 有機會先寫入資料再寄送 Email。
+            saveState({ skipRemoteSync: true });
 
             closeAssignmentPostModal();
-            const publishToastText = notifyByEmail
-                ? (isRemoteSyncEnabled()
-                    ? "繳交項目已發布，Email 通知將同步寄出。"
-                    : "繳交項目已發布，但目前尚未連線 GAS，Email 不會寄出。")
-                : "繳交項目已發布。";
-            showToast(publishToastText, "success");
+            let publishToastText = "繳交項目已發布。";
+            let publishToastType = "success";
+
+            if (notifyByEmail) {
+                if (!isRemoteSyncEnabled() || !authSessionToken) {
+                    publishToastText = "繳交項目已發布，但目前尚未連線 GAS，Email 尚未寄出。";
+                    publishToastType = "warning";
+                } else {
+                    const syncResult = await syncStateToBackend();
+                    const savedAssignment = state.Assignments.find(function(item) {
+                        return String(item.Assignment_ID || "") === String(assignmentId || "");
+                    });
+                    const emailStatus = String(savedAssignment && savedAssignment.Email_Notification_Status || "");
+                    const recipientCount = Number(savedAssignment && savedAssignment.Email_Notification_Recipient_Count || 0);
+
+                    if (!syncResult.ok) {
+                        publishToastText = "繳交項目已發布，但 GAS 同步未完成，Email 尚未確認送出。";
+                        publishToastType = "warning";
+                    } else if (emailStatus === "已寄送") {
+                        publishToastText = "繳交項目已發布，Email 已寄送給 " + recipientCount + " 位對象。";
+                    } else if (emailStatus === "無收件人") {
+                        publishToastText = "繳交項目已發布，但目前找不到可寄送的有效組員信箱。";
+                        publishToastType = "warning";
+                    } else {
+                        publishToastText = "繳交項目已發布，但 Email 尚未成功寄出，系統會在下次同步重試。";
+                        publishToastType = "warning";
+                    }
+                }
+            }
+
+            showToast(publishToastText, publishToastType);
         }
 
         function openAssignmentDetailModal(assignmentId) {
