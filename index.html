@@ -7407,8 +7407,11 @@
                         : null;
                     const failedDriveCount = driveTrashSummary ? Number(driveTrashSummary.failed || 0) : 0;
                     const trashedDriveCount = driveTrashSummary ? Number(driveTrashSummary.trashed || 0) : 0;
+                    const pendingDriveCount = driveTrashSummary ? Number(driveTrashSummary.pending || 0) : 0;
                     if (failedDriveCount > 0) {
                         showToast("繳交項目已刪除，但有 " + failedDriveCount + " 個 Google Drive 附件未能移到垃圾桶。", "warning");
+                    } else if (pendingDriveCount > 0) {
+                        showToast("已刪除繳交項目【" + assignmentTitle + "】，Google Drive 附件正在背景移到垃圾桶。", "success");
                     } else if (trashedDriveCount > 0) {
                         showToast("已刪除繳交項目【" + assignmentTitle + "】，附件已移到 Google Drive 垃圾桶。", "success");
                     } else {
@@ -10115,8 +10118,11 @@
                         : null;
                     const trashedDriveCount = driveTrashSummary ? Number(driveTrashSummary.trashed || 0) : 0;
                     const failedDriveCount = driveTrashSummary ? Number(driveTrashSummary.failed || 0) : 0;
+                    const pendingDriveCount = driveTrashSummary ? Number(driveTrashSummary.pending || 0) : 0;
                     if (failedDriveCount > 0) {
                         showToast("會審已刪除，但有 " + failedDriveCount + " 個 Google Drive 檔案未能移到垃圾桶。", "warning");
+                    } else if (pendingDriveCount > 0) {
+                        showToast("已刪除會審【" + stageName + "】，Google Drive 檔案正在背景移到垃圾桶。", "success");
                     } else if (trashedDriveCount > 0) {
                         showToast("已刪除會審【" + stageName + "】與相關資料，原始檔案已移到垃圾桶", "success");
                     } else {
