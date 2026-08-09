@@ -3751,13 +3751,21 @@
 
             try {
                 const resolved = new URL(endpoint);
+                const currentOrigin = window.location.origin && window.location.origin !== "null"
+                    ? window.location.origin
+                    : "null";
                 return [
                     resolved.origin,
                     "https://script.google.com",
-                    "https://script.googleusercontent.com"
+                    "https://script.googleusercontent.com",
+                    currentOrigin
                 ];
             } catch (error) {
-                return ["https://script.google.com", "https://script.googleusercontent.com"];
+                return [
+                    "https://script.google.com",
+                    "https://script.googleusercontent.com",
+                    window.location.origin || "null"
+                ];
             }
         }
 
@@ -3771,8 +3779,8 @@
                 throw new Error("尚未設定 GAS Web App 網址。");
             }
 
-            const url = new URL(endpoint);
-            url.searchParams.set("action", "largeUploadPage");
+            const url = new URL("large-upload.html", window.location.href);
+            url.searchParams.set("gasEndpoint", endpoint);
 
             Object.keys(params).forEach(function(key) {
                 const value = params[key];

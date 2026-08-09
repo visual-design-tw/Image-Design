@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>穩定上傳</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f5f7;
+        --surface: rgba(255, 255, 255, 0.92);
+        --surface-strong: #ffffff;
+        --border: rgba(60, 60, 67, 0.12);
+        --text: #1d1d1f;
+        --muted: #6e6e73;
+        --accent: #0a84ff;
+        --success: #34c759;
+        --error: #ff3b30;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(10, 132, 255, 0.08), transparent 34%),
+          var(--bg);
+        color: var(--text);
+      }
+
+      .panel {
+        width: min(100%, 540px);
+        padding: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 30px;
+        background: var(--surface);
+        backdrop-filter: blur(28px);
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border: 1px solid rgba(60, 60, 67, 0.08);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 6px rgba(10, 132, 255, 0.12);
+      }
+
+      h1 {
+        margin: 18px 0 10px;
+        font-size: 30px;
+        line-height: 1.12;
+        letter-spacing: -0.03em;
+      }
+
+      .subtitle, .helper, .selection, .footnote {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .subtitle { margin: 0; font-size: 14px; }
+
+      .meta, .file-box, .hint-card {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.78);
+      }
+
+      .meta {
+        margin-top: 20px;
+        padding: 16px;
+        border-radius: 22px;
+      }
+
+      .meta-label, label {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      .meta-label { letter-spacing: 0.08em; text-transform: uppercase; }
+
+      .meta-value {
+        margin-top: 8px;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      .helper { margin-top: 14px; font-size: 13px; }
+      form { margin-top: 22px; }
+
+      .file-box {
+        padding: 18px;
+        border-radius: 24px;
+        background: var(--surface-strong);
+      }
+
+      label { display: block; margin-bottom: 10px; color: var(--text); font-size: 13px; }
+
+      input[type="file"] {
+        width: 100%;
+        font-size: 14px;
+        color: var(--text);
+      }
+
+      input[type="file"]::file-selector-button {
+        margin-right: 12px;
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 14px;
+        background: #1d1d1f;
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .selection { margin-top: 14px; font-size: 13px; }
+
+      .status {
+        min-height: 24px;
+        margin-top: 14px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .status.is-error { color: var(--error); }
+      .status.is-success { color: var(--success); }
+      .hidden { display: none !important; }
+
+      .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .progress-track {
+        height: 7px;
+        margin-top: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e5e5ea;
+      }
+
+      .progress-bar {
+        width: 0;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #64b5ff, #0a84ff);
+        transition: width 180ms ease;
+      }
+
+      .hint-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .hint-card { padding: 14px 16px; border-radius: 18px; }
+      .hint-card strong { display: block; margin-bottom: 6px; font-size: 13px; }
+      .hint-card span { color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+      .actions { display: flex; gap: 10px; margin-top: 18px; }
+
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 16px;
+        padding: 13px 18px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+      }
+
+      button:hover { transform: translateY(-1px); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+      .btn-secondary { flex: 0 0 auto; background: rgba(29, 29, 31, 0.06); color: var(--text); }
+      .btn-primary { flex: 1; background: var(--accent); color: #fff; box-shadow: 0 12px 24px rgba(10, 132, 255, 0.18); }
+      .footnote { margin-top: 16px; font-size: 12px; }
+
+      .error-state { color: var(--error); }
+
+      @media (max-width: 640px) {
+        body { padding: 16px; }
+        .panel { padding: 22px; border-radius: 24px; }
+        h1 { font-size: 25px; }
+        .hint-row, .actions { display: grid; grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel" id="upload-panel" aria-busy="true">
+      <span class="eyebrow">Large File Upload</span>
+      <h1 id="page-title">正在準備上傳</h1>
+      <p class="subtitle" id="page-subtitle">正在確認上傳工作階段。</p>
+
+      <div class="meta" id="page-meta">
+        <div class="meta-label">儲存位置</div>
+        <div class="meta-value" id="path-label">正在讀取</div>
+        <div class="helper" id="helper-text">請稍候。</div>
+      </div>
+
+      <div id="page-error" class="status error-state hidden" role="alert"></div>
+
+      <form id="large-upload-form" class="hidden">
+        <div class="file-box">
+          <label for="upload-file">重新選擇檔案</label>
+          <input id="upload-file" name="uploadFile" type="file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" required>
+          <div id="file-selection" class="selection">尚未選擇檔案。</div>
+          <div id="status-message" class="status" aria-live="polite"></div>
+          <div id="transfer-progress" class="hidden" aria-live="polite">
+            <div class="progress-meta">
+              <span id="progress-label">準備上傳</span>
+              <span id="progress-value">0%</span>
+            </div>
+            <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+          </div>
+        </div>
+
+        <div class="hint-row">
+          <div class="hint-card">
+            <strong>主頁直傳</strong>
+            <span id="direct-hint">建議用於 18 MB 內檔案，流程較快。</span>
+          </div>
+          <div class="hint-card">
+            <strong>穩定上傳</strong>
+            <span id="resumable-hint">檔案會以小段傳送，單段失敗時只重試該段。</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn-secondary" id="cancel-button">取消</button>
+          <button type="submit" id="submit-button" class="btn-primary" disabled>開始上傳</button>
+        </div>
+      </form>
+
+      <div class="footnote">上傳成功後，這個頁面會通知主視窗並嘗試關閉。</div>
+    </main>
+
+    <script>
+      (function() {
+        "use strict";
+
+        const DEFAULT_GAS_API_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
+        const MESSAGE_SOURCE = "shapeprint-large-upload";
+        const query = new URLSearchParams(window.location.search);
+        const gasEndpoint = String(query.get("gasEndpoint") || DEFAULT_GAS_API_URL).trim();
+        let model = null;
+        let isUploading = false;
+
+        const panel = document.getElementById("upload-panel");
+        const form = document.getElementById("large-upload-form");
+        const pageTitle = document.getElementById("page-title");
+        const pageSubtitle = document.getElementById("page-subtitle");
+        const pathLabel = document.getElementById("path-label");
+        const helperText = document.getElementById("helper-text");
+        const pageMeta = document.getElementById("page-meta");
+        const pageError = document.getElementById("page-error");
+        const fileInput = document.getElementById("upload-file");
+        const fileSelection = document.getElementById("file-selection");
+        const statusMessage = document.getElementById("status-message");
+        const transferProgress = document.getElementById("transfer-progress");
+        const progressLabel = document.getElementById("progress-label");
+        const progressValue = document.getElementById("progress-value");
+        const progressBar = document.getElementById("progress-bar");
+        const submitButton = document.getElementById("submit-button");
+
+        function formatFileSize(bytes) {
+          const size = Number(bytes || 0);
+          if (!size) return "0 B";
+          if (size < 1024) return size + " B";
+          if (size < 1024 * 1024) return (size / 1024).toFixed(1).replace(/\.0$/, "") + " KB";
+          if (size < 1024 * 1024 * 1024) return (size / (1024 * 1024)).toFixed(1).replace(/\.0$/, "") + " MB";
+          return (size / (1024 * 1024 * 1024)).toFixed(2).replace(/\.00$/, "") + " GB";
+        }
+
+        function setStatus(message, tone) {
+          statusMessage.textContent = message || "";
+          statusMessage.className = "status" + (tone ? " is-" + tone : "");
+        }
+
+        function setPageError(message) {
+          pageError.textContent = message || "無法開啟上傳頁。";
+          pageError.classList.remove("hidden");
+          form.classList.add("hidden");
+          pageMeta.classList.add("hidden");
+          panel.setAttribute("aria-busy", "false");
+        }
+
+        async function requestGas(action, payload, method) {
+          const requestPayload = Object.assign({}, payload || {});
+          if (method === "GET") {
+            const url = new URL(gasEndpoint);
+            url.searchParams.set("action", action);
+            Object.keys(requestPayload).forEach(function(key) {
+              const value = requestPayload[key];
+              if (value !== null && typeof value !== "undefined" && value !== "") {
+                url.searchParams.set(key, String(value));
+              }
+            });
+            const response = await fetch(url.toString(), { method: "GET", redirect: "follow" });
+            return parseGasResponse(response);
+          }
+
+          const response = await fetch(gasEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(Object.assign({ action: action }, requestPayload)),
+            redirect: "follow"
+          });
+          return parseGasResponse(response);
+        }
+
+        async function parseGasResponse(response) {
+          if (!response.ok) throw new Error("HTTP " + response.status + " " + response.statusText);
+          const text = await response.text();
+          let result;
+          try { result = JSON.parse(text); } catch (error) { throw new Error("GAS 回應格式無法辨識。"); }
+          if (!result.ok) {
+            throw new Error(result.error && result.error.message ? result.error.message : "GAS 請求失敗。");
+          }
+          return result.data;
+        }
+
+        async function loadModel() {
+          const params = new URLSearchParams(query);
+          params.set("action", "largeUploadModel");
+          params.delete("gasEndpoint");
+          const data = await requestGas("largeUploadModel", Object.fromEntries(params.entries()), "GET");
+          if (!data || !data.mode || !data.sessionToken) throw new Error("上傳工作階段無效或已過期，請回到主頁重新開始。");
+          model = data;
+          if (window.history && window.history.replaceState) {
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete("sessionToken");
+            cleanUrl.searchParams.delete("gasEndpoint");
+            window.history.replaceState({}, document.title, cleanUrl.toString());
+          }
+        }
+
+        function getSelectedFile() {
+          return fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        }
+
+        function updateSelectionState() {
+          const file = getSelectedFile();
+          if (!file) {
+            fileSelection.textContent = "尚未選擇檔案。";
+            setStatus("", "");
+            transferProgress.classList.add("hidden");
+            submitButton.disabled = true;
+            return;
+          }
+
+          fileSelection.textContent = "目前選擇：" + file.name + " ・ " + formatFileSize(file.size);
+          if (Number(file.size || 0) > Number(model.maxResumableMb || 2048) * 1024 * 1024) {
+            setStatus("這份檔案已超過目前分段上傳上限，請壓縮或分檔。", "error");
+            submitButton.disabled = true;
+            return;
+          }
+
+          setStatus("檔案已準備完成，送出後會以穩定分段方式傳送。", "success");
+          submitButton.disabled = false;
+        }
+
+        function setTransferProgress(percent, label) {
+          const value = Math.max(0, Math.min(100, Number(percent || 0)));
+          transferProgress.classList.remove("hidden");
+          progressLabel.textContent = label || "正在上傳";
+          progressValue.textContent = Math.round(value) + "%";
+          progressBar.style.width = value + "%";
+        }
+
+        function readFileAsBase64(file, onProgress) {
+          return new Promise(function(resolve, reject) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+              const result = String(event && event.target ? event.target.result || "" : "");
+              const commaIndex = result.indexOf(",");
+              resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+            };
+            reader.onerror = function() { reject(new Error("讀取檔案失敗，請重新選擇。")); };
+            reader.onprogress = function(event) {
+              if (event.lengthComputable && typeof onProgress === "function") onProgress(event.loaded / event.total);
+            };
+            reader.readAsDataURL(file);
+          });
+        }
+
+        function readChunkAsBase64(file, start, endExclusive) {
+          return new Promise(function(resolve, reject) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+              const result = String(event && event.target ? event.target.result || "" : "");
+              const commaIndex = result.indexOf(",");
+              resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+            };
+            reader.onerror = function() { reject(new Error("讀取檔案分段失敗，請重新選擇。")); };
+            reader.readAsDataURL(file.slice(start, endExclusive));
+          });
+        }
+
+        function buildUploadPayload(file) {
+          return {
+            uploadMode: model.mode,
+            mode: model.mode,
+            sessionToken: model.sessionToken,
+            sessionKey: model.sessionKey,
+            userId: model.userId,
+            teamId: model.teamId,
+            stageId: model.stageId,
+            assignmentId: model.assignmentId,
+            serviceOrderId: model.serviceOrderId,
+            groupKey: model.groupKey,
+            baseName: model.baseName,
+            extension: model.extension,
+            sourceFileName: file.name,
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: Number(file.size || 0)
+          };
+        }
+
+        function getDirectAction() {
+          if (model.mode === "file") return "uploadFile";
+          if (model.mode === "assignment-asset") return "uploadAssignmentAsset";
+          return "uploadDesignServiceDeliverable";
+        }
+
+        async function handleDirectSubmit(file) {
+          setTransferProgress(8, "正在讀取檔案");
+          const base64 = await readFileAsBase64(file, function(ratio) {
+            setTransferProgress(8 + Math.max(0, Math.min(1, ratio)) * 54, "正在讀取檔案");
+          });
+          setTransferProgress(68, "正在上傳到 Google Drive");
+          const result = await requestGas(getDirectAction(), Object.assign(buildUploadPayload(file), {
+            fileContentBase64: base64
+          }), "POST");
+          setTransferProgress(100, "上傳完成");
+          return result;
+        }
+
+        async function handleResumableSubmit(file) {
+          setTransferProgress(2, "建立大檔上傳工作階段");
+          setStatus("正在建立 Google Drive 分段上傳工作階段，請不要關閉此視窗。", "");
+          const startResult = await requestGas("startResumableLargeUpload", buildUploadPayload(file), "POST");
+          const chunkSize = Number(startResult && startResult.chunkSize || Number(model.resumableChunkMb || 2) * 1024 * 1024);
+          const totalSize = Number(file.size || 0);
+          const totalChunks = Math.ceil(totalSize / chunkSize);
+          let nextByte = 0;
+          let chunkNumber = 0;
+
+          while (nextByte < totalSize) {
+            const chunkStart = nextByte;
+            const chunkEndExclusive = Math.min(totalSize, chunkStart + chunkSize);
+            const chunkEnd = chunkEndExclusive - 1;
+            chunkNumber += 1;
+            setTransferProgress(Math.max(3, (chunkStart / totalSize) * 94), "正在讀取第 " + chunkNumber + " / " + totalChunks + " 段");
+            const chunkBase64 = await readChunkAsBase64(file, chunkStart, chunkEndExclusive);
+            let result = null;
+            let lastError = null;
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              try {
+                result = await requestGas("uploadResumableLargeUploadChunk", {
+                  sessionToken: model.sessionToken,
+                  sessionKey: model.sessionKey,
+                  chunkStart: chunkStart,
+                  chunkEnd: chunkEnd,
+                  totalSize: totalSize,
+                  totalChunks: totalChunks,
+                  chunkIndex: chunkNumber - 1,
+                  chunkBase64: chunkBase64
+                }, "POST");
+                break;
+              } catch (error) {
+                lastError = error;
+                if (attempt < 2) {
+                  setStatus("本段傳輸較慢，正在第 " + (attempt + 2) + " 次重試。", "");
+                  await new Promise(function(resolve) { window.setTimeout(resolve, 700 * (attempt + 1)); });
+                }
+              }
+            }
+            if (!result) throw lastError || new Error("大檔分段上傳失敗。");
+            if (result.complete === true) {
+              setTransferProgress(100, "大檔已完成，正在通知主頁");
+              return result;
+            }
+            const reportedNextByte = Number(result.nextByte || 0);
+            nextByte = reportedNextByte > chunkStart ? reportedNextByte : chunkEndExclusive;
+            setTransferProgress(Math.min(98, (nextByte / totalSize) * 96 + 2), "已上傳 " + formatFileSize(nextByte) + " / " + formatFileSize(totalSize));
+          }
+
+          throw new Error("大檔上傳尚未完成，請重新開始上傳。");
+        }
+
+        function notifyOpener(result) {
+          if (!window.opener) return;
+          window.opener.postMessage(Object.assign({
+            source: MESSAGE_SOURCE,
+            status: "success"
+          }, result || {}), "*");
+        }
+
+        function closeWindow() {
+          window.close();
+          window.setTimeout(function() {
+            if (!window.closed) setStatus("請關閉此分頁以回到原本頁面。", "");
+          }, 250);
+        }
+
+        async function handleSubmit(event) {
+          event.preventDefault();
+          if (isUploading) return;
+          const file = getSelectedFile();
+          if (!file) {
+            setStatus("請先重新選擇檔案。", "error");
+            return;
+          }
+          const size = Number(file.size || 0);
+          const maxResumable = Number(model.maxResumableMb || 2048) * 1024 * 1024;
+          if (size > maxResumable) {
+            setStatus("這份檔案已超過目前分段上傳上限。", "error");
+            return;
+          }
+
+          isUploading = true;
+          submitButton.disabled = true;
+          submitButton.textContent = size <= Number(model.maxDirectMb || 18) * 1024 * 1024 ? "上傳中..." : "分段上傳中...";
+          try {
+            const result = size <= Number(model.maxDirectMb || 18) * 1024 * 1024
+              ? await handleDirectSubmit(file)
+              : await handleResumableSubmit(file);
+            setStatus("上傳完成，正在通知主頁。", "success");
+            notifyOpener(Object.assign({}, result || {}, {
+              mode: model.mode,
+              sessionKey: model.sessionKey,
+              assignmentId: model.assignmentId,
+              sourceFileName: file.name
+            }));
+            submitButton.textContent = "已完成";
+            window.setTimeout(closeWindow, 900);
+          } catch (error) {
+            setStatus(error && error.message ? error.message : "上傳失敗，請稍後再試。", "error");
+            submitButton.disabled = false;
+            submitButton.textContent = "重新上傳";
+            isUploading = false;
+          }
+        }
+
+        function renderModel() {
+          pageTitle.textContent = model.title || "穩定上傳";
+          pageSubtitle.textContent = model.subtitle || "檔案會安全寫入 Google Drive。";
+          pathLabel.textContent = model.pathLabel || "Google Drive";
+          helperText.textContent = model.helperText || "請重新選擇要上傳的檔案。";
+          document.getElementById("direct-hint").textContent = "建議用於 " + (model.maxDirectMb || 18) + " MB 內檔案，流程較快。";
+          document.getElementById("resumable-hint").textContent = "超過 " + (model.maxStableMb || 50) + " MB 會自動分段傳送，最高支援 " + (model.maxResumableGb || 2) + " GB。";
+          form.classList.remove("hidden");
+          panel.setAttribute("aria-busy", "false");
+        }
+
+        fileInput.addEventListener("change", updateSelectionState);
+        form.addEventListener("submit", handleSubmit);
+        document.getElementById("cancel-button").addEventListener("click", closeWindow);
+
+        loadModel().then(renderModel).catch(function(error) {
+          setPageError(error && error.message ? error.message : "無法開啟上傳頁。請回到主頁重新開始。");
+        });
+      }());
+    </script>
+  </body>
+</html>
