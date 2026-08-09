@@ -43,6 +43,12 @@
         background: var(--surface);
         backdrop-filter: blur(28px);
         box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+        animation: panel-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      @keyframes panel-in {
+        from { opacity: 0; transform: translateY(8px) scale(0.985); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
       }
 
       .eyebrow {
@@ -66,6 +72,12 @@
         border-radius: 50%;
         background: var(--accent);
         box-shadow: 0 0 0 6px rgba(10, 132, 255, 0.12);
+        animation: status-pulse 1.8s ease-in-out infinite;
+      }
+
+      @keyframes status-pulse {
+        0%, 100% { opacity: 0.62; transform: scale(0.88); box-shadow: 0 0 0 5px rgba(10, 132, 255, 0.1); }
+        50% { opacity: 1; transform: scale(1.08); box-shadow: 0 0 0 8px rgba(10, 132, 255, 0.16); }
       }
 
       h1 {
@@ -82,6 +94,66 @@
 
       .subtitle { margin: 0; font-size: 14px; }
 
+      .loading-state {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 18px;
+        min-height: 38px;
+        color: var(--muted);
+        animation: loading-copy-in 360ms ease-out both;
+      }
+
+      @keyframes loading-copy-in {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .loading-orbit {
+        position: relative;
+        display: inline-block;
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        border: 2px solid rgba(10, 132, 255, 0.16);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: orbit-spin 1.1s linear infinite;
+      }
+
+      .loading-orbit::after {
+        content: "";
+        position: absolute;
+        inset: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: orbit-breathe 1.5s ease-in-out infinite;
+      }
+
+      @keyframes orbit-spin { to { transform: rotate(360deg); } }
+      @keyframes orbit-breathe {
+        0%, 100% { opacity: 0.52; transform: scale(0.78); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+
+      .loading-copy { display: block; min-width: 0; }
+      .loading-label { display: block; color: var(--text); font-size: 13px; font-weight: 700; }
+      .loading-detail { display: block; margin-top: 2px; font-size: 12px; }
+      .loading-dots::after {
+        content: "";
+        display: inline-block;
+        width: 1.2em;
+        text-align: left;
+        animation: loading-dots 1.4s steps(4, end) infinite;
+      }
+
+      @keyframes loading-dots {
+        0%, 20% { content: ""; }
+        40% { content: "."; }
+        60% { content: ".."; }
+        80%, 100% { content: "..."; }
+      }
+
       .meta, .file-box, .hint-card {
         border: 1px solid var(--border);
         background: rgba(255, 255, 255, 0.78);
@@ -91,6 +163,26 @@
         margin-top: 20px;
         padding: 16px;
         border-radius: 22px;
+      }
+
+      .panel.is-loading .meta {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .panel.is-loading .meta::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.46) 48%, transparent 76%);
+        transform: translateX(-100%);
+        animation: meta-shimmer 1.9s ease-in-out infinite;
+      }
+
+      @keyframes meta-shimmer {
+        0%, 30% { transform: translateX(-100%); }
+        70%, 100% { transform: translateX(100%); }
       }
 
       .meta-label, label {
@@ -214,13 +306,29 @@
         h1 { font-size: 25px; }
         .hint-row, .actions { display: grid; grid-template-columns: 1fr; }
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+        }
+      }
     </style>
   </head>
   <body>
-    <main class="panel" id="upload-panel" aria-busy="true">
+    <main class="panel is-loading" id="upload-panel" aria-busy="true">
       <span class="eyebrow">Large File Upload</span>
       <h1 id="page-title">正在準備上傳</h1>
       <p class="subtitle" id="page-subtitle">正在確認上傳工作階段。</p>
+
+      <div class="loading-state" id="loading-state" role="status" aria-live="polite">
+        <span class="loading-orbit" aria-hidden="true"></span>
+        <span class="loading-copy">
+          <strong class="loading-label">正在讀取上傳設定</strong>
+          <span class="loading-detail">連線至雲端服務<span class="loading-dots" aria-hidden="true"></span></span>
+        </span>
+      </div>
 
       <div class="meta" id="page-meta">
         <div class="meta-label">儲存位置</div>
@@ -283,6 +391,7 @@
         const pathLabel = document.getElementById("path-label");
         const helperText = document.getElementById("helper-text");
         const pageMeta = document.getElementById("page-meta");
+        const loadingState = document.getElementById("loading-state");
         const pageError = document.getElementById("page-error");
         const fileInput = document.getElementById("upload-file");
         const fileSelection = document.getElementById("file-selection");
@@ -310,6 +419,8 @@
         function setPageError(message) {
           pageError.textContent = message || "無法開啟上傳頁。";
           pageError.classList.remove("hidden");
+          loadingState.classList.add("hidden");
+          panel.classList.remove("is-loading");
           form.classList.add("hidden");
           pageMeta.classList.add("hidden");
           panel.setAttribute("aria-busy", "false");
@@ -581,6 +692,8 @@
           helperText.textContent = model.helperText || "請重新選擇要上傳的檔案。";
           document.getElementById("direct-hint").textContent = "建議用於 " + (model.maxDirectMb || 18) + " MB 內檔案，流程較快。";
           document.getElementById("resumable-hint").textContent = "超過 " + (model.maxStableMb || 50) + " MB 會自動分段傳送，最高支援 " + (model.maxResumableGb || 2) + " GB。";
+          loadingState.classList.add("hidden");
+          panel.classList.remove("is-loading");
           form.classList.remove("hidden");
           panel.setAttribute("aria-busy", "false");
         }
