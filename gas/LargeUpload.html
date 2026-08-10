@@ -200,6 +200,37 @@
         color: var(--success);
       }
 
+      .hidden {
+        display: none !important;
+      }
+
+      .progress-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .progress-track {
+        height: 7px;
+        margin-top: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e5e5ea;
+      }
+
+      .progress-bar {
+        width: 0;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #64b5ff, #0a84ff);
+        transition: width 180ms ease;
+      }
+
       .actions {
         margin-top: 18px;
         display: flex;
@@ -271,7 +302,7 @@
   </head>
   <body>
     <div class="panel">
-      <span class="eyebrow">Stable Upload</span>
+      <span class="eyebrow">Large File Upload</span>
       <h1><?= pageModel.title ?></h1>
       <p class="subtitle"><?= pageModel.subtitle ?></p>
 
@@ -300,6 +331,13 @@
           <input id="upload-file" name="uploadFile" type="file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" required>
           <div id="file-selection" class="selection">尚未選擇檔案。</div>
           <div id="status-message" class="status" aria-live="polite"></div>
+          <div id="transfer-progress" class="hidden" aria-live="polite">
+            <div class="progress-meta">
+              <span id="progress-label">準備分段上傳</span>
+              <span id="progress-value">0%</span>
+            </div>
+            <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+          </div>
         </div>
 
         <div class="hint-row">
@@ -309,7 +347,7 @@
           </div>
           <div class="hint-card">
             <strong>穩定上傳頁</strong>
-            <span>目前支援到約 <?= pageModel.maxStableMb ?> MB，較適合較大附件。</span>
+            <span><?= pageModel.maxStableMb ?> MB 內一次送出；超過 50 MB 會自動改用 <?= pageModel.resumableChunkMb ?> MB 分段上傳，最高 <?= pageModel.maxResumableGb ?> GB。</span>
           </div>
         </div>
 
@@ -335,9 +373,15 @@
         }
       }
       const maxStableBytes = Number(model.maxStableMb || 50) * 1024 * 1024;
+      const maxResumableBytes = Number(model.maxResumableMb || 2048) * 1024 * 1024;
+      const resumableChunkBytes = Number(model.resumableChunkMb || 2) * 1024 * 1024;
       const fileInput = document.getElementById("upload-file");
       const fileSelection = document.getElementById("file-selection");
       const statusMessage = document.getElementById("status-message");
+      const transferProgress = document.getElementById("transfer-progress");
+      const progressLabel = document.getElementById("progress-label");
+      const progressValue = document.getElementById("progress-value");
+      const progressBar = document.getElementById("progress-bar");
       const submitButton = document.getElementById("submit-button");
       const form = document.getElementById("large-upload-form");
 
@@ -363,19 +407,157 @@
         if (!file) {
           fileSelection.textContent = "尚未選擇檔案。";
           setStatus("", "");
+          transferProgress.classList.add("hidden");
           submitButton.disabled = true;
           return;
         }
 
         fileSelection.textContent = "目前選擇：" + file.name + " ・ " + formatFileSize(file.size);
-        if (Number(file.size || 0) > maxStableBytes) {
-          setStatus("這份檔案已超過穩定上傳頁上限，請再壓縮或分檔。", "error");
+        if (Number(file.size || 0) > maxResumableBytes) {
+          setStatus("這份檔案已超過目前分段上傳上限，請再壓縮或分檔。", "error");
+          transferProgress.classList.add("hidden");
           submitButton.disabled = true;
           return;
         }
 
-        setStatus("檔案已準備完成，可以開始上傳。", "success");
+        transferProgress.classList.add("hidden");
+        setStatus(
+          Number(file.size || 0) > maxStableBytes
+            ? "檔案已準備完成，送出後會自動分段上傳。"
+            : "檔案已準備完成，可以開始上傳。",
+          "success"
+        );
         submitButton.disabled = false;
+      }
+
+      function setTransferProgress(percent, label) {
+        const value = Math.max(0, Math.min(100, Number(percent || 0)));
+        transferProgress.classList.remove("hidden");
+        progressLabel.textContent = label || "正在分段上傳";
+        progressValue.textContent = Math.round(value) + "%";
+        progressBar.style.width = value + "%";
+      }
+
+      function wait(ms) {
+        return new Promise(function(resolve) {
+          window.setTimeout(resolve, ms);
+        });
+      }
+
+      function callResumableServer(functionName, payload) {
+        return new Promise(function(resolve, reject) {
+          const runner = google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject);
+          if (functionName === "startResumableLargeUpload") {
+            runner.startResumableLargeUpload(payload);
+            return;
+          }
+          runner.uploadResumableLargeUploadChunk(payload);
+        });
+      }
+
+      function readChunkAsBase64(file, start, endExclusive) {
+        return new Promise(function(resolve, reject) {
+          const reader = new FileReader();
+          reader.onload = function(event) {
+            const result = String(event && event.target ? event.target.result || "" : "");
+            const commaIndex = result.indexOf(",");
+            resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+          };
+          reader.onerror = function() {
+            reject(new Error("讀取檔案分段失敗，請重新選擇檔案。"));
+          };
+          reader.readAsDataURL(file.slice(start, endExclusive));
+        });
+      }
+
+      async function callChunkWithRetry(payload) {
+        let lastError = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            return await callResumableServer("uploadResumableLargeUploadChunk", payload);
+          } catch (error) {
+            lastError = error;
+            if (attempt < 2) {
+              setStatus("本段傳輸較慢，正在第 " + (attempt + 2) + " 次重試。", "");
+              await wait(700 * (attempt + 1));
+            }
+          }
+        }
+        throw lastError || new Error("大檔分段上傳失敗。");
+      }
+
+      function getFormUploadPayload(file) {
+        return {
+          uploadMode: model.mode,
+          mode: model.mode,
+          sessionToken: model.sessionToken,
+          sessionKey: model.sessionKey,
+          userId: model.userId,
+          teamId: model.teamId,
+          stageId: model.stageId,
+          assignmentId: model.assignmentId,
+          serviceOrderId: model.serviceOrderId,
+          groupKey: model.groupKey,
+          baseName: model.baseName,
+          extension: model.extension,
+          sourceFileName: file.name,
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          fileSize: Number(file.size || 0)
+        };
+      }
+
+      async function handleResumableSubmit(file) {
+        setTransferProgress(2, "建立大檔上傳工作階段");
+        setStatus("正在建立 Google Drive 分段上傳工作階段，請不要關閉此視窗。", "");
+        const startResult = await callResumableServer(
+          "startResumableLargeUpload",
+          getFormUploadPayload(file)
+        );
+        const chunkSize = Number(startResult && startResult.chunkSize || resumableChunkBytes);
+        const totalSize = Number(file.size || 0);
+        const totalChunks = Math.ceil(totalSize / chunkSize);
+        let nextByte = 0;
+        let chunkNumber = 0;
+
+        while (nextByte < totalSize) {
+          const chunkStart = nextByte;
+          const chunkEndExclusive = Math.min(totalSize, chunkStart + chunkSize);
+          const chunkEnd = chunkEndExclusive - 1;
+          chunkNumber += 1;
+          setTransferProgress(
+            Math.max(3, (chunkStart / totalSize) * 94),
+            "正在讀取第 " + chunkNumber + " / " + totalChunks + " 段"
+          );
+          const chunkBase64 = await readChunkAsBase64(file, chunkStart, chunkEndExclusive);
+          const result = await callChunkWithRetry({
+            sessionToken: model.sessionToken,
+            sessionKey: model.sessionKey,
+            chunkStart: chunkStart,
+            chunkEnd: chunkEnd,
+            totalSize: totalSize,
+            totalChunks: totalChunks,
+            chunkIndex: chunkNumber - 1,
+            chunkBase64: chunkBase64
+          });
+
+          if (result && result.complete === true) {
+            setTransferProgress(100, "大檔已完成，正在通知主頁");
+            handleSuccess(result);
+            return;
+          }
+
+          const reportedNextByte = Number(result && result.nextByte || 0);
+          nextByte = reportedNextByte > chunkStart ? reportedNextByte : chunkEndExclusive;
+          setTransferProgress(
+            Math.min(98, (nextByte / totalSize) * 96 + 2),
+            "已上傳 " + formatFileSize(nextByte) + " / " + formatFileSize(totalSize)
+          );
+        }
+
+        throw new Error("大檔上傳尚未完成，請重新開始上傳。 ");
       }
 
       function closeWindow() {
@@ -414,15 +596,20 @@
           setStatus("請先重新選擇檔案。", "error");
           return;
         }
-        if (Number(file.size || 0) > maxStableBytes) {
-          setStatus("這份檔案已超過穩定上傳頁上限。", "error");
+        if (Number(file.size || 0) > maxResumableBytes) {
+          setStatus("這份檔案已超過目前分段上傳上限。", "error");
           return;
         }
 
         submitButton.disabled = true;
-        submitButton.textContent = "上傳中...";
-        setStatus("正在將檔案送往 Google 雲端硬碟，請先不要關閉視窗。", "");
+        submitButton.textContent = Number(file.size || 0) > maxStableBytes ? "分段上傳中..." : "上傳中...";
 
+        if (Number(file.size || 0) > maxStableBytes) {
+          handleResumableSubmit(file).catch(handleFailure);
+          return;
+        }
+
+        setStatus("正在將檔案送往 Google 雲端硬碟，請先不要關閉視窗。", "");
         google.script.run
           .withSuccessHandler(handleSuccess)
           .withFailureHandler(handleFailure)

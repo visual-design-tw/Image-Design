@@ -12,10 +12,19 @@ var APP_DEFAULTS = {
 var SUPPORTED_UPLOAD_EXTENSIONS = ['.ai', '.pdf', '.psd', '.indd', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.zip'];
 var MAX_BROWSER_UPLOAD_SIZE_BYTES = 18 * 1024 * 1024;
 var MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
+var MAX_RESUMABLE_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
+var RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES = 2 * 1024 * 1024;
+var RESUMABLE_UPLOAD_SESSION_TTL_SECONDS = 6 * 60 * 60;
+var RESUMABLE_UPLOAD_CACHE_PREFIX = 'ShapePrintResumableUpload:';
 var ASSIGNMENT_REMINDER_TRIGGER_HANDLER = 'runScheduledAssignmentReminders';
 var ASSIGNMENT_REMINDER_LOG_META_KEY = 'AssignmentReminderLog';
 var ASSIGNMENT_REMINDER_SETTINGS_META_KEY = 'AssignmentReminderSettings';
 var ASSIGNMENT_REMINDER_DEFAULT_OFFSETS_HOURS = [72, 24, 6];
+var DEFERRED_DRIVE_TRASH_QUEUE_PROPERTY = 'DEFERRED_DRIVE_TRASH_QUEUE_V1';
+var DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER = 'runDeferredDriveTrashQueue';
+var DEFERRED_DRIVE_TRASH_MAX_ITEMS_PER_RUN = 20;
+var DEFERRED_DRIVE_TRASH_MAX_ATTEMPTS = 6;
+var DEFERRED_DRIVE_TRASH_RETRY_DELAY_MILLIS = 5 * 60 * 1000;
 var ACTIVITY_LOG_MAX_RECORDS = 1000;
 var AUTH_SESSION_TTL_HOURS = 12;
 var AUTH_SESSION_MAX_PER_USER = 5;
@@ -63,20 +72,25 @@ var TABLE_SCHEMAS = {
       'Status',
       'Allow_ReSubmit',
       'Notify_By_Email',
-      'Email_Notification_Sent'
+      'Email_Notification_Sent',
+      'Email_Notification_Status',
+      'Email_Notification_Recipient_Count',
+      'Email_Notification_Sent_At',
+      'Email_Notification_Last_Error'
     ],
     types: {
       Target_Team_IDs: 'json',
       Allow_ReSubmit: 'boolean',
       Notify_By_Email: 'boolean',
-      Email_Notification_Sent: 'boolean'
+      Email_Notification_Sent: 'boolean',
+      Email_Notification_Recipient_Count: 'number'
     }
   },
-  Assignment_Submissions: {
-    headers: [
-      'Submission_ID',
-      'Assignment_ID',
-      'User_ID',
+    Assignment_Submissions: {
+      headers: [
+        'Submission_ID',
+        'Assignment_ID',
+        'User_ID',
       'Team_ID',
       'Submission_No',
       'Submission_Mode',
@@ -85,14 +99,17 @@ var TABLE_SCHEMAS = {
       'Text_Content',
       'Submitted_At',
       'Updated_At',
-      'Status',
-      'Notes',
-      'Drive_File_ID',
-      'Drive_Folder_ID'
-    ],
-    types: {
-      Submission_No: 'number'
-    }
+        'Status',
+        'Notes',
+        'Drive_File_ID',
+        'Drive_Folder_ID',
+        'Reviewed_By_User_ID',
+        'Reviewed_At',
+        'Review_Note'
+      ],
+      types: {
+        Submission_No: 'number'
+      }
   },
   Files: {
     headers: [
@@ -261,6 +278,10 @@ function doGet(e) {
       }
     }
 
+    if (action === 'largeUploadModel') {
+      return jsonResponse_(true, buildLargeUploadPageModel_(e && e.parameter ? e.parameter : {}));
+    }
+
     throw new Error('Unsupported GET action: ' + action);
   } catch (error) {
     return jsonResponse_(false, null, error);
@@ -354,6 +375,13 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'deleteAssignment') {
+      result = withLock_(function() {
+        return handleDeleteAssignment_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'deleteStage') {
       result = withLock_(function() {
         return handleDeleteStage_(payload);
@@ -369,6 +397,23 @@ function doPost(e) {
     if (action === 'logout') {
       result = withLock_(function() {
         return handleLogoutSession_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'startResumableLargeUpload') {
+      result = startResumableLargeUpload(payload);
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'uploadResumableLargeUploadChunk') {
+      result = uploadResumableLargeUploadChunk(payload);
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'processLargeUpload') {
+      result = withLock_(function() {
+        return processLargeUploadForm_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -429,6 +474,13 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'reviewAssignmentSubmission') {
+      result = withLock_(function() {
+        return handleReviewAssignmentSubmission_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'markNotificationsRead') {
       result = withLock_(function() {
         return handleMarkNotificationsRead_(payload);
@@ -458,7 +510,7 @@ function renderLargeUploadPage_(e) {
 }
 
 function renderLargeUploadErrorPage_(error) {
-  var message = error && error.message ? error.message : '無法開啟穩定上傳頁。';
+  var message = error && error.message ? error.message : '無法開啟大檔上傳頁。';
   var safeMessage = String(message).replace(/[<>&"']/g, function(char) {
     return {
       '<': '&lt;',
@@ -473,7 +525,7 @@ function renderLargeUploadErrorPage_(error) {
     '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<title>穩定上傳頁</title>' +
     '<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang TC","Noto Sans TC",sans-serif;background:#f5f5f7;color:#1d1d1f;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}.card{max-width:460px;width:100%;background:#fff;border:1px solid #e5e5ea;border-radius:28px;padding:28px;box-shadow:0 16px 48px rgba(15,23,42,.08)}h1{font-size:24px;margin:0 0 10px}p{margin:0;color:#6e6e73;line-height:1.7}</style>' +
-    '</head><body><div class="card"><h1>無法開啟穩定上傳頁</h1><p>' + safeMessage + '</p></div></body></html>'
+    '</head><body><div class="card"><h1>無法開啟大檔上傳頁</h1><p>' + safeMessage + '</p></div></body></html>'
   );
 }
 
@@ -614,16 +666,19 @@ function buildLargeUploadPageModel_(params) {
     pathLabel: pathLabel,
     maxDirectMb: Math.round(MAX_BROWSER_UPLOAD_SIZE_BYTES / 1024 / 1024),
     maxStableMb: Math.round(MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES / 1024 / 1024),
+    maxResumableMb: Math.round(MAX_RESUMABLE_UPLOAD_SIZE_BYTES / 1024 / 1024),
+    maxResumableGb: Math.round(MAX_RESUMABLE_UPLOAD_SIZE_BYTES / 1024 / 1024 / 1024),
+    resumableChunkMb: Math.round(RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES / 1024 / 1024),
     title: mode === 'assignment-asset'
       ? '繳交項目穩定上傳'
       : mode === 'design-service'
         ? '形印代做成果上傳'
         : '大檔穩定上傳',
     subtitle: mode === 'assignment-asset'
-      ? '大於 18 MB 的作業附件會先直接送到雲端，再回主頁完成繳交。'
+      ? '大於 18 MB 的作業附件會先直接送到雲端，再回主頁完成繳交。超過 50 MB 會自動分段傳送。'
       : mode === 'design-service'
-        ? '成果會直接寫入案件專屬資料夾，完成後回主頁等待形印組長審核。'
-        : '大於 18 MB 的收件檔案會透過穩定上傳頁直接寫入 Google 雲端硬碟。',
+        ? '成果會直接寫入案件專屬資料夾，完成後回主頁等待形印組長審核。超過 50 MB 會自動分段傳送。'
+        : '大於 18 MB 的收件檔案會透過穩定上傳頁直接寫入 Google 雲端硬碟；超過 50 MB 會自動分段傳送。',
     helperText: sourceFileName
       ? '請在下方重新選擇同一份檔案：' + sourceFileName
       : '請重新選擇要上傳的檔案。'
@@ -653,6 +708,434 @@ function processLargeUploadForm_(formObject) {
   }
 
   throw new Error('未知的穩定上傳模式。');
+}
+
+// Files larger than the HTML-service form limit use a Drive resumable upload.
+// Each request carries one small base64 chunk, so a failed request can be
+// retried without sending the whole file again.
+function startResumableLargeUpload(payload) {
+  var preparation = buildResumableUploadPreparation_(payload);
+  var folderContext = getOrCreateNestedFolders_(
+    DriveApp.getFolderById(getConfig_().driveRootFolderId),
+    preparation.folderSegments
+  );
+  var uploadSessionUrl = createDriveResumableSession_(
+    preparation.targetFileName,
+    preparation.mimeType,
+    preparation.fileSize,
+    folderContext.folder.getId()
+  );
+  var sessionKey = String(preparation.sessionKey || '').trim();
+  var session = {
+    status: 'active',
+    sessionKey: sessionKey,
+    mode: preparation.mode,
+    sessionTokenHash: hashSessionToken_(String(payload && payload.sessionToken || '')),
+    userId: preparation.currentUser.User_ID,
+    teamId: preparation.teamId,
+    stageId: preparation.stageId,
+    assignmentId: preparation.assignmentId,
+    serviceOrderId: preparation.serviceOrderId,
+    groupKey: preparation.groupKey,
+    baseName: preparation.baseName,
+    extension: preparation.extension,
+    sourceFileName: preparation.sourceFileName,
+    targetFileName: preparation.targetFileName,
+    mimeType: preparation.mimeType,
+    fileSize: preparation.fileSize,
+    folderId: folderContext.folder.getId(),
+    folderPath: folderContext.path,
+    uploadSessionUrl: uploadSessionUrl,
+    createdAtMillis: Date.now(),
+    expiresAtMillis: Date.now() + RESUMABLE_UPLOAD_SESSION_TTL_SECONDS * 1000
+  };
+  saveResumableUploadSession_(session, RESUMABLE_UPLOAD_SESSION_TTL_SECONDS);
+
+  return {
+    status: 'started',
+    mode: preparation.mode,
+    sessionKey: sessionKey,
+    chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES,
+    totalChunks: Math.ceil(preparation.fileSize / RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES),
+    fileSize: preparation.fileSize,
+    maxResumableMb: Math.round(MAX_RESUMABLE_UPLOAD_SIZE_BYTES / 1024 / 1024),
+    folderPath: folderContext.path
+  };
+}
+
+function uploadResumableLargeUploadChunk(payload) {
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var sessionKey = String(payload.sessionKey || '').trim();
+  var session = loadResumableUploadSession_(sessionKey);
+  if (!session) {
+    throw new Error('大檔上傳工作階段已過期，請重新開始上傳。');
+  }
+  if (session.status === 'completed' && session.completedResult) {
+    return session.completedResult;
+  }
+  verifyResumableUploadSession_(session, payload);
+
+  var totalSize = Number(payload.totalSize || 0);
+  var chunkStart = Number(payload.chunkStart);
+  var chunkEnd = Number(payload.chunkEnd);
+  var totalChunks = Number(payload.totalChunks || 0);
+  var chunkBase64 = String(payload.chunkBase64 || '').trim();
+  if (!Number.isFinite(totalSize) || totalSize !== Number(session.fileSize)) {
+    throw new Error('大檔上傳大小驗證失敗。');
+  }
+  if (!Number.isFinite(chunkStart) || !Number.isFinite(chunkEnd)
+    || chunkStart < 0 || chunkEnd < chunkStart || chunkEnd >= totalSize) {
+    throw new Error('大檔上傳分段範圍無效。');
+  }
+  if (!Number.isFinite(totalChunks) || totalChunks < 1) {
+    throw new Error('大檔上傳分段數量無效。');
+  }
+  if (!chunkBase64) {
+    throw new Error('大檔上傳缺少分段內容。');
+  }
+
+  var chunkBytes;
+  try {
+    chunkBytes = Utilities.base64Decode(chunkBase64);
+  } catch (decodeError) {
+    throw new Error('大檔上傳分段內容無法解析。');
+  }
+  var expectedChunkSize = chunkEnd - chunkStart + 1;
+  if (!chunkBytes || chunkBytes.length !== expectedChunkSize) {
+    throw new Error('大檔上傳分段大小驗證失敗。');
+  }
+  if (chunkBytes.length > RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES) {
+    throw new Error('大檔上傳單段不可超過 ' + Math.round(RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES / 1024 / 1024) + ' MB。');
+  }
+
+  var driveResponse = uploadDriveResumableChunk_(
+    session.uploadSessionUrl,
+    session.mimeType,
+    chunkStart,
+    chunkEnd,
+    totalSize,
+    chunkBytes
+  );
+  var responseCode = driveResponse.responseCode;
+  if (responseCode === 308) {
+    var nextByte = getResumableNextByte_(driveResponse.headers, chunkEnd + 1);
+    return {
+      status: 'progress',
+      mode: session.mode,
+      sessionKey: sessionKey,
+      complete: false,
+      nextByte: nextByte,
+      uploadedBytes: Math.min(totalSize, nextByte),
+      totalSize: totalSize
+    };
+  }
+  if (responseCode !== 200 && responseCode !== 201) {
+    throw new Error('Google Drive 分段上傳失敗（HTTP ' + responseCode + '）。');
+  }
+
+  var driveResult = buildResumableDriveResult_(driveResponse.body, session);
+  var finalizePayload = {
+    uploadMode: session.mode,
+    mode: session.mode,
+    sessionToken: payload.sessionToken,
+    sessionKey: sessionKey,
+    userId: session.userId,
+    teamId: session.teamId,
+    stageId: session.stageId,
+    assignmentId: session.assignmentId,
+    serviceOrderId: session.serviceOrderId,
+    groupKey: session.groupKey,
+    baseName: session.baseName,
+    extension: session.extension,
+    sourceFileName: session.sourceFileName,
+    fileName: session.sourceFileName,
+    mimeType: session.mimeType,
+    fileSize: session.fileSize
+  };
+
+  var result;
+  try {
+    result = withLock_(function() {
+      if (session.mode === 'file') {
+        return handleLargeFileFormUpload_(finalizePayload, driveResult);
+      }
+      if (session.mode === 'assignment-asset') {
+        return handleLargeAssignmentAssetFormUpload_(finalizePayload, driveResult);
+      }
+      return handleLargeDesignServiceFormUpload_(finalizePayload, driveResult);
+    });
+  } catch (finalizeError) {
+    trashDriveFiles_([driveResult.fileId]);
+    throw finalizeError;
+  }
+
+  session.status = 'completed';
+  session.completedResult = result;
+  saveResumableUploadSession_(session, 10 * 60);
+  return result;
+}
+
+function buildResumableUploadPreparation_(payload) {
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var mode = String(payload.uploadMode || payload.mode || '').trim();
+  if (['file', 'assignment-asset', 'design-service'].indexOf(mode) === -1) {
+    throw new Error('未知的大檔上傳模式。');
+  }
+
+  var sessionKey = String(payload.sessionKey || '').trim();
+  if (!/^[A-Za-z0-9_-]{8,120}$/.test(sessionKey)) {
+    throw new Error('大檔上傳工作階段識別碼無效。');
+  }
+
+  var state = loadState_();
+  var currentUser = mode === 'design-service'
+    ? requireSessionUser_(state, payload, ['SuperAdmin', 'Admin'])
+    : requireStudentUploadActor_(state, payload);
+  var fileSize = Number(payload.fileSize || 0);
+  if (!Number.isFinite(fileSize) || fileSize <= MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES) {
+    throw new Error('只有超過 50 MB 的檔案需要使用分段上傳。');
+  }
+  if (fileSize > MAX_RESUMABLE_UPLOAD_SIZE_BYTES) {
+    throw new Error('檔案超過目前分段上傳上限 ' + Math.round(MAX_RESUMABLE_UPLOAD_SIZE_BYTES / 1024 / 1024 / 1024) + ' GB。');
+  }
+
+  var sourceFileName = sanitizeDriveEntryName_(
+    payload.sourceFileName || payload.fileName || 'upload.bin',
+    'upload.bin'
+  );
+  var parsedFile = parseFileMeta_(sourceFileName);
+  var extension = String(payload.extension || parsedFile.extension || '').trim().toLowerCase();
+  if (!extension || !isSupportedUploadExtension_(extension)) {
+    throw new Error('目前只支援 ai、pdf、psd、indd、圖像格式與 zip。');
+  }
+  var mimeType = String(payload.mimeType || 'application/octet-stream').trim() || 'application/octet-stream';
+  var context = {
+    mode: mode,
+    sessionKey: sessionKey,
+    currentUser: currentUser,
+    fileSize: fileSize,
+    sourceFileName: sourceFileName,
+    extension: extension,
+    mimeType: mimeType,
+    teamId: String(currentUser.Team_ID || ''),
+    stageId: String(payload.stageId || '').trim(),
+    assignmentId: String(payload.assignmentId || '').trim(),
+    serviceOrderId: String(payload.serviceOrderId || '').trim(),
+    groupKey: String(payload.groupKey || '').trim(),
+    baseName: String(payload.baseName || parsedFile.baseName || '').trim(),
+    folderSegments: [],
+    targetFileName: sourceFileName
+  };
+
+  if (mode === 'file') {
+    var fileStage = context.stageId
+      ? ensureArray_(state.Config_Stages).find(function(stage) { return String(stage.Stage_ID || '') === context.stageId; })
+      : ensureArray_(state.Config_Stages).find(function(stage) { return stage.Is_Active === true; });
+    var fileTeam = ensureArray_(state.Teams).find(function(team) { return String(team.Team_ID || '') === context.teamId; });
+    if (!fileStage || !fileTeam || fileTeam.Team_ID === 'T00') {
+      throw new Error('找不到一般檔案收件的會審或小組資料。');
+    }
+    if (!context.baseName) {
+      throw new Error('檔案主名稱不可為空白。');
+    }
+    context.stageId = String(fileStage.Stage_ID || '');
+    context.groupKey = context.groupKey || makeFileGroupKey_(context.stageId, context.teamId, context.baseName);
+    var latestFile = getLatestFileForGroup_(state.Files, context.groupKey);
+    if (latestFile && latestFile.Check_Status !== '退件') {
+      throw new Error('只有被退件的檔案才能重新繳交。');
+    }
+    var relatedFiles = ensureArray_(state.Files).filter(function(file) {
+      return String(file.File_Group_Key || '') === context.groupKey;
+    });
+    var highestVersion = relatedFiles.reduce(function(max, file) {
+      return Math.max(max, Number(file.Version_No || 1));
+    }, 0);
+    context.targetFileName = buildVersionedFileName_(context.baseName, highestVersion + 1, extension);
+    context.folderSegments = [fileStage.Stage_Name, fileTeam.Team_Name];
+    return context;
+  }
+
+  var assignment = ensureArray_(state.Assignments).find(function(item) {
+    return String(item.Assignment_ID || '') === context.assignmentId;
+  });
+  if (!assignment) {
+    throw new Error('找不到指定的繳交項目。');
+  }
+
+  if (mode === 'assignment-asset') {
+    if (!isAssignmentVisibleToTeam_(state, assignment, context.teamId)) {
+      throw new Error('FORBIDDEN: 這份作業不在你的繳交範圍內。');
+    }
+    var assignmentStage = ensureArray_(state.Config_Stages).find(function(stage) {
+      return String(stage.Stage_ID || '') === String(assignment.Stage_ID || '');
+    }) || ensureArray_(state.Config_Stages).find(function(stage) { return stage.Is_Active === true; });
+    var assignmentTeam = ensureArray_(state.Teams).find(function(team) { return String(team.Team_ID || '') === context.teamId; });
+    if (!assignmentStage || !assignmentTeam || assignmentTeam.Team_ID === 'T00') {
+      throw new Error('找不到繳交項目的會審或小組資料。');
+    }
+    context.stageId = String(assignmentStage.Stage_ID || '');
+    var assignmentSubmissions = ensureArray_(state.Assignment_Submissions).filter(function(submission) {
+      return String(submission.Assignment_ID || '') === context.assignmentId
+        && String(submission.Team_ID || '') === context.teamId;
+    });
+    var latestSubmission = assignmentSubmissions.slice().sort(function(a, b) {
+      return Number(b.Submission_No || 1) - Number(a.Submission_No || 1);
+    })[0] || null;
+    if (latestSubmission && (assignment.Allow_ReSubmit !== true || !isAssignmentSubmissionRejected_(latestSubmission))) {
+      throw new Error('只有被退回修正後，才能重新繳交。');
+    }
+    context.targetFileName = buildAssignmentSubmissionFileName_(sourceFileName, latestSubmission ? Number(latestSubmission.Submission_No || 1) + 1 : 1);
+    context.folderSegments = [assignmentStage.Stage_Name, assignmentTeam.Team_Name, '公告作業', assignment.Title];
+    return context;
+  }
+
+  var serviceOrder = getDesignServiceOrderById_(state, context.serviceOrderId);
+  if (!serviceOrder) {
+    throw new Error('找不到指定的形印代做案件。');
+  }
+  if (String(currentUser.Role || '') !== 'SuperAdmin'
+    && String(serviceOrder.Responsible_User_ID || '') !== String(currentUser.User_ID || '')) {
+    throw new Error('FORBIDDEN: 只有案件負責人可以使用分段上傳。');
+  }
+  if (['製作中', '退回修正'].indexOf(String(serviceOrder.Status || '')) === -1) {
+    throw new Error('目前案件狀態不開放上傳成果。');
+  }
+  var serviceStage = ensureArray_(state.Config_Stages).find(function(stage) {
+    return String(stage.Stage_ID || '') === String(serviceOrder.Stage_ID || assignment.Stage_ID || '');
+  });
+  var serviceTeam = ensureArray_(state.Teams).find(function(team) {
+    return String(team.Team_ID || '') === String(serviceOrder.Team_ID || '');
+  });
+  if (!serviceStage || !serviceTeam) {
+    throw new Error('找不到形印代做案件的會審或小組資料。');
+  }
+  context.teamId = String(serviceTeam.Team_ID || '');
+  context.stageId = String(serviceStage.Stage_ID || '');
+  context.assignmentId = String(serviceOrder.Assignment_ID || context.assignmentId || '');
+  context.folderSegments = [serviceStage.Stage_Name, serviceTeam.Team_Name, '形印代做', assignment.Title, context.serviceOrderId];
+  return context;
+}
+
+function createDriveResumableSession_(fileName, mimeType, fileSize, folderId) {
+  var uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink,parents';
+  var response = UrlFetchApp.fetch(uploadUrl, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'X-Upload-Content-Type': mimeType,
+      'X-Upload-Content-Length': String(fileSize)
+    },
+    payload: JSON.stringify({
+      name: fileName,
+      mimeType: mimeType,
+      parents: [folderId]
+    }),
+    muteHttpExceptions: true
+  });
+  var responseCode = response.getResponseCode();
+  if (responseCode < 200 || responseCode >= 300) {
+    throw new Error('Google Drive 無法建立大檔上傳工作階段（HTTP ' + responseCode + '）。');
+  }
+  var location = getHttpHeaderValue_(response.getAllHeaders(), 'Location');
+  if (!location) {
+    throw new Error('Google Drive 沒有回傳大檔上傳工作階段網址。');
+  }
+  return location;
+}
+
+function uploadDriveResumableChunk_(sessionUrl, mimeType, chunkStart, chunkEnd, totalSize, chunkBytes) {
+  var response = UrlFetchApp.fetch(sessionUrl, {
+    method: 'put',
+    // UrlFetchApp calculates Content-Length from the byte payload; setting it
+    // manually is rejected as an invalid request header by Apps Script.
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'Content-Range': 'bytes ' + chunkStart + '-' + chunkEnd + '/' + totalSize,
+      'Content-Type': mimeType
+    },
+    payload: chunkBytes,
+    muteHttpExceptions: true
+  });
+  var headers = response.getAllHeaders();
+  return {
+    responseCode: response.getResponseCode(),
+    headers: headers,
+    body: response.getContentText()
+  };
+}
+
+function buildResumableDriveResult_(body, session) {
+  var parsed = {};
+  try {
+    parsed = body ? JSON.parse(body) : {};
+  } catch (parseError) {
+    parsed = {};
+  }
+  var fileId = String(parsed.id || '').trim();
+  if (!fileId) {
+    throw new Error('Google Drive 已完成傳輸，但沒有回傳檔案 ID。');
+  }
+  var file = DriveApp.getFileById(fileId);
+  return {
+    fileId: fileId,
+    fileUrl: file.getUrl(),
+    fileName: file.getName(),
+    folderId: session.folderId,
+    folderPath: session.folderPath
+  };
+}
+
+function getHttpHeaderValue_(headers, name) {
+  headers = headers || {};
+  var target = String(name || '').toLowerCase();
+  var key = Object.keys(headers).find(function(headerName) {
+    return String(headerName || '').toLowerCase() === target;
+  });
+  if (!key) return '';
+  var value = headers[key];
+  return Array.isArray(value) ? String(value[0] || '') : String(value || '');
+}
+
+function getResumableNextByte_(headers, fallback) {
+  var range = getHttpHeaderValue_(headers, 'Range');
+  var match = range.match(/-(\d+)$/);
+  return match ? Number(match[1]) + 1 : Number(fallback || 0);
+}
+
+function getResumableUploadCacheKey_(sessionKey) {
+  return RESUMABLE_UPLOAD_CACHE_PREFIX + String(sessionKey || '').trim();
+}
+
+function saveResumableUploadSession_(session, ttlSeconds) {
+  var sessionKey = String(session && session.sessionKey || '').trim();
+  if (!sessionKey) throw new Error('大檔上傳工作階段缺少識別碼。');
+  CacheService.getScriptCache().put(
+    getResumableUploadCacheKey_(sessionKey),
+    JSON.stringify(session),
+    Math.max(60, Number(ttlSeconds || RESUMABLE_UPLOAD_SESSION_TTL_SECONDS))
+  );
+}
+
+function loadResumableUploadSession_(sessionKey) {
+  if (!sessionKey) return null;
+  var raw = CacheService.getScriptCache().get(getResumableUploadCacheKey_(sessionKey));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+}
+
+function verifyResumableUploadSession_(session, payload) {
+  var sessionToken = String(payload && payload.sessionToken || '').trim();
+  if (!sessionToken || !session.sessionTokenHash || hashSessionToken_(sessionToken) !== session.sessionTokenHash) {
+    throw new Error('AUTH_EXPIRED: 大檔上傳登入狀態已過期，請重新登入。');
+  }
+  if (Number(session.expiresAtMillis || 0) < Date.now()) {
+    throw new Error('大檔上傳工作階段已過期，請重新開始上傳。');
+  }
 }
 
 function pickOptionalConfigValue_(options, key, fallback) {
@@ -722,6 +1205,31 @@ function primeImageDesignProperties() {
 function authorizeMailScope() {
   return {
     remainingDailyQuota: MailApp.getRemainingDailyQuota()
+  };
+}
+
+// Run once from the Apps Script editor after adding resumable Drive uploads.
+// The request intentionally verifies the external-request scope before the
+// web app tries to create a Drive upload session for an anonymous visitor.
+function authorizeLargeUploadScope() {
+  var response = UrlFetchApp.fetch(
+    'https://www.googleapis.com/drive/v3/about?fields=user',
+    {
+      method: 'get',
+      headers: {
+        Authorization: 'Bearer ' + ScriptApp.getOAuthToken()
+      },
+      muteHttpExceptions: true
+    }
+  );
+  var responseCode = response.getResponseCode();
+  if (responseCode < 200 || responseCode >= 300) {
+    throw new Error('外部連線授權檢查失敗（HTTP ' + responseCode + '）。');
+  }
+  return {
+    ok: true,
+    responseCode: responseCode,
+    message: '大檔上傳所需的外部連線授權已完成。'
   };
 }
 
@@ -811,6 +1319,10 @@ function listAssignmentReminderTriggers() {
 
 function runScheduledAssignmentReminders() {
   return withLock_(function() {
+    // Drive cleanup is deliberately processed before reminder work, but never
+    // inside a user-facing delete request. A slow Drive API call must not make
+    // the browser wait with its delete modal stuck on "刪除中…".
+    var driveCleanup = processDeferredDriveTrashQueue_();
     var state = loadState_();
     var result = runScheduledAssignmentRemindersInternal_(state);
     if (result.changed) {
@@ -821,6 +1333,7 @@ function runScheduledAssignmentReminders() {
       var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
       writeMetaSheet_(spreadsheet, state.Meta || {});
     }
+    result.driveCleanup = driveCleanup;
     return result;
   });
 }
@@ -993,11 +1506,15 @@ function persistState_(inputState, options) {
   state.Meta.State_Revision = typeof options.nextRevision === 'number'
     ? options.nextRevision
     : getStateRevision_(existingState) + 1;
-  sendPendingAssignmentAnnouncementEmails_(state);
+  var assignmentEmailNotifications = sendPendingAssignmentAnnouncementEmails_(state);
   var config = getConfig_();
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
 
   writeStateTables_(spreadsheet, state);
+
+  return {
+    assignmentEmailNotifications: assignmentEmailNotifications
+  };
 }
 
 function loadActivityLogs_() {
@@ -1316,8 +1833,13 @@ function mergeStudentSubmissions_(nextState, incomingState, actor) {
       return String(item.Assignment_ID || '') === String(assignment.Assignment_ID || '')
         && String(item.Team_ID || '') === String(actor.Team_ID || '');
     });
-    if (existingForAssignment.length > 0 && assignment.Allow_ReSubmit !== true) {
-      throw new Error('FORBIDDEN: 此繳交項目目前不開放重新繳交。');
+    var latestExistingSubmission = existingForAssignment.slice().sort(function(a, b) {
+      var numberDiff = Number(b.Submission_No || 1) - Number(a.Submission_No || 1);
+      if (numberDiff !== 0) return numberDiff;
+      return String(b.Submitted_At || '').localeCompare(String(a.Submitted_At || ''));
+    })[0] || null;
+    if (latestExistingSubmission && (assignment.Allow_ReSubmit !== true || !isAssignmentSubmissionRejected_(latestExistingSubmission))) {
+      throw new Error('FORBIDDEN: 只有被退回修正後，才能重新繳交。');
     }
 
     var requiresFile = assignment.Submission_Mode === 'file' || assignment.Submission_Mode === 'file-text';
@@ -1454,13 +1976,17 @@ function handleSaveState_(payload) {
   var actor = requireSessionUser_(previousState, payload);
   assertExpectedStateRevision_(payload, previousState);
   var mergedState = mergeClientStateForActor_(previousState, payload.state, actor);
-  persistState_(mergedState, {
+  var persistResult = persistState_(mergedState, {
     existingState: previousState,
     nextRevision: getStateRevision_(previousState) + 1
   });
   var nextState = loadState_();
   appendActivityLogEntries_(buildStateAuditEntries_(previousState, nextState, actor));
-  return buildClientStateResultForUser_(nextState, actor);
+  return buildClientStateResultForUser_(nextState, actor, {
+    assignmentEmailNotifications: persistResult && persistResult.assignmentEmailNotifications
+      ? persistResult.assignmentEmailNotifications
+      : []
+  });
 }
 
 // Delete one purchase record from the latest server state so a stale browser
@@ -1497,6 +2023,131 @@ function handleDeletePurchaseItem_(payload) {
 
   return buildClientStateResultForUser_(savedState, actor, {
     deletedItem: targetItem
+  });
+}
+
+// Delete one assignment in a locked server transaction. Related submissions,
+// notifications, discussion comments, service orders, reminder entries, and
+// uploaded Drive files are removed together so the browser cannot restore a
+// half-deleted assignment with a later saveState request.
+function handleDeleteAssignment_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var assignmentId = String(payload && payload.assignmentId || '').trim();
+  if (!assignmentId) {
+    throw new Error('deleteAssignment requires `assignmentId`.');
+  }
+
+  var targetAssignment = ensureArray_(previousState.Assignments).find(function(assignment) {
+    return String(assignment && assignment.Assignment_ID || '') === assignmentId;
+  });
+  if (!targetAssignment) {
+    throw new Error('NOT_FOUND: 找不到要刪除的繳交項目，資料可能已被其他使用者更新。');
+  }
+
+  var submissions = ensureArray_(previousState.Assignment_Submissions).filter(function(submission) {
+    return String(submission && submission.Assignment_ID || '') === assignmentId;
+  });
+  var notifications = ensureArray_(previousState.Notifications).filter(function(notification) {
+    return String(notification && notification.Ref_Type || '') === 'assignment'
+      && String(notification && notification.Ref_ID || '') === assignmentId;
+  });
+  var discussionComments = ensureArray_(previousState.Discussion_Comments).filter(function(comment) {
+    return String(comment && comment.Ref_Type || '') === 'assignment'
+      && String(comment && comment.Ref_ID || '') === assignmentId;
+  });
+  var serviceOrders = ensureArray_(previousState.Design_Service_Orders).filter(function(order) {
+    return String(order && order.Assignment_ID || '') === assignmentId;
+  });
+  var driveFileIds = {};
+
+  submissions.concat(serviceOrders).forEach(function(record) {
+    var fileId = String(record && record.Drive_File_ID || '').trim();
+    if (!fileId) {
+      fileId = extractDriveFileId_(record && record.Google_Drive_URL);
+    }
+    if (fileId) {
+      driveFileIds[fileId] = true;
+    }
+  });
+
+  var nextState = cloneObject_(previousState);
+  nextState.Assignments = ensureArray_(nextState.Assignments).filter(function(assignment) {
+    return String(assignment && assignment.Assignment_ID || '') !== assignmentId;
+  });
+  nextState.Assignment_Submissions = ensureArray_(nextState.Assignment_Submissions).filter(function(submission) {
+    return String(submission && submission.Assignment_ID || '') !== assignmentId;
+  });
+  nextState.Notifications = ensureArray_(nextState.Notifications).filter(function(notification) {
+    return !(String(notification && notification.Ref_Type || '') === 'assignment'
+      && String(notification && notification.Ref_ID || '') === assignmentId);
+  });
+  nextState.Discussion_Comments = ensureArray_(nextState.Discussion_Comments).filter(function(comment) {
+    return !(String(comment && comment.Ref_Type || '') === 'assignment'
+      && String(comment && comment.Ref_ID || '') === assignmentId);
+  });
+  nextState.Design_Service_Orders = ensureArray_(nextState.Design_Service_Orders).filter(function(order) {
+    return String(order && order.Assignment_ID || '') !== assignmentId;
+  });
+
+  nextState.Meta = nextState.Meta && typeof nextState.Meta === 'object' ? nextState.Meta : {};
+  var reminderLog = getAssignmentReminderLog_(nextState);
+  var removedReminderCount = 0;
+  Object.keys(reminderLog).forEach(function(key) {
+    var reminderAssignmentId = String(
+      reminderLog[key] && reminderLog[key].assignmentId || key.split('|')[0] || ''
+    );
+    if (reminderAssignmentId === assignmentId) {
+      delete reminderLog[key];
+      removedReminderCount += 1;
+    }
+  });
+  nextState.Meta[ASSIGNMENT_REMINDER_LOG_META_KEY] = reminderLog;
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false
+  });
+
+  var persistedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '刪除繳交項目',
+      '已刪除「' + String(targetAssignment.Title || assignmentId) + '」及其相關資料。',
+      'assignment',
+      assignmentId,
+      'warning',
+      {
+        source: 'deleteAssignment',
+        assignmentId: assignmentId,
+        submissionCount: submissions.length,
+        notificationCount: notifications.length,
+        discussionCommentCount: discussionComments.length,
+        serviceOrderCount: serviceOrders.length,
+        reminderCount: removedReminderCount,
+        driveFileCount: Object.keys(driveFileIds).length
+      }
+    )
+  ]);
+
+  var driveTrashSummary = enqueueDeferredDriveTrash_(Object.keys(driveFileIds));
+
+  return buildClientStateResultForUser_(persistedState, actor, {
+    deletedAssignment: targetAssignment,
+    deletedAssignmentSummary: {
+      assignmentCount: 1,
+      submissionCount: submissions.length,
+      notificationCount: notifications.length,
+      discussionCommentCount: discussionComments.length,
+      serviceOrderCount: serviceOrders.length,
+      reminderCount: removedReminderCount,
+      driveFileCount: Object.keys(driveFileIds).length
+    },
+    driveTrashSummary: driveTrashSummary
   });
 }
 
@@ -1604,7 +2255,7 @@ function handleDeleteStage_(payload) {
   });
   var persistedState = loadState_();
   appendActivityLogEntries_(buildStateAuditEntries_(previousState, persistedState, actor));
-  var driveTrashSummary = trashDriveFiles_(Object.keys(driveFileIds));
+  var driveTrashSummary = enqueueDeferredDriveTrash_(Object.keys(driveFileIds));
   return buildClientStateResultForUser_(persistedState, actor, {
     driveTrashSummary: driveTrashSummary
   });
@@ -1635,6 +2286,247 @@ function trashDriveFiles_(driveFileIds) {
     }
   });
 
+  return summary;
+}
+
+// Queue Drive cleanup outside the user-facing spreadsheet transaction. The
+// Apps Script Drive service can occasionally take much longer than the sheet
+// write, especially for large uploaded files or files with inherited sharing.
+function enqueueDeferredDriveTrash_(driveFileIds) {
+  var ids = ensureArray_(driveFileIds).map(function(fileId) {
+    return String(fileId || '').trim();
+  }).filter(function(fileId, index, list) {
+    return fileId && list.indexOf(fileId) === index;
+  });
+
+  if (ids.length === 0) {
+    return {
+      requested: 0,
+      trashed: 0,
+      failed: 0,
+      pending: 0,
+      queued: 0,
+      status: 'completed'
+    };
+  }
+
+  var queue = loadDeferredDriveTrashQueue_();
+  var queuedIds = {};
+  queue.forEach(function(item) {
+    queuedIds[String(item.fileId || '').trim()] = true;
+  });
+
+  var addedCount = 0;
+  ids.forEach(function(fileId) {
+    if (queuedIds[fileId]) return;
+    queue.push({
+      fileId: fileId,
+      attempts: 0,
+      nextAttemptAtMillis: 0,
+      queuedAt: Date.now()
+    });
+    queuedIds[fileId] = true;
+    addedCount += 1;
+  });
+
+  try {
+    saveDeferredDriveTrashQueue_(queue);
+  } catch (error) {
+    console.warn('Unable to persist deferred Drive trash queue: ' + String(error && error.message || error));
+    return {
+      requested: ids.length,
+      trashed: 0,
+      failed: ids.length,
+      pending: 0,
+      queued: 0,
+      status: 'failed',
+      triggerScheduled: false,
+      triggerError: String(error && error.message || error)
+    };
+  }
+  var triggerInfo = ensureDeferredDriveTrashTrigger_();
+  return {
+    requested: ids.length,
+    trashed: 0,
+    failed: 0,
+    pending: ids.length,
+    queued: addedCount,
+    status: 'queued',
+    triggerScheduled: triggerInfo.scheduled === true,
+    triggerError: triggerInfo.error || ''
+  };
+}
+
+function loadDeferredDriveTrashQueue_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(DEFERRED_DRIVE_TRASH_QUEUE_PROPERTY);
+  if (!raw) return [];
+
+  try {
+    var parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(function(item) {
+      return {
+        fileId: String(item && item.fileId || '').trim(),
+        attempts: Math.max(0, Number(item && item.attempts || 0)),
+        nextAttemptAtMillis: Math.max(0, Number(item && item.nextAttemptAtMillis || 0)),
+        queuedAt: Math.max(0, Number(item && item.queuedAt || 0)),
+        lastError: String(item && item.lastError || '').slice(0, 500)
+      };
+    }).filter(function(item, index, list) {
+      return item.fileId && list.findIndex(function(candidate) {
+        return candidate.fileId === item.fileId;
+      }) === index;
+    });
+  } catch (error) {
+    console.warn('Unable to parse deferred Drive trash queue: ' + String(error && error.message || error));
+    return [];
+  }
+}
+
+function saveDeferredDriveTrashQueue_(queue) {
+  var props = PropertiesService.getScriptProperties();
+  var normalizedQueue = ensureArray_(queue).filter(function(item) {
+    return item && String(item.fileId || '').trim();
+  });
+
+  if (normalizedQueue.length === 0) {
+    props.deleteProperty(DEFERRED_DRIVE_TRASH_QUEUE_PROPERTY);
+    return;
+  }
+
+  props.setProperty(DEFERRED_DRIVE_TRASH_QUEUE_PROPERTY, JSON.stringify(normalizedQueue));
+}
+
+function ensureDeferredDriveTrashTrigger_() {
+  var existing = listDeferredDriveTrashTriggers_();
+  if (existing.length > 0) {
+    return {
+      scheduled: true,
+      created: false,
+      triggers: existing
+    };
+  }
+
+  try {
+    var trigger = ScriptApp.newTrigger(DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER)
+      .timeBased()
+      .after(1000)
+      .create();
+    return {
+      scheduled: true,
+      created: true,
+      triggerId: trigger.getUniqueId(),
+      triggers: listDeferredDriveTrashTriggers_()
+    };
+  } catch (error) {
+    console.warn('Unable to schedule deferred Drive trash cleanup: ' + String(error && error.message || error));
+    return {
+      scheduled: false,
+      created: false,
+      triggers: [],
+      error: String(error && error.message || error)
+    };
+  }
+}
+
+function listDeferredDriveTrashTriggers_() {
+  return ScriptApp.getProjectTriggers().filter(function(trigger) {
+    return String(trigger.getHandlerFunction() || '') === DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER;
+  });
+}
+
+function removeDeferredDriveTrashTriggers_() {
+  listDeferredDriveTrashTriggers_().forEach(function(trigger) {
+    try {
+      ScriptApp.deleteTrigger(trigger);
+    } catch (error) {
+      console.warn('Unable to remove deferred Drive trash trigger: ' + String(error && error.message || error));
+    }
+  });
+}
+
+function scheduleDeferredDriveTrashRetry_() {
+  try {
+    var trigger = ScriptApp.newTrigger(DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER)
+      .timeBased()
+      .after(DEFERRED_DRIVE_TRASH_RETRY_DELAY_MILLIS)
+      .create();
+    return {
+      scheduled: true,
+      triggerId: trigger.getUniqueId()
+    };
+  } catch (error) {
+    console.warn('Unable to schedule deferred Drive trash retry: ' + String(error && error.message || error));
+    return {
+      scheduled: false,
+      error: String(error && error.message || error)
+    };
+  }
+}
+
+function runDeferredDriveTrashQueue() {
+  return withLock_(function() {
+    return processDeferredDriveTrashQueue_();
+  });
+}
+
+function processDeferredDriveTrashQueue_() {
+  var queue = loadDeferredDriveTrashQueue_();
+  var summary = {
+    ok: true,
+    attempted: 0,
+    trashed: 0,
+    failed: 0,
+    retrying: 0,
+    pending: queue.length
+  };
+
+  if (queue.length === 0) {
+    removeDeferredDriveTrashTriggers_();
+    return summary;
+  }
+
+  var now = Date.now();
+  var processed = 0;
+  var remaining = [];
+  queue.forEach(function(item) {
+    if (processed >= DEFERRED_DRIVE_TRASH_MAX_ITEMS_PER_RUN
+        || Number(item.nextAttemptAtMillis || 0) > now) {
+      remaining.push(item);
+      return;
+    }
+
+    processed += 1;
+    summary.attempted += 1;
+    var result = trashDriveFiles_([item.fileId]);
+    if (result.trashed > 0) {
+      summary.trashed += result.trashed;
+      return;
+    }
+
+    item.attempts = Number(item.attempts || 0) + 1;
+    item.lastError = 'Drive 檔案移入垃圾桶失敗。';
+    if (item.attempts >= DEFERRED_DRIVE_TRASH_MAX_ATTEMPTS) {
+      summary.failed += 1;
+      return;
+    }
+
+    item.nextAttemptAtMillis = now + DEFERRED_DRIVE_TRASH_RETRY_DELAY_MILLIS;
+    summary.retrying += 1;
+    remaining.push(item);
+  });
+
+  saveDeferredDriveTrashQueue_(remaining);
+  summary.pending = remaining.length;
+  if (remaining.length === 0) {
+    removeDeferredDriveTrashTriggers_();
+  } else if (listAssignmentReminderTriggers().length === 0
+      && listDeferredDriveTrashTriggers_().length <= 1) {
+    // The one-shot trigger that invoked this run will disappear after it
+    // completes, so create a delayed retry when no hourly reminder trigger is
+    // available to pick up the queue.
+    scheduleDeferredDriveTrashRetry_();
+  }
   return summary;
 }
 
@@ -1997,6 +2889,26 @@ function mergeSensitiveState_(nextState, existingState, options) {
     nextAssignment.Notify_By_Email = nextAssignment.Notify_By_Email === true;
     nextAssignment.Email_Notification_Sent = nextAssignment.Email_Notification_Sent === true
       || Boolean(existingAssignment && existingAssignment.Email_Notification_Sent === true);
+    nextAssignment.Email_Notification_Status = String(
+      nextAssignment.Email_Notification_Status
+        || (existingAssignment && existingAssignment.Email_Notification_Status)
+        || (nextAssignment.Email_Notification_Sent ? '已寄送' : nextAssignment.Notify_By_Email ? '待寄送' : '未啟用')
+    );
+    nextAssignment.Email_Notification_Recipient_Count = Number(
+      nextAssignment.Email_Notification_Recipient_Count
+        || (existingAssignment && existingAssignment.Email_Notification_Recipient_Count)
+        || 0
+    );
+    nextAssignment.Email_Notification_Sent_At = String(
+      nextAssignment.Email_Notification_Sent_At
+        || (existingAssignment && existingAssignment.Email_Notification_Sent_At)
+        || ''
+    );
+    nextAssignment.Email_Notification_Last_Error = String(
+      nextAssignment.Email_Notification_Last_Error
+        || (existingAssignment && existingAssignment.Email_Notification_Last_Error)
+        || ''
+    );
 
     return nextAssignment;
   });
@@ -2287,6 +3199,13 @@ function hydrateAssignmentRecord_(assignment) {
   assignment.Allow_ReSubmit = assignment.Allow_ReSubmit !== false;
   assignment.Notify_By_Email = assignment.Notify_By_Email === true;
   assignment.Email_Notification_Sent = assignment.Email_Notification_Sent === true;
+  assignment.Email_Notification_Status = String(
+    assignment.Email_Notification_Status
+      || (assignment.Email_Notification_Sent ? '已寄送' : assignment.Notify_By_Email ? '待寄送' : '未啟用')
+  );
+  assignment.Email_Notification_Recipient_Count = Number(assignment.Email_Notification_Recipient_Count || 0);
+  assignment.Email_Notification_Sent_At = String(assignment.Email_Notification_Sent_At || '');
+  assignment.Email_Notification_Last_Error = String(assignment.Email_Notification_Last_Error || '');
 
   return assignment;
 }
@@ -2416,6 +3335,24 @@ function sendAssignmentAnnouncementEmail_(state, assignment) {
   }
 
   var recipients = getAssignmentAnnouncementRecipients_(state, assignment);
+  assignment.Email_Notification_Status = '寄送中';
+  assignment.Email_Notification_Recipient_Count = recipients.length;
+  assignment.Email_Notification_Sent_At = '';
+  assignment.Email_Notification_Last_Error = '';
+
+  if (recipients.length === 0) {
+    assignment.Email_Notification_Sent = false;
+    assignment.Email_Notification_Status = '無收件人';
+    assignment.Email_Notification_Last_Error = '找不到符合條件且已啟用的組長或組員信箱。';
+    Logger.log('No active recipients for assignment announcement ' + String(assignment.Assignment_ID || ''));
+    return {
+      assignmentId: String(assignment.Assignment_ID || ''),
+      status: assignment.Email_Notification_Status,
+      recipientCount: 0,
+      sentCount: 0
+    };
+  }
+
   var stage = ensureArray_(state && state.Config_Stages).find(function(item) {
     return String(item.Stage_ID || '') === String(assignment.Stage_ID || '');
   }) || null;
@@ -2423,7 +3360,8 @@ function sendAssignmentAnnouncementEmail_(state, assignment) {
   var targetLabel = getAssignmentTargetTeamLabels_(state, assignment);
   var frontendUrl = String(getConfig_().frontendBaseUrl || APP_DEFAULTS.frontendBaseUrl || '').trim();
   var subject = '【畢展形印組管理系統】新繳交項目：' + String(assignment.Title || '未命名項目');
-  var sentAny = false;
+  var sentCount = 0;
+  var failures = [];
 
   recipients.forEach(function(user) {
     var email = normalizeEmail_(user.Email);
@@ -2434,24 +3372,40 @@ function sendAssignmentAnnouncementEmail_(state, assignment) {
 
     try {
       sendSystemEmail_(email, subject, plainText, htmlBody);
-      sentAny = true;
+      sentCount += 1;
     } catch (error) {
+      failures.push(email + ': ' + String(error && error.message || error));
       Logger.log('Failed to send assignment announcement email to ' + email + ': ' + error);
     }
   });
 
-  assignment.Email_Notification_Sent = true;
-  return sentAny || recipients.length === 0;
+  assignment.Email_Notification_Sent = sentCount === recipients.length;
+  assignment.Email_Notification_Status = assignment.Email_Notification_Sent ? '已寄送' : '寄送失敗';
+  assignment.Email_Notification_Sent_At = assignment.Email_Notification_Sent ? nowString_() : '';
+  assignment.Email_Notification_Last_Error = failures.slice(0, 3).join('；');
+
+  return {
+    assignmentId: String(assignment.Assignment_ID || ''),
+    status: assignment.Email_Notification_Status,
+    recipientCount: recipients.length,
+    sentCount: sentCount,
+    error: assignment.Email_Notification_Last_Error
+  };
 }
 
 function sendPendingAssignmentAnnouncementEmails_(state) {
+  var results = [];
   ensureArray_(state && state.Assignments).forEach(function(assignment) {
     if (!assignment || assignment.Notify_By_Email !== true || assignment.Email_Notification_Sent === true) {
       return;
     }
 
-    sendAssignmentAnnouncementEmail_(state, assignment);
+    var result = sendAssignmentAnnouncementEmail_(state, assignment);
+    if (result && typeof result === 'object') {
+      results.push(result);
+    }
   });
+  return results;
 }
 
 function normalizeAssignmentReminderSettings_(rawSettings) {
@@ -2831,8 +3785,15 @@ function hydrateAssignmentSubmissionRecord_(submission) {
   submission.Notes = String(submission.Notes || '');
   submission.Drive_File_ID = String(submission.Drive_File_ID || '');
   submission.Drive_Folder_ID = String(submission.Drive_Folder_ID || '');
+  submission.Reviewed_By_User_ID = String(submission.Reviewed_By_User_ID || '');
+  submission.Reviewed_At = String(submission.Reviewed_At || '');
+  submission.Review_Note = String(submission.Review_Note || '');
 
   return submission;
+}
+
+function isAssignmentSubmissionRejected_(submission) {
+  return /退件|退回|修正/.test(String(submission && submission.Status || ''));
 }
 
 function backfillPurchaseItemDates_(state) {
@@ -3917,8 +4878,8 @@ function handleUploadAssignmentAsset_(payload) {
     return new Date(b.Submitted_At).getTime() - new Date(a.Submitted_At).getTime();
   })[0] || null;
 
-  if (latestSubmission && assignment.Allow_ReSubmit !== true) {
-    throw new Error('此作業目前不開放重新繳交。');
+  if (latestSubmission && (assignment.Allow_ReSubmit !== true || !isAssignmentSubmissionRejected_(latestSubmission))) {
+    throw new Error('只有被退回修正後，才能重新繳交。');
   }
 
   var nextSubmissionNo = latestSubmission ? Number(latestSubmission.Submission_No || 1) + 1 : 1;
@@ -4383,9 +5344,10 @@ function handleReviewDesignServiceOrder_(payload) {
   });
 }
 
-function handleLargeFileFormUpload_(payload) {
+function handleLargeFileFormUpload_(payload, resumableDriveResult) {
   var state = loadState_();
   var currentUser = requireStudentUploadActor_(state, payload);
+  var isResumable = Boolean(resumableDriveResult && resumableDriveResult.fileId);
   var userId = String(payload.userId || '').trim();
   var stageId = String(payload.stageId || '').trim();
   var teamId = String(payload.teamId || '').trim();
@@ -4394,17 +5356,22 @@ function handleLargeFileFormUpload_(payload) {
   var sourceFileName = String(payload.sourceFileName || '').trim();
   var extension = String(payload.extension || '').trim();
   var sessionKey = String(payload.sessionKey || '').trim();
-  var blob = resolveUploadBlob_(payload.uploadFile);
-  var fileSize = getBlobSizeBytes_(blob);
-  var actualFileName = sanitizeDriveEntryName_(blob.getName && blob.getName(), sourceFileName || 'upload.bin');
+  var blob = isResumable ? null : resolveUploadBlob_(payload.uploadFile);
+  var fileSize = isResumable ? Number(payload.fileSize || 0) : getBlobSizeBytes_(blob);
+  var actualFileName = sanitizeDriveEntryName_(
+    isResumable ? sourceFileName : (blob.getName && blob.getName()),
+    sourceFileName || 'upload.bin'
+  );
   var parsedActualFile = parseFileMeta_(actualFileName);
 
   if (userId && userId !== String(currentUser.User_ID || '')) {
     throw new Error('FORBIDDEN: 穩定上傳的使用者資訊不符。');
   }
 
-  if (fileSize > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES) {
-    throw new Error('檔案超過穩定上傳頁 50 MB 上限。');
+  if (fileSize > (isResumable ? MAX_RESUMABLE_UPLOAD_SIZE_BYTES : MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES)) {
+    throw new Error(isResumable
+      ? '檔案超過目前分段上傳上限。'
+      : '檔案超過穩定上傳頁 50 MB 上限。');
   }
 
   var effectiveTeamId = currentUser.Team_ID;
@@ -4450,7 +5417,10 @@ function handleLargeFileFormUpload_(payload) {
   var nextVersion = highestVersion + 1;
   var storedFileName = buildVersionedFileName_(resolvedBaseName, nextVersion, resolvedExtension);
   var uploadNote = latestFile ? '退件後重新繳交' : '首次繳交';
-  var driveResult = createDriveFileFromBlob_(blob, [activeStage.Stage_Name, team.Team_Name], storedFileName);
+  var driveResult = resumableDriveResult || createDriveFileFromBlob_(blob, [activeStage.Stage_Name, team.Team_Name], storedFileName);
+  if (isResumable) {
+    renameDriveResultIfNeeded_(driveResult, storedFileName);
+  }
   var uploadTime = nowString_();
   var nextFileId = generateSequentialId_('F', state.Files, 'File_ID');
 
@@ -4496,7 +5466,7 @@ function handleLargeFileFormUpload_(payload) {
     createActivityLogEntry_(
       currentUser,
       nextVersion > 1 ? '重新繳交檔案' : '上傳檔案',
-      '已透過穩定上傳將「' + storedFileName + '」送入「' + activeStage.Stage_Name + '」的 ' + team.Team_Name + ' 收件資料夾。',
+      '已透過大檔上傳流程將「' + storedFileName + '」送入「' + activeStage.Stage_Name + '」的 ' + team.Team_Name + ' 收件資料夾。',
       'file',
       nextFileId,
       nextVersion > 1 ? 'warning' : 'normal',
@@ -4518,17 +5488,21 @@ function handleLargeFileFormUpload_(payload) {
   };
 }
 
-function handleLargeAssignmentAssetFormUpload_(payload) {
+function handleLargeAssignmentAssetFormUpload_(payload, resumableDriveResult) {
   var state = loadState_();
   var currentUser = requireStudentUploadActor_(state, payload);
+  var isResumable = Boolean(resumableDriveResult && resumableDriveResult.fileId);
   var userId = String(payload.userId || '').trim();
   var assignmentId = String(payload.assignmentId || '').trim();
   var teamId = String(payload.teamId || '').trim();
   var sessionKey = String(payload.sessionKey || '').trim();
   var sourceFileName = String(payload.sourceFileName || '').trim();
-  var blob = resolveUploadBlob_(payload.uploadFile);
-  var fileSize = getBlobSizeBytes_(blob);
-  var actualFileName = sanitizeDriveEntryName_(blob.getName && blob.getName(), sourceFileName || 'upload.bin');
+  var blob = isResumable ? null : resolveUploadBlob_(payload.uploadFile);
+  var fileSize = isResumable ? Number(payload.fileSize || 0) : getBlobSizeBytes_(blob);
+  var actualFileName = sanitizeDriveEntryName_(
+    isResumable ? sourceFileName : (blob.getName && blob.getName()),
+    sourceFileName || 'upload.bin'
+  );
   var parsedFile = parseFileMeta_(actualFileName);
   var extension = String(parsedFile.extension || '').trim();
 
@@ -4538,8 +5512,10 @@ function handleLargeAssignmentAssetFormUpload_(payload) {
   if (!assignmentId) {
     throw new Error('穩定上傳缺少 assignmentId。');
   }
-  if (fileSize > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES) {
-    throw new Error('檔案超過穩定上傳頁 50 MB 上限。');
+  if (fileSize > (isResumable ? MAX_RESUMABLE_UPLOAD_SIZE_BYTES : MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES)) {
+    throw new Error(isResumable
+      ? '檔案超過目前分段上傳上限。'
+      : '檔案超過穩定上傳頁 50 MB 上限。');
   }
   if (!extension) {
     throw new Error('檔案名稱需包含副檔名。');
@@ -4586,17 +5562,20 @@ function handleLargeAssignmentAssetFormUpload_(payload) {
     return new Date(b.Submitted_At).getTime() - new Date(a.Submitted_At).getTime();
   })[0] || null;
 
-  if (latestSubmission && assignment.Allow_ReSubmit !== true) {
-    throw new Error('此作業目前不開放重新繳交。');
+  if (latestSubmission && (assignment.Allow_ReSubmit !== true || !isAssignmentSubmissionRejected_(latestSubmission))) {
+    throw new Error('只有被退回修正後，才能重新繳交。');
   }
 
   var nextSubmissionNo = latestSubmission ? Number(latestSubmission.Submission_No || 1) + 1 : 1;
   var storedFileName = buildAssignmentSubmissionFileName_(actualFileName, nextSubmissionNo);
-  var driveResult = createDriveFileFromBlob_(
-    blob,
-    [stage.Stage_Name, team.Team_Name, '公告作業', assignment.Title],
-    storedFileName
-  );
+  var driveResult = resumableDriveResult || createDriveFileFromBlob_(
+      blob,
+      [stage.Stage_Name, team.Team_Name, '公告作業', assignment.Title],
+      storedFileName
+    );
+  if (isResumable) {
+    renameDriveResultIfNeeded_(driveResult, storedFileName);
+  }
 
   return {
     status: 'success',
@@ -4613,10 +5592,11 @@ function handleLargeAssignmentAssetFormUpload_(payload) {
   };
 }
 
-function handleLargeDesignServiceFormUpload_(payload) {
+function handleLargeDesignServiceFormUpload_(payload, resumableDriveResult) {
   var state = loadState_();
   var previousState = cloneObject_(state);
   var currentUser = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  var isResumable = Boolean(resumableDriveResult && resumableDriveResult.fileId);
   var serviceOrderId = String(payload.serviceOrderId || '').trim();
   var order = getDesignServiceOrderById_(state, serviceOrderId);
   if (!order) {
@@ -4630,14 +5610,19 @@ function handleLargeDesignServiceFormUpload_(payload) {
     throw new Error('目前案件狀態不開放上傳成果。');
   }
 
-  var blob = resolveUploadBlob_(payload.uploadFile);
-  var fileSize = getBlobSizeBytes_(blob);
-  if (fileSize > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES) {
-    throw new Error('檔案超過穩定上傳頁 50 MB 上限。');
+  var blob = isResumable ? null : resolveUploadBlob_(payload.uploadFile);
+  var fileSize = isResumable ? Number(payload.fileSize || 0) : getBlobSizeBytes_(blob);
+  if (fileSize > (isResumable ? MAX_RESUMABLE_UPLOAD_SIZE_BYTES : MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES)) {
+    throw new Error(isResumable
+      ? '檔案超過目前分段上傳上限。'
+      : '檔案超過穩定上傳頁 50 MB 上限。');
   }
 
   var sourceFileName = String(payload.sourceFileName || '').trim();
-  var actualFileName = sanitizeDriveEntryName_(blob.getName && blob.getName(), sourceFileName || 'design-service-deliverable.bin');
+  var actualFileName = sanitizeDriveEntryName_(
+    isResumable ? sourceFileName : (blob.getName && blob.getName()),
+    sourceFileName || 'design-service-deliverable.bin'
+  );
   var parsedFile = parseFileMeta_(actualFileName);
   if (!parsedFile.extension || !isSupportedUploadExtension_(parsedFile.extension)) {
     throw new Error('目前只支援 ai、pdf、psd、indd、圖像格式與 zip。');
@@ -4656,11 +5641,14 @@ function handleLargeDesignServiceFormUpload_(payload) {
     throw new Error('找不到形印代做案件的作業、會審或小組資料。');
   }
 
-  var driveResult = createDriveFileFromBlob_(
-    blob,
-    [stage.Stage_Name, team.Team_Name, '形印代做', assignment.Title, order.Service_Order_ID],
-    actualFileName
-  );
+  var driveResult = resumableDriveResult || createDriveFileFromBlob_(
+      blob,
+      [stage.Stage_Name, team.Team_Name, '形印代做', assignment.Title, order.Service_Order_ID],
+      actualFileName
+    );
+  if (isResumable) {
+    renameDriveResultIfNeeded_(driveResult, actualFileName);
+  }
   updateDesignServiceOrderWithDrive_(state, currentUser, order, driveResult);
 
   persistState_(state, {
@@ -4766,6 +5754,146 @@ function handleReviewFile_(payload) {
     file: state.Files.find(function(file) {
       return file.File_ID === targetFile.File_ID;
     }) || hydrateFileRecord_(targetFile)
+  });
+}
+
+function handleReviewAssignmentSubmission_(payload) {
+  var previousState = loadState_();
+  var reviewer = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var submissionId = String(payload && payload.submissionId || '').trim();
+  var decision = String(payload && (payload.status || payload.decision) || '').trim();
+  var reviewNote = String(payload && (payload.reviewNote || payload.comment) || '').trim();
+
+  if (!submissionId) {
+    throw new Error('reviewAssignmentSubmission requires `submissionId`.');
+  }
+
+  if (['通過', '退回修正'].indexOf(decision) === -1) {
+    throw new Error('Unsupported assignment review decision: ' + decision);
+  }
+
+  if (decision === '退回修正' && !reviewNote) {
+    throw new Error('退回修正前請先填寫審核意見。');
+  }
+
+  var targetSubmission = ensureArray_(previousState.Assignment_Submissions).find(function(submission) {
+    return String(submission.Submission_ID || '') === submissionId;
+  }) || null;
+  if (!targetSubmission) {
+    throw new Error('NOT_FOUND: 找不到指定的繳交紀錄，資料可能已被其他使用者更新。');
+  }
+
+  var assignment = ensureArray_(previousState.Assignments).find(function(item) {
+    return String(item.Assignment_ID || '') === String(targetSubmission.Assignment_ID || '');
+  }) || null;
+  if (!assignment) {
+    throw new Error('NOT_FOUND: 找不到這筆繳交紀錄所屬的繳交項目。');
+  }
+
+  var targetTeamId = String(targetSubmission.Team_ID || '').trim();
+  if (!targetTeamId || getAssignmentTargetTeamIds_(previousState, assignment).indexOf(targetTeamId) === -1) {
+    throw new Error('FORBIDDEN: 這筆繳交紀錄不在該項目的目標組別範圍內。');
+  }
+
+  if (reviewer.Role === 'Admin' && String(reviewer.Team_ID || '') === targetTeamId) {
+    throw new Error('Conflict of interest: reviewer cannot review their own team submission.');
+  }
+
+  var latestSubmission = ensureArray_(previousState.Assignment_Submissions).filter(function(submission) {
+    return String(submission.Assignment_ID || '') === String(assignment.Assignment_ID || '')
+      && String(submission.Team_ID || '') === targetTeamId;
+  }).sort(function(a, b) {
+    var numberDiff = Number(b.Submission_No || 1) - Number(a.Submission_No || 1);
+    if (numberDiff !== 0) return numberDiff;
+    return String(b.Submitted_At || '').localeCompare(String(a.Submitted_At || ''));
+  })[0] || null;
+
+  if (!latestSubmission || String(latestSubmission.Submission_ID || '') !== submissionId) {
+    throw new Error('STALE_SUBMISSION: 請重新載入後審核該小組最新的繳交紀錄。');
+  }
+
+  var now = nowString_();
+  var nextState = cloneObject_(previousState);
+  var nextSubmission = ensureArray_(nextState.Assignment_Submissions).find(function(submission) {
+    return String(submission.Submission_ID || '') === submissionId;
+  });
+  nextSubmission.Status = decision;
+  nextSubmission.Reviewed_By_User_ID = String(reviewer.User_ID || '');
+  nextSubmission.Reviewed_At = now;
+  nextSubmission.Review_Note = decision === '退回修正'
+    ? reviewNote
+    : reviewNote;
+  nextSubmission.Updated_At = now;
+
+  var team = ensureArray_(nextState.Teams).find(function(item) {
+    return String(item.Team_ID || '') === targetTeamId;
+  }) || null;
+  var teamName = team ? String(team.Team_Name || targetTeamId) : targetTeamId;
+  var decisionLabel = decision === '退回修正' ? '退回修正' : '審核通過';
+  var notificationMessage = '「' + String(assignment.Title || '繳交項目') + '」的第 '
+    + String(nextSubmission.Submission_No || 1) + ' 次繳交已' + decisionLabel + '。'
+    + (reviewNote ? ' 審核意見：' + reviewNote : '');
+
+  createNotifications_(nextState, {
+    type: 'assignment-review',
+    title: decision === '退回修正' ? '繳交項目退回修正' : '繳交項目審核通過',
+    message: notificationMessage,
+    tab: 'files',
+    refType: 'assignment',
+    refId: assignment.Assignment_ID,
+    audience: {
+      teamIds: [targetTeamId],
+      excludeUserIds: [reviewer.User_ID]
+    },
+    createdAt: now,
+    priority: decision === '退回修正' ? 'high' : 'normal'
+  });
+
+  nextState.Discussion_Comments.push(hydrateDiscussionCommentRecord_({
+    Comment_ID: generateSequentialId_('CMT', nextState.Discussion_Comments, 'Comment_ID'),
+    Ref_Type: 'assignment',
+    Ref_ID: assignment.Assignment_ID,
+    User_ID: reviewer.User_ID,
+    Team_ID: targetTeamId,
+    Author_Name: reviewer.Name,
+    Author_Role: reviewer.Role,
+    Kind: 'system',
+    Message: teamName + ' 第 ' + String(nextSubmission.Submission_No || 1) + ' 次繳交已' + decisionLabel + '。'
+      + (reviewNote ? ' 審核意見：' + reviewNote : ''),
+    Created_At: now
+  }));
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1
+  });
+
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      reviewer,
+      decision === '退回修正' ? '退回繳交項目' : '通過繳交項目審核',
+      '已將「' + String(assignment.Title || '繳交項目') + '」的 ' + teamName + ' 第 '
+        + String(nextSubmission.Submission_No || 1) + ' 次繳交標記為「' + decision + '」。',
+      'submission',
+      submissionId,
+      decision === '退回修正' ? 'warning' : 'normal',
+      {
+        source: 'reviewAssignmentSubmission',
+        assignmentId: assignment.Assignment_ID,
+        teamId: targetTeamId,
+        status: decision,
+        reviewNote: reviewNote
+      }
+    )
+  ]);
+
+  return buildClientStateResultForUser_(savedState, reviewer, {
+    submission: savedState.Assignment_Submissions.find(function(submission) {
+      return String(submission.Submission_ID || '') === submissionId;
+    }) || null
   });
 }
 
@@ -4917,6 +6045,18 @@ function createDriveFileFromBlob_(blob, folderSegments, targetFileName) {
     folderName: folderContext.folder.getName(),
     folderPath: folderContext.path
   };
+}
+
+function renameDriveResultIfNeeded_(driveResult, targetFileName) {
+  if (!driveResult || !driveResult.fileId || !targetFileName) return driveResult;
+  var file = DriveApp.getFileById(String(driveResult.fileId));
+  var resolvedName = sanitizeDriveEntryName_(targetFileName, file.getName());
+  if (file.getName() !== resolvedName) {
+    file.setName(resolvedName);
+  }
+  driveResult.fileName = file.getName();
+  driveResult.fileUrl = file.getUrl();
+  return driveResult;
 }
 
 function extractDriveFileId_(driveUrl) {
