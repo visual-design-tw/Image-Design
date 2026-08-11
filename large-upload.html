@@ -562,6 +562,7 @@
         function getDirectAction() {
           if (model.mode === "file") return "uploadFile";
           if (model.mode === "assignment-asset") return "uploadAssignmentAsset";
+          if (model.mode === "assignment-resource") return "uploadAssignmentResource";
           return "uploadDesignServiceDeliverable";
         }
 
@@ -690,8 +691,11 @@
           pageSubtitle.textContent = model.subtitle || "檔案會安全寫入 Google Drive。";
           pathLabel.textContent = model.pathLabel || "Google Drive";
           helperText.textContent = model.helperText || "請重新選擇要上傳的檔案。";
+          fileInput.accept = model.mode === "assignment-resource"
+            ? ".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt"
+            : ".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip";
           document.getElementById("direct-hint").textContent = "建議用於 " + (model.maxDirectMb || 18) + " MB 內檔案，流程較快。";
-          document.getElementById("resumable-hint").textContent = "超過 " + (model.maxStableMb || 50) + " MB 會自動分段傳送，最高支援 " + (model.maxResumableGb || 2) + " GB。";
+          document.getElementById("resumable-hint").textContent = "超過 " + (model.maxDirectMb || 18) + " MB 會自動分段傳送，最高支援 " + (model.maxResumableGb || 2) + " GB。";
           loadingState.classList.add("hidden");
           panel.classList.remove("is-loading");
           form.classList.remove("hidden");
