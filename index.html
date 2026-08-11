@@ -1668,6 +1668,7 @@
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
         const SUPPORTED_UPLOAD_EXTENSIONS = [".ai", ".pdf", ".psd", ".indd", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".zip"];
+        const ASSIGNMENT_RESOURCE_EXTENSIONS = SUPPORTED_UPLOAD_EXTENSIONS.concat([".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".csv", ".txt"]);
         const MAX_BROWSER_UPLOAD_SIZE_BYTES = 18 * 1024 * 1024;
         const MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
         const MAX_RESUMABLE_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
@@ -1741,6 +1742,9 @@
         let nativeSoftSelectAutoId = 0;
         let largeUploadSessions = {};
         let pendingLargeAssignmentAssetUpload = null;
+        let pendingAssignmentPostResourceFiles = [];
+        let pendingLargeAssignmentResourceUpload = null;
+        let assignmentResourceDeleteInFlight = false;
         let activeDesignServiceRequestAssignmentId = "";
         let activeDesignServiceReviewOrderId = "";
         let activeDesignServiceUploadOrderId = "";
@@ -2674,6 +2678,7 @@
                     Allow_ReSubmit: true
                 }
             ],
+            Assignment_Resources: [],
             Assignment_Submissions: [
                 {
                     Submission_ID: "SUB01",
@@ -2827,7 +2832,7 @@
 
         function createUnauthenticatedState() {
             const snapshot = cloneStateSnapshot(DEFAULT_STATE);
-            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders"].forEach(function(key) {
+            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Resources", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders"].forEach(function(key) {
                 snapshot[key] = [];
             });
             snapshot.Meta = { State_Revision: 0 };
@@ -3799,6 +3804,10 @@
             return SUPPORTED_UPLOAD_EXTENSIONS.includes(String(extension || "").toLowerCase());
         }
 
+        function isSupportedAssignmentResourceExtension(extension) {
+            return ASSIGNMENT_RESOURCE_EXTENSIONS.includes(String(extension || "").toLowerCase());
+        }
+
         function getSelectedFileFromInput(inputId) {
             const input = document.getElementById(inputId);
             return input && input.files && input.files[0] ? input.files[0] : null;
@@ -3831,7 +3840,10 @@
             if (!size) return "0 B";
             if (size < 1024) return size + " B";
             if (size < 1024 * 1024) return (size / 1024).toFixed(1).replace(/\.0$/, "") + " KB";
-            return (size / (1024 * 1024)).toFixed(1).replace(/\.0$/, "") + " MB";
+            if (size < 1024 * 1024 * 1024) {
+                return (size / (1024 * 1024)).toFixed(1).replace(/\.0$/, "") + " MB";
+            }
+            return (size / (1024 * 1024 * 1024)).toFixed(2).replace(/\.00$/, "") + " GB";
         }
 
         function updateFileSelectionSummary(summaryId, file, emptyText = "尚未選擇檔案。") {
@@ -4194,6 +4206,15 @@
                 return;
             }
 
+            if (payload.mode === "assignment-resource") {
+                if (sessionKey) {
+                    delete largeUploadSessions[sessionKey];
+                }
+                pendingLargeAssignmentResourceUpload = null;
+                refreshStateFromBackendAfterLargeUpload("項目附件已上傳，小組現在可以直接下載。");
+                return;
+            }
+
             if (payload.mode === "design-service") {
                 if (sessionKey) {
                     delete largeUploadSessions[sessionKey];
@@ -4219,6 +4240,9 @@
                     allowFallback: false
                 });
                 renderAll();
+                if (activeAssignmentId) {
+                    renderAssignmentDetailModal();
+                }
                 if (successMessage) {
                     showToast(successMessage, "success");
                 }
@@ -5064,6 +5088,7 @@
             state.Teams = ensureArray(state.Teams);
             state.Purchase_Items = ensureArray(state.Purchase_Items);
             state.Assignments = ensureArray(state.Assignments);
+            state.Assignment_Resources = ensureArray(state.Assignment_Resources);
             state.Assignment_Submissions = ensureArray(state.Assignment_Submissions);
             state.Files = ensureArray(state.Files);
             state.Notifications = ensureArray(state.Notifications);
@@ -5076,6 +5101,9 @@
             });
             state.Assignments.forEach(function(assignment) {
                 hydrateAssignmentRecord(assignment);
+            });
+            state.Assignment_Resources.forEach(function(resource) {
+                hydrateAssignmentResourceRecord(resource);
             });
             state.Assignment_Submissions.forEach(function(submission) {
                 hydrateAssignmentSubmissionRecord(submission);
@@ -5388,6 +5416,32 @@
                 assignment.__Due_At_Label = formatCompactDateTimeLabel(assignment.Due_At);
             }
             return assignment.__Due_At_Label || "未設定";
+        }
+
+        function hydrateAssignmentResourceRecord(resource) {
+            if (!resource || typeof resource !== "object") return resource;
+
+            resource.Resource_ID = String(resource.Resource_ID || "");
+            resource.Assignment_ID = String(resource.Assignment_ID || "");
+            resource.File_Name = String(resource.File_Name || "");
+            resource.Google_Drive_URL = String(resource.Google_Drive_URL || "");
+            resource.Drive_File_ID = String(resource.Drive_File_ID || "");
+            resource.Drive_Folder_ID = String(resource.Drive_Folder_ID || "");
+            resource.Mime_Type = String(resource.Mime_Type || "application/octet-stream");
+            resource.File_Size = Number(resource.File_Size || 0);
+            resource.Created_At = normalizeAssignmentDateTime(resource.Created_At || "");
+            resource.Created_By_User_ID = String(resource.Created_By_User_ID || "");
+
+            return resource;
+        }
+
+        function getAssignmentResources(assignmentId) {
+            const normalizedAssignmentId = String(assignmentId || "");
+            return ensureArray(state.Assignment_Resources).filter(function(resource) {
+                return String(resource && resource.Assignment_ID || "") === normalizedAssignmentId;
+            }).slice().sort(function(a, b) {
+                return String(b && b.Created_At || "").localeCompare(String(a && a.Created_At || ""));
+            });
         }
 
         function hydrateAssignmentSubmissionRecord(submission) {
@@ -7172,6 +7226,7 @@
             }
             const modal = document.getElementById('assignment-post-modal');
             if (!modal) return;
+            pendingAssignmentPostResourceFiles = [];
             renderAssignmentPostModal();
             animateSurfaceOpen(modal, modal.firstElementChild, {
                 fromY: 18,
@@ -7281,6 +7336,33 @@
                         <textarea id="assignment-post-body" rows="4" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs resize-none" placeholder="說明這份作業要繳交什麼、格式怎麼看、截止時間是什麼。"></textarea>
                     </div>
 
+                    <div class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="paperclip" class="h-4 w-4 text-[#0066CC]"></i>
+                                    <p class="text-xs font-bold text-[#1D1D1F]">項目附件 <span class="ml-1 font-medium text-[#86868B]">選填</span></p>
+                                </div>
+                                <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">可提供規範圖片、公版、PDF、Office 文件或壓縮檔，發布後會讓適用小組直接下載。</p>
+                            </div>
+                            <input id="assignment-post-resource-files" type="file" multiple accept="${ASSIGNMENT_RESOURCE_EXTENSIONS.join(',')}" onchange="handleAssignmentPostResourceInputChange()" class="sr-only">
+                            <label for="assignment-post-resource-files" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-white px-3.5 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#F2F7FF]">
+                                <i data-lucide="plus" class="h-3.5 w-3.5"></i>
+                                新增附件
+                            </label>
+                        </div>
+                        <div id="assignment-post-resource-list" class="mt-3 space-y-2"></div>
+                        <p class="mt-3 text-[10px] leading-relaxed text-[#86868B]">建立時每個附件可直接上傳至 18 MB；較大的規範檔可先發布項目，再於項目詳情使用穩定上傳。</p>
+                        <div id="assignment-post-resource-upload-transfer-status" class="hidden mt-3 rounded-xl border border-[#DCE8F8] bg-white px-3 py-2.5" aria-live="polite">
+                            <div class="flex items-center justify-between gap-3">
+                                <p id="assignment-post-resource-upload-transfer-title" class="text-[10px] font-bold text-[#1D1D1F]">正在準備項目附件</p>
+                                <span id="assignment-post-resource-upload-transfer-value" class="text-[10px] font-bold text-[#0066CC]">0%</span>
+                            </div>
+                            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE8F8]"><div id="assignment-post-resource-upload-transfer-bar" class="h-full w-0 rounded-full bg-[#0066CC] transition-all duration-300"></div></div>
+                            <p id="assignment-post-resource-upload-transfer-detail" class="mt-1.5 text-[10px] text-[#5F6975]">正在確認附件。</p>
+                        </div>
+                    </div>
+
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">繳交需求補充</label>
                         <textarea id="assignment-post-requirement" rows="3" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs resize-none" placeholder="例如：請直接上傳 PDF 檔，並附上 100 字內說明。"></textarea>
@@ -7314,6 +7396,92 @@
             enhanceNativeSoftSelects(modalBody);
             toggleAssignmentTargetSelection("all");
             updateAssignmentPostDuePreview();
+            renderAssignmentPostResourceFileList();
+        }
+
+        function getAssignmentPostResourceFileKey(file) {
+            return [
+                String(file && file.name || ""),
+                Number(file && file.size || 0),
+                Number(file && file.lastModified || 0)
+            ].join("::");
+        }
+
+        function handleAssignmentPostResourceInputChange() {
+            const input = document.getElementById("assignment-post-resource-files");
+            const selectedFiles = Array.from(input && input.files ? input.files : []);
+            if (!selectedFiles.length) return;
+
+            const unsupportedFile = selectedFiles.find(function(file) {
+                return !isSupportedAssignmentResourceExtension(parseFileMeta(file && file.name).extension);
+            });
+            if (unsupportedFile) {
+                showToast("「" + unsupportedFile.name + "」不是項目附件支援的格式。", "warning");
+                if (input) input.value = "";
+                return;
+            }
+
+            const oversizedFile = selectedFiles.find(function(file) {
+                return exceedsLargeUploadLimit(file);
+            });
+            if (oversizedFile) {
+                showToast("「" + oversizedFile.name + "」超過 2 GB 上限，請壓縮後再上傳。", "warning");
+                if (input) input.value = "";
+                return;
+            }
+
+            const existingKeys = new Set(pendingAssignmentPostResourceFiles.map(getAssignmentPostResourceFileKey));
+            selectedFiles.forEach(function(file) {
+                const key = getAssignmentPostResourceFileKey(file);
+                if (!existingKeys.has(key)) {
+                    pendingAssignmentPostResourceFiles.push(file);
+                    existingKeys.add(key);
+                }
+            });
+            if (input) input.value = "";
+            renderAssignmentPostResourceFileList();
+        }
+
+        function removeAssignmentPostResourceFile(index) {
+            const targetIndex = Number(index);
+            if (!Number.isInteger(targetIndex) || targetIndex < 0) return;
+            pendingAssignmentPostResourceFiles.splice(targetIndex, 1);
+            renderAssignmentPostResourceFileList();
+        }
+
+        function renderAssignmentPostResourceFileList() {
+            const list = document.getElementById("assignment-post-resource-list");
+            if (!list) return;
+
+            if (!pendingAssignmentPostResourceFiles.length) {
+                list.innerHTML = `
+                    <div class="flex items-center gap-2 rounded-xl border border-dashed border-[#D9D9E3] bg-white/70 px-3 py-2.5 text-[10px] text-[#86868B]">
+                        <i data-lucide="folder-open" class="h-3.5 w-3.5 shrink-0"></i>
+                        尚未選擇項目附件。
+                    </div>
+                `;
+                renderLucideIcons();
+                return;
+            }
+
+            list.innerHTML = pendingAssignmentPostResourceFiles.map(function(file, index) {
+                const isLarge = Number(file && file.size || 0) > MAX_BROWSER_UPLOAD_SIZE_BYTES;
+                return `
+                    <div class="flex items-center gap-2 rounded-xl border border-[#E8E8ED] bg-white px-3 py-2.5">
+                        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isLarge ? "bg-[#F2F7FF] text-[#0066CC]" : "bg-[#F5F5F7] text-[#5F6975]"}">
+                            <i data-lucide="file" class="h-3.5 w-3.5"></i>
+                        </span>
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate text-[11px] font-semibold text-[#1D1D1F]">${escapeHtml(file.name)}</p>
+                            <p class="mt-0.5 text-[10px] text-[#86868B]">${formatFileSize(file.size)} · ${isLarge ? "發布後以穩定上傳補上" : "發布時直接上傳"}</p>
+                        </div>
+                        <button type="button" onclick="removeAssignmentPostResourceFile(${index})" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#86868B] transition hover:bg-[#FFF0EE] hover:text-[#FF3B30]" title="移除附件" aria-label="移除 ${escapeHtml(file.name)}">
+                            <i data-lucide="x" class="h-3.5 w-3.5"></i>
+                        </button>
+                    </div>
+                `;
+            }).join("");
+            renderLucideIcons();
         }
 
         async function handlePublishAssignment(event) {
@@ -7340,6 +7508,10 @@
             const selectedTeamIds = Array.from(document.querySelectorAll('#assignment-post-team-list input[name="assignment-target-team"]:checked')).map(function(input) {
                 return String(input.value || "").trim();
             }).filter(Boolean);
+            const resourceFiles = pendingAssignmentPostResourceFiles.slice();
+            const resourceLargeFile = resourceFiles.find(function(file) {
+                return Number(file && file.size || 0) > MAX_BROWSER_UPLOAD_SIZE_BYTES;
+            });
 
             if (!title) {
                 showToast("請先輸入項目標題。", "warning");
@@ -7363,6 +7535,16 @@
 
             if (targetMode === "selected" && selectedTeamIds.length === 0) {
                 showToast("請至少選擇一個目標小組。", "warning");
+                return;
+            }
+
+            if (resourceLargeFile) {
+                showToast("「" + resourceLargeFile.name + "」超過 18 MB。請先發布項目，再於項目詳情使用穩定上傳加入附件。", "warning");
+                return;
+            }
+
+            if (resourceFiles.length && (!isRemoteSyncEnabled() || !authSessionToken)) {
+                showToast("項目附件需要連線至 GAS 與 Google Drive，請先完成登入與同步。", "warning");
                 return;
             }
 
@@ -7401,56 +7583,117 @@
                 Email_Notification_Last_Error: ""
             });
 
-            state.Assignments.unshift(assignment);
-            createNotification({
-                type: "assignment-post",
-                title: "新繳交項目：" + title,
-                message: "「" + title + "」已發布，請前往繳交專區查看與繳交。" + (stage ? "（" + stage.Stage_Name + "）" : ""),
-                tab: "files",
-                refType: "assignment",
-                refId: assignmentId,
-                audience: {
-                    userIds: getActiveStudentUserIdsForTeams(targetTeamIds)
-                },
-                createdAt: createdAt,
-                priority: "normal"
-            }, { silent: true });
+            const submitButton = event.currentTarget && event.currentTarget.querySelector('button[type="submit"]');
+            const originalSubmitButtonHtml = submitButton ? submitButton.innerHTML : "";
+            let assignmentPublished = false;
+            let uploadedResourceCount = 0;
 
-            // 發布公告時只做一次完整同步，確保 GAS 有機會先寫入資料再寄送 Email。
-            saveState({ skipRemoteSync: true });
+            try {
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.innerHTML = '<i data-lucide="loader-circle" class="h-4 w-4 animate-spin"></i> 發布中';
+                    renderLucideIcons();
+                }
 
-            closeAssignmentPostModal();
-            let publishToastText = "繳交項目已發布。";
-            let publishToastType = "success";
+                state.Assignments.unshift(assignment);
+                createNotification({
+                    type: "assignment-post",
+                    title: "新繳交項目：" + title,
+                    message: "「" + title + "」已發布，請前往繳交專區查看與繳交。" + (stage ? "（" + stage.Stage_Name + "）" : ""),
+                    tab: "files",
+                    refType: "assignment",
+                    refId: assignmentId,
+                    audience: {
+                        userIds: getActiveStudentUserIdsForTeams(targetTeamIds)
+                    },
+                    createdAt: createdAt,
+                    priority: "normal"
+                }, { silent: true });
 
-            if (notifyByEmail) {
-                if (!isRemoteSyncEnabled() || !authSessionToken) {
-                    publishToastText = "繳交項目已發布，但目前尚未連線 GAS，Email 尚未寄出。";
-                    publishToastType = "warning";
+                // 先建立雲端項目，附件才有可追蹤的 Assignment_ID 與 Google Drive 位置。
+                saveState({ skipRemoteSync: true });
+                let syncResult = { ok: true, skipped: true };
+                if (isRemoteSyncEnabled() && authSessionToken) {
+                    syncResult = await syncStateToBackend();
+                    assignmentPublished = Boolean(syncResult.ok);
                 } else {
-                    const syncResult = await syncStateToBackend();
-                    const savedAssignment = state.Assignments.find(function(item) {
-                        return String(item.Assignment_ID || "") === String(assignmentId || "");
+                    assignmentPublished = true;
+                }
+
+                if (resourceFiles.length && !syncResult.ok) {
+                    throw new Error("雲端項目尚未建立完成，暫時無法附加參考檔。請稍後重新同步後再試。");
+                }
+
+                for (let index = 0; index < resourceFiles.length; index += 1) {
+                    const file = resourceFiles[index];
+                    setInlineUploadProgress("assignment-post-resource", {
+                        progress: 0,
+                        title: "正在上傳項目附件（" + (index + 1) + "/" + resourceFiles.length + "）",
+                        detail: "正在準備「" + file.name + "」。"
                     });
+                    const resourceResult = await uploadBrowserFileToGas("uploadAssignmentResource", file, {
+                        assignmentId: assignmentId,
+                        uploadUiScope: "assignment-post-resource"
+                    });
+                    if (!applyBackendStateResponse({ data: resourceResult }, {
+                        preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                        allowFallback: false,
+                        skipRender: true
+                    })) {
+                        throw new Error("項目附件上傳後沒有收到雲端確認資料。");
+                    }
+                    uploadedResourceCount += 1;
+                }
+
+                let publishToastText = resourceFiles.length
+                    ? "繳交項目已發布，已附加 " + uploadedResourceCount + " 份規範／公版檔。"
+                    : "繳交項目已發布。";
+                let publishToastType = "success";
+                const savedAssignment = state.Assignments.find(function(item) {
+                    return String(item.Assignment_ID || "") === String(assignmentId || "");
+                });
+
+                if (isRemoteSyncEnabled() && !syncResult.ok) {
+                    publishToastText = "繳交項目暫存於目前裝置，GAS 同步尚未完成。";
+                    publishToastType = "warning";
+                } else if (notifyByEmail) {
                     const emailStatus = String(savedAssignment && savedAssignment.Email_Notification_Status || "");
                     const recipientCount = Number(savedAssignment && savedAssignment.Email_Notification_Recipient_Count || 0);
-
-                    if (!syncResult.ok) {
-                        publishToastText = "繳交項目已發布，但 GAS 同步未完成，Email 尚未確認送出。";
-                        publishToastType = "warning";
-                    } else if (emailStatus === "已寄送") {
-                        publishToastText = "繳交項目已發布，Email 已寄送給 " + recipientCount + " 位對象。";
+                    if (emailStatus === "已寄送") {
+                        publishToastText += " Email 已寄送給 " + recipientCount + " 位對象。";
                     } else if (emailStatus === "無收件人") {
-                        publishToastText = "繳交項目已發布，但目前找不到可寄送的有效組員信箱。";
+                        publishToastText += " 但目前找不到可寄送的有效組員信箱。";
                         publishToastType = "warning";
                     } else {
-                        publishToastText = "繳交項目已發布，但 Email 尚未成功寄出，系統會在下次同步重試。";
+                        publishToastText += " Email 尚未成功寄出，系統會在下次同步重試。";
                         publishToastType = "warning";
                     }
                 }
-            }
 
-            showToast(publishToastText, publishToastType);
+                pendingAssignmentPostResourceFiles = [];
+                closeAssignmentPostModal();
+                renderAll();
+                showToast(publishToastText, publishToastType);
+            } catch (error) {
+                console.error("發布繳交項目或上傳項目附件失敗", error);
+                if (assignmentPublished) {
+                    pendingAssignmentPostResourceFiles = [];
+                    closeAssignmentPostModal();
+                    renderAll();
+                    showToast(
+                        "繳交項目已發布，但只有 " + uploadedResourceCount + " 份附件完成上傳。請從項目詳情重新加入其餘附件。",
+                        "warning"
+                    );
+                } else {
+                    showToast(error && error.message ? error.message : "發布繳交項目失敗，請稍後再試。", "warning");
+                }
+            } finally {
+                if (submitButton && document.body.contains(submitButton)) {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalSubmitButtonHtml;
+                    renderLucideIcons();
+                }
+            }
         }
 
         function openAssignmentDetailModal(assignmentId) {
@@ -7480,6 +7723,248 @@
             }
         }
 
+        function buildAssignmentResourcePanelMarkup(assignment, isExhibitionAdmin) {
+            const resources = getAssignmentResources(assignment && assignment.Assignment_ID);
+            const resourceRows = resources.length
+                ? resources.map(function(resource) {
+                    const resourceUrl = String(resource.Google_Drive_URL || "").trim();
+                    const resourceId = escapeInlineJsString(resource.Resource_ID || "");
+                    const metadata = [
+                        resource.File_Size ? formatFileSize(resource.File_Size) : "大小未記錄",
+                        resource.Created_At ? formatCompactDateTimeLabel(resource.Created_At) : ""
+                    ].filter(Boolean).join(" · ");
+                    const rowContent = `
+                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F2F7FF] text-[#0066CC]">
+                            <i data-lucide="file-down" class="h-4 w-4"></i>
+                        </span>
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate text-[11px] font-bold text-[#1D1D1F]">${escapeHtml(resource.File_Name || "未命名附件")}</span>
+                            <span class="mt-0.5 block text-[10px] text-[#86868B]">${escapeHtml(metadata || "可下載的項目附件")}</span>
+                        </span>
+                        ${resourceUrl ? '<i data-lucide="external-link" class="h-3.5 w-3.5 shrink-0 text-[#86868B]"></i>' : ''}
+                    `;
+                    return `
+                        <div class="flex items-center gap-2 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3 py-2.5">
+                            ${resourceUrl ? `<a href="${escapeHtml(resourceUrl)}" target="_blank" rel="noopener noreferrer" class="flex min-w-0 flex-1 items-center gap-2 transition hover:opacity-75" title="開啟 ${escapeHtml(resource.File_Name || "項目附件")}">${rowContent}</a>` : `<div class="flex min-w-0 flex-1 items-center gap-2">${rowContent}</div>`}
+                            ${isExhibitionAdmin ? `
+                                <button type="button" onclick="deleteAssignmentResource('${resourceId}')" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#86868B] transition hover:bg-[#FFF0EE] hover:text-[#FF3B30]" title="移除附件" aria-label="移除 ${escapeHtml(resource.File_Name || "項目附件")}">
+                                    <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join("")
+                : `
+                    <div class="rounded-2xl border border-dashed border-[#D9D9E3] bg-[#FBFBFD] px-3.5 py-4 text-[11px] leading-relaxed text-[#86868B]">
+                        目前沒有提供附件；請依照上方項目說明與繳交需求完成作業。
+                    </div>
+                `;
+
+            return `
+                <div class="space-y-3 rounded-3xl border border-[#E8E8ED] bg-white p-4">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="paperclip" class="h-4 w-4 text-[#0066CC]"></i>
+                                <h4 class="text-sm font-bold text-[#1D1D1F]">項目附件</h4>
+                                <span class="rounded-full bg-[#F2F2F7] px-2 py-0.5 text-[10px] font-bold text-[#6E6E73]">${resources.length}</span>
+                            </div>
+                            <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">規範圖片、公版與參考文件會保留在這份繳交項目裡。</p>
+                        </div>
+                        ${isExhibitionAdmin ? `
+                            <input id="assignment-resource-file-input" type="file" accept="${ASSIGNMENT_RESOURCE_EXTENSIONS.join(',')}" onchange="handleAssignmentResourceFileInputChange()" class="sr-only">
+                            <label for="assignment-resource-file-input" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3 py-2 text-[10px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]">
+                                <i data-lucide="plus" class="h-3.5 w-3.5"></i>
+                                新增附件
+                            </label>
+                        ` : ''}
+                    </div>
+                    <div class="space-y-2">${resourceRows}</div>
+                    ${isExhibitionAdmin ? `
+                        <div id="assignment-resource-upload-transfer-status" class="hidden rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] px-3.5 py-3" aria-live="polite">
+                            <div class="flex items-center justify-between gap-3">
+                                <p id="assignment-resource-upload-transfer-title" class="text-[11px] font-bold text-[#1D1D1F]">正在準備項目附件</p>
+                                <span id="assignment-resource-upload-transfer-value" class="text-[10px] font-bold text-[#0066CC]">0%</span>
+                            </div>
+                            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE8F8]"><div id="assignment-resource-upload-transfer-bar" class="h-full w-0 rounded-full bg-[#0066CC] transition-all duration-300"></div></div>
+                            <p id="assignment-resource-upload-transfer-detail" class="mt-2 text-[10px] leading-relaxed text-[#5F6975]">系統正在確認檔案。</p>
+                        </div>
+                        <div id="assignment-resource-large-upload-panel" class="${pendingLargeAssignmentResourceUpload && String(pendingLargeAssignmentResourceUpload.assignmentId || "") === String(assignment.Assignment_ID || "") ? "" : "hidden "}rounded-2xl border border-[#CFE3FF] bg-[#F7FAFF] p-3.5">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div class="flex items-start gap-2.5">
+                                    <i data-lucide="hard-drive-upload" class="mt-0.5 h-4 w-4 shrink-0 text-[#0066CC]"></i>
+                                    <p id="assignment-resource-large-upload-caption" class="text-[10px] leading-relaxed text-[#5F6975]">${pendingLargeAssignmentResourceUpload && pendingLargeAssignmentResourceUpload.file ? "「" + escapeHtml(pendingLargeAssignmentResourceUpload.file.name) + "」超過 18 MB，請使用穩定上傳。" : "大於 18 MB 的項目附件會改用穩定上傳。"}</p>
+                                </div>
+                                <button type="button" onclick="startStableAssignmentResourceUploadFlow()" class="shrink-0 rounded-xl bg-[#0066CC] px-3.5 py-2 text-[10px] font-bold text-white transition hover:opacity-90">上傳大檔</button>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        async function handleAssignmentResourceFileInputChange() {
+            const assignment = state.Assignments.find(function(item) {
+                return String(item && item.Assignment_ID || "") === String(activeAssignmentId || "");
+            });
+            const input = document.getElementById("assignment-resource-file-input");
+            const selectedFile = getSelectedFileFromInput("assignment-resource-file-input");
+            if (!assignment || !selectedFile) return;
+
+            const extension = parseFileMeta(selectedFile.name).extension;
+            if (!isSupportedAssignmentResourceExtension(extension)) {
+                showToast("項目附件支援 ai、pdf、psd、indd、圖片、zip、Office 與文字檔。", "warning");
+                if (input) input.value = "";
+                return;
+            }
+            if (exceedsLargeUploadLimit(selectedFile)) {
+                showToast("這份項目附件超過 2 GB 上限，請壓縮後再試。", "warning");
+                if (input) input.value = "";
+                return;
+            }
+
+            if (needsStableLargeUpload(selectedFile) || needsResumableLargeUpload(selectedFile)) {
+                pendingLargeAssignmentResourceUpload = {
+                    assignmentId: assignment.Assignment_ID,
+                    file: selectedFile
+                };
+                if (input) input.value = "";
+                renderAssignmentDetailModal();
+                showToast("這份附件將使用穩定上傳，請按「上傳大檔」繼續。", "info");
+                return;
+            }
+
+            if (!isRemoteSyncEnabled() || !authSessionToken) {
+                showToast("項目附件需要連線至 GAS 與 Google Drive，請先完成登入與同步。", "warning");
+                if (input) input.value = "";
+                return;
+            }
+
+            try {
+                const responseData = await uploadBrowserFileToGas("uploadAssignmentResource", selectedFile, {
+                    assignmentId: assignment.Assignment_ID,
+                    uploadUiScope: "assignment-resource"
+                });
+                if (!applyBackendStateResponse({ data: responseData }, {
+                    preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                    allowFallback: false,
+                    skipRender: true
+                })) {
+                    throw new Error("雲端沒有回傳附件資料。");
+                }
+                pendingLargeAssignmentResourceUpload = null;
+                renderAll();
+                renderAssignmentDetailModal();
+                showToast("項目附件已上傳，小組現在可以直接下載。", "success");
+            } catch (error) {
+                console.error("上傳項目附件失敗", error);
+                showToast(error && error.message ? error.message : "項目附件上傳失敗，請稍後再試。", "warning");
+            } finally {
+                if (input) input.value = "";
+            }
+        }
+
+        function startStableAssignmentResourceUploadFlow() {
+            const pendingUpload = pendingLargeAssignmentResourceUpload;
+            const assignment = state.Assignments.find(function(item) {
+                return String(item && item.Assignment_ID || "") === String(activeAssignmentId || "");
+            });
+            const selectedFile = pendingUpload && pendingUpload.file;
+            if (!assignment || !selectedFile) {
+                showToast("請先選擇要提供給小組的附件。", "warning");
+                return;
+            }
+            if (!needsStableLargeUpload(selectedFile) && !needsResumableLargeUpload(selectedFile)) {
+                showToast("這份附件可直接上傳，不需要開啟大檔上傳頁。", "warning");
+                return;
+            }
+            if (exceedsLargeUploadLimit(selectedFile)) {
+                showToast("這份附件超過分段上傳 2 GB 上限。", "warning");
+                return;
+            }
+            if (!currentUser || !authSessionToken) {
+                showToast("登入狀態已過期，請重新登入後再上傳。", "warning");
+                return;
+            }
+
+            const resumable = needsResumableLargeUpload(selectedFile);
+            try {
+                openLargeUploadWindow({
+                    mode: "assignment-resource",
+                    userId: currentUser.User_ID,
+                    assignmentId: assignment.Assignment_ID,
+                    sourceFileName: selectedFile.name,
+                    uploadProtocol: resumable ? "resumable" : "stable"
+                }, {
+                    assignmentId: assignment.Assignment_ID
+                });
+                showToast(
+                    resumable
+                        ? "已開啟分段上傳頁，請在新視窗重新選擇同一份附件。"
+                        : "已開啟穩定上傳頁，請在新視窗重新選擇同一份附件。",
+                    "success"
+                );
+            } catch (error) {
+                showToast(error && error.message ? error.message : "無法開啟大檔上傳頁。", "warning");
+            }
+        }
+
+        async function deleteAssignmentResource(resourceId) {
+            if (assignmentResourceDeleteInFlight) return;
+            const resource = ensureArray(state.Assignment_Resources).find(function(item) {
+                return String(item && item.Resource_ID || "") === String(resourceId || "");
+            });
+            if (!resource) {
+                showToast("找不到要移除的項目附件。", "warning");
+                return;
+            }
+            if (!window.confirm("移除「" + resource.File_Name + "」？系統也會將 Google Drive 原始檔移到垃圾桶。")) {
+                return;
+            }
+
+            assignmentResourceDeleteInFlight = true;
+            try {
+                if (isRemoteSyncEnabled()) {
+                    const response = await requestGas("deleteAssignmentResource", {
+                        resourceId: resource.Resource_ID,
+                        stateRevision: remoteStateRevision
+                    });
+                    if (!applyBackendStateResponse(response, {
+                        preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                        allowFallback: false,
+                        skipRender: true
+                    })) {
+                        throw new Error("雲端沒有回傳更新後的附件資料。");
+                    }
+                    const summary = response && response.data && response.data.driveTrashSummary;
+                    const pendingCount = Number(summary && summary.pending || 0);
+                    const failedCount = Number(summary && summary.failed || 0);
+                    renderAll();
+                    renderAssignmentDetailModal();
+                    showToast(
+                        failedCount > 0
+                            ? "附件已從項目移除，但 Google Drive 檔案暫時無法移到垃圾桶。"
+                            : pendingCount > 0
+                                ? "附件已從項目移除，Google Drive 檔案正在背景移到垃圾桶。"
+                                : "附件已移除，Google Drive 原始檔也已移到垃圾桶。",
+                        failedCount > 0 ? "warning" : "success"
+                    );
+                } else {
+                    state.Assignment_Resources = ensureArray(state.Assignment_Resources).filter(function(item) {
+                        return String(item && item.Resource_ID || "") !== String(resource.Resource_ID || "");
+                    });
+                    saveState();
+                    renderAssignmentDetailModal();
+                    showToast("附件已從本機項目移除。", "success");
+                }
+            } catch (error) {
+                console.error("刪除項目附件失敗", error);
+                showToast(error && error.message ? error.message : "無法刪除項目附件。", "warning");
+            } finally {
+                assignmentResourceDeleteInFlight = false;
+            }
+        }
+
         function getAssignmentDeleteContext(assignmentId) {
             const normalizedAssignmentId = String(assignmentId || "").trim();
             const assignment = ensureArray(state.Assignments).find(function(item) {
@@ -7490,6 +7975,7 @@
             const submissions = ensureArray(state.Assignment_Submissions).filter(function(item) {
                 return String(item && item.Assignment_ID || "") === normalizedAssignmentId;
             });
+            const resources = getAssignmentResources(normalizedAssignmentId);
             const notifications = ensureArray(state.Notifications).filter(function(item) {
                 return String(item && item.Ref_Type || "") === "assignment"
                     && String(item && item.Ref_ID || "") === normalizedAssignmentId;
@@ -7502,7 +7988,7 @@
                 return String(item && item.Assignment_ID || "") === normalizedAssignmentId;
             });
             const driveFileIds = new Set();
-            submissions.concat(serviceOrders).forEach(function(record) {
+            submissions.concat(serviceOrders, resources).forEach(function(record) {
                 const fileId = String(record && record.Drive_File_ID || "").trim();
                 if (fileId) driveFileIds.add(fileId);
             });
@@ -7510,6 +7996,7 @@
             const impactItems = [
                 { label: "繳交項目", count: 1, unit: "則" }
             ];
+            if (resources.length > 0) impactItems.push({ label: "項目附件", count: resources.length, unit: "份" });
             if (submissions.length > 0) impactItems.push({ label: "作業繳交", count: submissions.length, unit: "筆" });
             if (serviceOrders.length > 0) impactItems.push({ label: "形印代做案件", count: serviceOrders.length, unit: "筆" });
             if (notifications.length > 0) impactItems.push({ label: "相關通知", count: notifications.length, unit: "則" });
@@ -7519,6 +8006,7 @@
             return {
                 assignment: assignment,
                 assignmentId: normalizedAssignmentId,
+                resources: resources,
                 submissions: submissions,
                 notifications: notifications,
                 notificationIds: new Set(notifications.map(function(item) { return item.Notification_ID; })),
@@ -7684,6 +8172,9 @@
             }
 
             state.Assignments = ensureArray(state.Assignments).filter(function(item) {
+                return String(item && item.Assignment_ID || "") !== assignmentId;
+            });
+            state.Assignment_Resources = ensureArray(state.Assignment_Resources).filter(function(item) {
                 return String(item && item.Assignment_ID || "") !== assignmentId;
             });
             state.Assignment_Submissions = ensureArray(state.Assignment_Submissions).filter(function(item) {
@@ -7987,6 +8478,17 @@
                         <p class="text-[11px] text-[#86868B] font-semibold">繳交進度</p>
                         <p class="text-xl font-extrabold text-[#1D1D1F] mt-1">${Math.round(progressWidth)}%</p>
                     </div>
+                </div>
+
+                ${assignment.Body ? `
+                    <div class="mt-4 rounded-3xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
+                        <p class="text-[11px] font-semibold text-[#86868B]">項目說明</p>
+                        <p class="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-[#1D1D1F]">${escapeHtml(assignment.Body)}</p>
+                    </div>
+                ` : ''}
+
+                <div class="mt-4">
+                    ${buildAssignmentResourcePanelMarkup(assignment, isExhibitionAdmin)}
                 </div>
 
                 <div class="pt-4 space-y-4">
