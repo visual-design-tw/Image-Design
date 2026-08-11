@@ -328,7 +328,7 @@
 
         <div class="file-box">
           <label for="upload-file">重新選擇檔案</label>
-          <input id="upload-file" name="uploadFile" type="file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" required>
+          <input id="upload-file" name="uploadFile" type="file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt" required>
           <div id="file-selection" class="selection">尚未選擇檔案。</div>
           <div id="status-message" class="status" aria-live="polite"></div>
           <div id="transfer-progress" class="hidden" aria-live="polite">
@@ -347,7 +347,7 @@
           </div>
           <div class="hint-card">
             <strong>穩定上傳頁</strong>
-            <span><?= pageModel.maxStableMb ?> MB 內一次送出；超過 50 MB 會自動改用 <?= pageModel.resumableChunkMb ?> MB 分段上傳，最高 <?= pageModel.maxResumableGb ?> GB。</span>
+            <span><?= pageModel.maxDirectMb ?> MB 內可直接送出；較大的檔案會改用 <?= pageModel.resumableChunkMb ?> MB 分段上傳，最高 <?= pageModel.maxResumableGb ?> GB。</span>
           </div>
         </div>
 
