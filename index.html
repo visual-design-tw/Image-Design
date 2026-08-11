@@ -1662,6 +1662,8 @@
         const STORAGE_KEY = "shapeprint_state_v5_pro";
         const GAS_API_STORAGE_KEY = "shapeprint_gas_api_url";
         const SESSION_STORAGE_KEY = "shapeprint_auth_session_v1";
+        const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
+        const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2574,8 +2576,10 @@
                 if (storedSession && !authSessionToken) {
                     clearStoredSession();
                 }
-                await loadState();
-                setBootLoaderPhase("auth");
+                const loadResult = await loadState();
+                if (!loadResult || !loadResult.fromCache) {
+                    setBootLoaderPhase("auth");
+                }
 
                 if (currentUser && storedSession) {
                     activeWorkspace = resolveWorkspaceForUser(currentUser, storedSession.workspace);
@@ -2743,7 +2747,7 @@
                 runStateAutomations();
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
                 setBootLoaderPhase("local");
-                return;
+                return { fromCache: false };
             }
 
             // 雲端模式不沿用上一位使用者的快取資料，避免跨帳號殘留資訊。
@@ -2757,48 +2761,28 @@
                     percent: 68,
                     metricNote: "等待帳號驗證"
                 });
-                return;
+                return { fromCache: false };
             }
 
-            try {
-                setBootLoaderPhase("remote");
-                const response = await requestGas("bootstrap", null, "GET");
-                if (!response || !response.data || !response.data.state) {
-                    throw new Error("GAS bootstrap response is missing state.");
-                }
-                applyBackendStateResponse(response, { skipRender: true, allowFallback: false });
-                if (!currentUser) {
-                    throw new Error("AUTH_EXPIRED: 無法確認目前登入帳號。");
-                }
-                gasConnectionStatus = "remote";
-                setBootLoaderPhase("remote", {
-                    title: "雲端資料已經接上",
-                    message: "Google 試算表與前端狀態已對齊，接著只要確認登入與網址中的特殊流程。",
-                    percent: 76,
-                    metricNote: "雲端回傳成功"
+            const storedSession = getStoredSession();
+            const cachedState = readRemoteStateCache(storedSession && storedSession.userId);
+            if (cachedState && hydrateRemoteStateCache(cachedState, storedSession.userId)) {
+                gasConnectionStatus = "connecting";
+                setBootLoaderPhase("cache", {
+                    title: "正在開啟最近資料",
+                    message: "先顯示這個帳號上次同步的內容，最新資料會在背景更新。",
+                    percent: 78,
+                    metricNote: "背景同步中"
                 });
-            } catch (error) {
-                const message = String(error && error.message || "");
-                const isAuthError = /AUTH_REQUIRED|AUTH_EXPIRED|重新登入/.test(message);
-                gasConnectionStatus = isAuthError ? "remote" : "fallback";
-                if (isAuthError) {
-                    clearStoredSession();
-                    state = createUnauthenticatedState();
-                    currentUser = null;
-                }
-                setBootLoaderPhase("fallback");
-                console.error("GAS 讀取失敗", error);
-                setTimeout(function() {
-                    showToast(
-                        isAuthError
-                            ? "登入狀態已過期，請重新登入。"
-                            : isFileProtocolMode()
-                            ? "目前是直接開啟本機 HTML，請改用 localhost 或靜態網站網址，才能穩定連線 GAS。"
-                            : "GAS 讀取失敗，暫時無法載入雲端資料。",
-                        "warning"
-                    );
-                }, 150);
+                bootstrapRemoteState({
+                    preferredUserId: storedSession.userId,
+                    preserveCachedState: true
+                });
+                return { fromCache: true };
             }
+
+            await bootstrapRemoteState({ skipRender: true });
+            return { fromCache: false };
         }
 
         function saveState(options = {}) {
@@ -2879,7 +2863,76 @@
             }
         }
 
+        function getRemoteStateCacheKey(userId) {
+            const normalizedUserId = String(userId || "").trim();
+            return normalizedUserId ? REMOTE_STATE_CACHE_PREFIX + normalizedUserId : "";
+        }
+
+        function readRemoteStateCache(userId) {
+            const cacheKey = getRemoteStateCacheKey(userId);
+            if (!cacheKey) return null;
+
+            try {
+                const raw = localStorage.getItem(cacheKey);
+                const cached = raw ? JSON.parse(raw) : null;
+                const cachedAt = Number(cached && cached.cachedAt || 0);
+                const isExpired = !cachedAt || Date.now() - cachedAt > REMOTE_STATE_CACHE_MAX_AGE_MS;
+                const belongsToUser = cached && String(cached.userId || "") === String(userId || "");
+                if (!cached || !cached.state || !belongsToUser || isExpired) {
+                    localStorage.removeItem(cacheKey);
+                    return null;
+                }
+                return cached;
+            } catch (error) {
+                localStorage.removeItem(cacheKey);
+                return null;
+            }
+        }
+
+        function writeRemoteStateCache(userId, snapshot, options = {}) {
+            const cacheKey = getRemoteStateCacheKey(userId);
+            if (!cacheKey || !snapshot || typeof snapshot !== "object") return;
+
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    version: 1,
+                    userId: String(userId),
+                    cachedAt: Date.now(),
+                    stateRevision: Number(options.stateRevision || 0),
+                    state: cloneStateSnapshot(snapshot),
+                    heatmap: options.heatmap ? cloneStateSnapshot(options.heatmap) : null
+                }));
+            } catch (error) {
+                console.warn("儲存帳號專屬快取失敗", error);
+            }
+        }
+
+        function clearRemoteStateCache(userId) {
+            const cacheKey = getRemoteStateCacheKey(userId);
+            if (cacheKey) {
+                localStorage.removeItem(cacheKey);
+            }
+        }
+
+        function hydrateRemoteStateCache(cached, userId) {
+            if (!cached || !cached.state || !userId) return false;
+
+            remoteStateRevision = Number(cached.stateRevision || 0) || 0;
+            heatmapDatasetCache = cached.heatmap ? cloneStateSnapshot(cached.heatmap) : null;
+            applyStateSnapshot(cached.state, {
+                preferredUserId: userId,
+                allowFallback: false,
+                skipRender: true,
+                skipLocalSnapshot: true
+            });
+            return Boolean(currentUser && String(currentUser.User_ID || "") === String(userId));
+        }
+
         function clearStoredSession() {
+            const storedSession = getStoredSession();
+            if (storedSession && storedSession.userId) {
+                clearRemoteStateCache(storedSession.userId);
+            }
             localStorage.removeItem(SESSION_STORAGE_KEY);
             authSessionToken = "";
             remoteStateRevision = 0;
@@ -2942,7 +2995,9 @@
                 : Boolean(preferredUserId);
             state = nextState && typeof nextState === "object" ? nextState : cloneStateSnapshot(DEFAULT_STATE);
             normalizeStateSchema();
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            if (!options.skipLocalSnapshot) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            }
             currentUser = pickCurrentUser(preferredUserId, {
                 allowFallback: shouldAllowFallback
             });
@@ -2982,6 +3037,10 @@
                 activeWorkspace = resolveWorkspaceForUser(currentUser, options.preferredWorkspace || activeWorkspace);
                 if (authSessionToken) {
                     persistCurrentSession();
+                    writeRemoteStateCache(currentUser.User_ID, responseData.state, {
+                        stateRevision: remoteStateRevision,
+                        heatmap: responseData.heatmap
+                    });
                 }
             }
             return true;
@@ -3038,6 +3097,76 @@
             }
 
             return result;
+        }
+
+        async function bootstrapRemoteState(options = {}) {
+            const storedSession = getStoredSession();
+            const preferredUserId = options.preferredUserId
+                || (currentUser && currentUser.User_ID ? currentUser.User_ID : "")
+                || (storedSession && storedSession.userId ? storedSession.userId : "");
+
+            try {
+                if (!options.preserveCachedState) {
+                    setBootLoaderPhase("remote");
+                }
+                const response = await requestGas("bootstrap", null, "GET");
+                if (!response || !response.data || !response.data.state) {
+                    throw new Error("GAS bootstrap response is missing state.");
+                }
+                applyBackendStateResponse(response, {
+                    preferredUserId: preferredUserId,
+                    allowFallback: false,
+                    skipRender: options.skipRender === true
+                });
+                if (!currentUser) {
+                    throw new Error("AUTH_EXPIRED: 無法確認目前登入帳號。");
+                }
+
+                gasConnectionStatus = "remote";
+                if (!options.preserveCachedState) {
+                    setBootLoaderPhase("remote", {
+                        title: "雲端資料已經接上",
+                        message: "Google 試算表與前端狀態已對齊，接著只要確認登入與網址中的特殊流程。",
+                        percent: 76,
+                        metricNote: "雲端回傳成功"
+                    });
+                }
+                renderConnectionStatusBadge();
+                return true;
+            } catch (error) {
+                const message = String(error && error.message || "");
+                const isAuthError = /AUTH_REQUIRED|AUTH_EXPIRED|重新登入/.test(message);
+                gasConnectionStatus = isAuthError ? "remote" : "fallback";
+
+                if (isAuthError) {
+                    clearStoredSession();
+                    state = createUnauthenticatedState();
+                    currentUser = null;
+                    renderAll();
+                } else if (!options.preserveCachedState) {
+                    state = createUnauthenticatedState();
+                    currentUser = null;
+                }
+
+                if (!options.preserveCachedState) {
+                    setBootLoaderPhase("fallback");
+                }
+                renderConnectionStatusBadge();
+                console.error("GAS 讀取失敗", error);
+                setTimeout(function() {
+                    showToast(
+                        isAuthError
+                            ? "登入狀態已過期，請重新登入。"
+                            : isFileProtocolMode()
+                            ? "目前是直接開啟本機 HTML，請改用 localhost 或靜態網站網址，才能穩定連線 GAS。"
+                            : options.preserveCachedState
+                            ? "雲端暫時無法更新，已先保留最近一次同步資料。"
+                            : "GAS 讀取失敗，暫時無法載入雲端資料。",
+                        "warning"
+                    );
+                }, 150);
+                return false;
+            }
         }
 
         function scheduleRemoteStateSync() {
