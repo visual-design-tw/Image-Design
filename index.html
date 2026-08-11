@@ -8296,7 +8296,8 @@
 
             let roleDisplay = "畢業組員";
             if (effectiveRole === "SuperAdmin") {
-                roleDisplay = "形印組長";
+                const isGuidingTeacher = String(currentUser.Email || "").toLowerCase() === "te0063@mail.tut.edu.tw";
+                roleDisplay = isGuidingTeacher ? "形印指導教師" : "形印組長";
             } else if (effectiveRole === "Admin") {
                 roleDisplay = "形印組員";
             } else if (effectiveRole === "Leader") {
@@ -11903,20 +11904,6 @@
                 const pendingCount = assignmentsToDisplay.filter(function(assignment) { return !assignment.__isSubmitted && !assignment.__isOverdue; }).length;
                 const submittedCount = assignmentsToDisplay.filter(function(assignment) { return assignment.__isSubmitted; }).length;
                 const overdueCount = assignmentsToDisplay.filter(function(assignment) { return assignment.__isOverdue && !assignment.__isSubmitted; }).length;
-                const targetSlots = assignmentsToDisplay.reduce(function(sum, assignment) {
-                    return sum + getAssignmentTargetTeamIds(assignment).length;
-                }, 0);
-                const submittedSlots = assignmentsToDisplay.reduce(function(sum, assignment) {
-                    const targetIds = getAssignmentTargetTeamIds(assignment);
-                    const submittedPairs = new Set();
-                    getAssignmentSubmissionsForAssignment(assignment.Assignment_ID).forEach(function(submission) {
-                        if (targetIds.includes(submission.Team_ID)) {
-                            submittedPairs.add(assignment.Assignment_ID + "|" + submission.Team_ID);
-                        }
-                    });
-                    return sum + submittedPairs.size;
-                    }, 0);
-                const completionRatio = targetSlots > 0 ? Math.round((submittedSlots / targetSlots) * 100) : 0;
                 const comparisonAssignments = state.Assignments.filter(function(assignment) {
                     return !activeStage || assignment.Stage_ID === activeStage.Stage_ID;
                 });
@@ -11932,24 +11919,6 @@
                                 <div>
                                     <h3 class="font-bold text-2xl text-[#1D1D1F] tracking-tight">繳交項目與提交流程</h3>
                                     <p class="text-xs md:text-sm text-[#6E6E73] mt-2 leading-relaxed">先看需求，再準備內容，最後完成送件。只保留必要資訊，讓流程更清楚、畫面更安靜。</p>
-                                </div>
-                                <div class="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-[#1D1D1F]">
-                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F5F5F7] border border-[#E5E5EA]">
-                                        <i data-lucide="bookmark-check" class="w-3.5 h-3.5 text-[#0066CC]"></i>
-                                        ${activeStage ? activeStage.Stage_Name : "未指定會期"}
-                                    </span>
-                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F5F5F7] border border-[#E5E5EA]">
-                                        <i data-lucide="users" class="w-3.5 h-3.5 text-[#86868B]"></i>
-                                        ${effectiveRole === "SuperAdmin" || effectiveRole === "Admin" ? "管理者視角" : "小組視角"}
-                                    </span>
-                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F5F5F7] border border-[#E5E5EA]">
-                                        <i data-lucide="calendar-range" class="w-3.5 h-3.5 text-[#86868B]"></i>
-                                        ${visibleCount} 項內容
-                                    </span>
-                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#F5F5F7] border border-[#E5E5EA]">
-                                        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-[#86868B]"></i>
-                                        完成 ${completionRatio}%
-                                    </span>
                                 </div>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
