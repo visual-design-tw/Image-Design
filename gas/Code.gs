@@ -16,6 +16,9 @@ var MAX_RESUMABLE_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 var RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES = 2 * 1024 * 1024;
 var RESUMABLE_UPLOAD_SESSION_TTL_SECONDS = 6 * 60 * 60;
 var RESUMABLE_UPLOAD_CACHE_PREFIX = 'ShapePrintResumableUpload:';
+var STATE_CACHE_PREFIX = 'ShapePrintState:v1:';
+var STATE_CACHE_TTL_SECONDS = 60;
+var STATE_CACHE_MAX_BYTES = 90 * 1024;
 var ASSIGNMENT_REMINDER_TRIGGER_HANDLER = 'runScheduledAssignmentReminders';
 var ASSIGNMENT_REMINDER_LOG_META_KEY = 'AssignmentReminderLog';
 var ASSIGNMENT_REMINDER_SETTINGS_META_KEY = 'AssignmentReminderSettings';
@@ -1454,7 +1457,47 @@ function setupSheets_() {
   return spreadsheet.getId();
 }
 
+function getStateCacheKey_() {
+  return STATE_CACHE_PREFIX + String(getConfig_().spreadsheetId || '').trim();
+}
+
+function getCachedState_() {
+  var cache = CacheService.getScriptCache();
+  var cacheKey = getStateCacheKey_();
+  var raw = cache.get(cacheKey);
+  if (!raw) return null;
+
+  try {
+    return normalizeState_(JSON.parse(raw));
+  } catch (error) {
+    cache.remove(cacheKey);
+    return null;
+  }
+}
+
+function cacheState_(state) {
+  try {
+    var serialized = JSON.stringify(state || {});
+    var byteSize = Utilities.newBlob(serialized).getBytes().length;
+    var cache = CacheService.getScriptCache();
+    var cacheKey = getStateCacheKey_();
+    if (byteSize > STATE_CACHE_MAX_BYTES) {
+      cache.remove(cacheKey);
+      return false;
+    }
+    cache.put(cacheKey, serialized, STATE_CACHE_TTL_SECONDS);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 function loadState_() {
+  var cachedState = getCachedState_();
+  if (cachedState) {
+    return cachedState;
+  }
+
   setupSheets_();
 
   var config = getConfig_();
@@ -1487,6 +1530,7 @@ function loadState_() {
     writeStateTables_(spreadsheet, state);
   }
 
+  cacheState_(state);
   return state;
 }
 
@@ -2578,6 +2622,7 @@ function writeStateTables_(spreadsheet, state) {
   writeTable_(spreadsheet, 'Design_Service_Settings', state.Design_Service_Settings);
   writeTable_(spreadsheet, 'Design_Service_Orders', state.Design_Service_Orders);
   writeMetaSheet_(spreadsheet, state.Meta || {});
+  cacheState_(state);
 }
 
 function buildClientStateResult_(state, extraData) {
