@@ -443,6 +443,21 @@
         .auth-submit-button.is-loading .auth-submit-button__label {
             opacity: 0.96;
         }
+        @keyframes authPanelFallbackEnter {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+                filter: blur(2px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0);
+            }
+        }
+        .auth-panel-fallback-enter {
+            animation: authPanelFallbackEnter 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
         .auth-link-button:disabled {
             opacity: 0.42;
             cursor: default;
@@ -1031,8 +1046,9 @@
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">設定密碼</label>
                         <input type="password" id="reg-leader-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="密碼最少為 8 碼">
                     </div>
-                    <button type="submit" class="w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        建立新組別並註冊為組長
+                    <button id="btn-register-leader-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
+                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <span id="btn-register-leader-label" class="auth-submit-button__label">建立新組別並註冊為組長</span>
                     </button>
                 </form>
 
@@ -1054,8 +1070,9 @@
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">設定密碼</label>
                         <input type="password" id="reg-member-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="設定至少 8 碼的登入密碼">
                     </div>
-                    <button type="submit" class="w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                        加入該組並註冊
+                    <button id="btn-register-member-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
+                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <span id="btn-register-member-label" class="auth-submit-button__label">加入該組並註冊</span>
                     </button>
                 </form>
 
@@ -1076,10 +1093,12 @@
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">設定密碼</label>
                         <input type="password" id="reg-pending-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-sm" placeholder="設定至少 8 碼的首次登入密碼">
                     </div>
-                    <button type="submit" class="w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        確認設定並激活帳號
+                    <button id="btn-register-pending-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
+                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <span id="btn-register-pending-label" class="auth-submit-button__label">確認設定並激活帳號</span>
                     </button>
                 </form>
+                <p id="register-submit-status" class="hidden -mt-2 text-center text-[11px] font-medium text-[#86868B]" role="status" aria-live="polite"></p>
             </div>
 
             <!-- 忘記密碼 -->
@@ -1729,6 +1748,8 @@
         let passwordResetExpiresAt = "";
         let passwordResetErrorMessage = "";
         let loginSubmitInFlight = false;
+        let registerSubmitInFlight = false;
+        let activeRegisterSubTab = "reg-leader";
         let logoutInFlight = false;
         let authSessionToken = "";
         let remoteStateRevision = 0;
@@ -1893,6 +1914,68 @@
             });
         }
 
+        function getRegisterSubmitCopy(kind) {
+            const copy = {
+                leader: {
+                    buttonId: "btn-register-leader-submit",
+                    labelId: "btn-register-leader-label",
+                    idleLabel: "建立新組別並註冊為組長",
+                    loadingLabel: "正在建立小組與帳號",
+                    statusLabel: "正在建立小組與帳號，請稍候。"
+                },
+                member: {
+                    buttonId: "btn-register-member-submit",
+                    labelId: "btn-register-member-label",
+                    idleLabel: "加入該組並註冊",
+                    loadingLabel: "正在加入小組",
+                    statusLabel: "正在加入小組並建立帳號，請稍候。"
+                },
+                pending: {
+                    buttonId: "btn-register-pending-submit",
+                    labelId: "btn-register-pending-label",
+                    idleLabel: "確認設定並激活帳號",
+                    loadingLabel: "正在開通帳號",
+                    statusLabel: "正在開通帳號，請稍候。"
+                }
+            };
+            return copy[kind] || null;
+        }
+
+        function setRegisterSubmitting(kind, isSubmitting) {
+            registerSubmitInFlight = Boolean(isSubmitting);
+            const copy = getRegisterSubmitCopy(kind);
+            const status = document.getElementById("register-submit-status");
+            const registerPanel = document.getElementById("form-register");
+
+            if (registerPanel) {
+                registerPanel.classList.toggle("pointer-events-none", registerSubmitInFlight);
+                registerPanel.querySelectorAll("input, button").forEach(function(element) {
+                    element.disabled = registerSubmitInFlight;
+                });
+            }
+            [document.getElementById("tab-btn-login"), document.getElementById("tab-btn-register")].forEach(function(element) {
+                if (element) element.disabled = registerSubmitInFlight;
+            });
+
+            if (!copy) return;
+
+            const button = document.getElementById(copy.buttonId);
+            const label = document.getElementById(copy.labelId);
+            if (button) {
+                button.disabled = registerSubmitInFlight;
+                button.classList.toggle("is-loading", registerSubmitInFlight);
+                button.setAttribute("aria-busy", registerSubmitInFlight ? "true" : "false");
+                animateAuthSubmitButtonState(button, registerSubmitInFlight);
+            }
+            if (label) {
+                label.textContent = registerSubmitInFlight ? copy.loadingLabel : copy.idleLabel;
+            }
+            if (status) {
+                status.textContent = registerSubmitInFlight ? copy.statusLabel : "";
+                status.classList.toggle("hidden", !registerSubmitInFlight);
+            }
+        }
+
         function isMobileViewport() {
             return window.innerWidth < 768;
         }
@@ -1967,8 +2050,7 @@
             }
         }
 
-        function animateLoginButtonState(isSubmitting) {
-            const button = document.getElementById("btn-login-submit");
+        function animateAuthSubmitButtonState(button, isSubmitting) {
             if (!button) return;
             const engine = getAnimeEngine();
             if (!engine) return;
@@ -1979,6 +2061,51 @@
                 duration: isSubmitting ? 240 : 180,
                 ease: isSubmitting ? engine.spring({ bounce: 0.18 }) : "out(2)"
             });
+        }
+
+        function animateLoginButtonState(isSubmitting) {
+            animateAuthSubmitButtonState(document.getElementById("btn-login-submit"), isSubmitting);
+        }
+
+        function animateAuthPanelTransition(panel, options = {}) {
+            if (!panel || panel.classList.contains("hidden") || prefersReducedMotion()) return;
+
+            const engine = getAnimeEngine();
+            const fromY = Number.isFinite(options.fromY) ? options.fromY : 10;
+            const duration = Number.isFinite(options.duration) ? options.duration : 320;
+
+            if (!engine) {
+                panel.classList.remove("auth-panel-fallback-enter");
+                requestAnimationFrame(function() {
+                    panel.classList.add("auth-panel-fallback-enter");
+                });
+                return;
+            }
+
+            const children = options.staggerChildren
+                ? Array.from(panel.children).filter(function(child) {
+                    return !child.classList.contains("hidden");
+                })
+                : [];
+
+            animateEntranceSequence([panel], {
+                fromY: fromY,
+                fromScale: 0.99,
+                fromBlur: 5,
+                duration: duration,
+                stagger: 0
+            });
+
+            if (children.length) {
+                animateEntranceSequence(children, {
+                    fromY: 6,
+                    fromScale: 0.995,
+                    fromBlur: 2,
+                    duration: Math.max(240, duration - 20),
+                    stagger: 42,
+                    delay: 30
+                });
+            }
         }
 
         function animateSurfaceOpen(surface, panel, options = {}) {
@@ -9444,8 +9571,20 @@
         }
 
         function setAuthScreenMode(mode) {
+            const previousMode = authScreenMode;
             authScreenMode = mode;
             renderAuthPanels();
+
+            if (previousMode === authScreenMode) return;
+
+            requestAnimationFrame(function() {
+                const activePanel = authScreenMode === "register"
+                    ? document.getElementById("form-register")
+                    : (authScreenMode === "login" ? document.getElementById("form-login") : null);
+                animateAuthPanelTransition(activePanel, {
+                    staggerChildren: authScreenMode === "register"
+                });
+            });
         }
 
         function renderAuthPanels() {
@@ -9907,7 +10046,7 @@
         }
 
         function toggleAuthTab(type) {
-            if (loginSubmitInFlight) {
+            if (loginSubmitInFlight || registerSubmitInFlight) {
                 return;
             }
             clearPasswordResetState();
@@ -9915,7 +10054,11 @@
         }
 
         function toggleRegisterSubTab(subType) {
+            if (registerSubmitInFlight) return;
+
             const tabs = ['reg-leader', 'reg-code', 'reg-pending'];
+            if (!tabs.includes(subType)) return;
+            const shouldAnimate = activeRegisterSubTab !== subType;
             tabs.forEach(function(tab) {
                 const element = document.getElementById('sub-tab-' + tab);
                 const form = document.getElementById('form-sub-' + tab);
@@ -9933,6 +10076,15 @@
                     if (form) form.classList.add('hidden');
                 }
             });
+            activeRegisterSubTab = subType;
+            if (shouldAnimate) {
+                requestAnimationFrame(function() {
+                    animateAuthPanelTransition(document.getElementById('form-sub-' + subType), {
+                        fromY: 8,
+                        duration: 260
+                    });
+                });
+            }
         }
 
         async function handleLogout() {
@@ -10231,146 +10383,185 @@
 
         async function handleRegisterLeader(e) {
             e.preventDefault();
+            if (registerSubmitInFlight) return;
+
             const teamName = document.getElementById('reg-leader-team').value.trim();
             const name = document.getElementById('reg-leader-name').value.trim();
             const email = document.getElementById('reg-leader-email').value.trim();
             const pwd = document.getElementById('reg-leader-pwd').value;
+            const minimumFeedback = waitForMs(460);
 
-            if (isRemoteSyncEnabled()) {
-                try {
+            setRegisterSubmitting("leader", true);
+
+            try {
+                if (isRemoteSyncEnabled()) {
                     activeTab = "overview";
-                    const response = await submitRemoteAuth("registerLeader", {
-                        teamName: teamName,
-                        name: name,
-                        email: email,
-                        password: pwd
-                    });
+                    const results = await Promise.all([
+                        submitRemoteAuth("registerLeader", {
+                            teamName: teamName,
+                            name: name,
+                            email: email,
+                            password: pwd
+                        }, {
+                            renderImmediately: false
+                        }),
+                        minimumFeedback
+                    ]);
+                    const response = results[0];
                     renderAll();
                     showToast("註冊成功！小組邀請碼為 " + response.data.team.Invite_Code, "success");
-                } catch (error) {
-                    console.error("GAS 組長註冊失敗", error);
-                    showToast(error.message || "組長註冊失敗，請稍後再試。", "error");
+                    return;
                 }
-                return;
+
+                const duplicated = state.Users.find(function(u) { return u.Email === email; });
+                if (duplicated) {
+                    throw new Error("該信箱已被註冊！");
+                }
+
+                const teamId = "T" + String(state.Teams.length + 1).padStart(2, '0');
+                const randomCode = "SHW-" + Math.floor(1000 + Math.random() * 9000);
+                state.Teams.push({ Team_ID: teamId, Team_Name: teamName, Invite_Code: randomCode });
+
+                const userId = "U" + String(state.Users.length + 1).padStart(2, '0');
+                const newLeader = {
+                    User_ID: userId, Email: email, Password: pwd, Name: name, Team_ID: teamId, Role: "Leader", Status: "Active"
+                };
+
+                state.Users.push(newLeader);
+                currentUser = newLeader;
+                activeWorkspace = resolveWorkspaceForUser(currentUser);
+                activeTab = "overview";
+                persistCurrentSession();
+                await minimumFeedback;
+                saveState();
+                showToast("註冊成功！小組邀請碼為 " + randomCode, "success");
+            } catch (error) {
+                await minimumFeedback;
+                if (isRemoteSyncEnabled()) console.error("GAS 組長註冊失敗", error);
+                showToast(error.message || "組長註冊失敗，請稍後再試。", "error");
+            } finally {
+                setRegisterSubmitting("leader", false);
             }
-
-            const duplicated = state.Users.find(function(u) { return u.Email === email; });
-            if (duplicated) {
-                showToast("該信箱已被註冊！", "error");
-                return;
-            }
-
-            const teamId = "T" + String(state.Teams.length + 1).padStart(2, '0');
-            const randomCode = "SHW-" + Math.floor(1000 + Math.random() * 9000);
-            
-            state.Teams.push({ Team_ID: teamId, Team_Name: teamName, Invite_Code: randomCode });
-
-            const userId = "U" + String(state.Users.length + 1).padStart(2, '0');
-            const newLeader = {
-                User_ID: userId, Email: email, Password: pwd, Name: name, Team_ID: teamId, Role: "Leader", Status: "Active"
-            };
-
-            state.Users.push(newLeader);
-            currentUser = newLeader;
-            activeWorkspace = resolveWorkspaceForUser(currentUser);
-            showToast("註冊成功！小組邀請碼為 " + randomCode, "success");
-            activeTab = "overview";
-            persistCurrentSession();
-            saveState();
         }
 
         async function handleRegisterMember(e) {
             e.preventDefault();
+            if (registerSubmitInFlight) return;
+
             const inviteCode = document.getElementById('reg-member-code').value.trim();
             const name = document.getElementById('reg-member-name').value.trim();
             const email = document.getElementById('reg-member-email').value.trim();
             const pwd = document.getElementById('reg-member-pwd').value;
+            const minimumFeedback = waitForMs(460);
 
-            if (isRemoteSyncEnabled()) {
-                try {
+            setRegisterSubmitting("member", true);
+
+            try {
+                if (isRemoteSyncEnabled()) {
                     activeTab = "overview";
-                    const response = await submitRemoteAuth("registerMember", {
-                        inviteCode: inviteCode,
-                        name: name,
-                        email: email,
-                        password: pwd
-                    });
+                    const results = await Promise.all([
+                        submitRemoteAuth("registerMember", {
+                            inviteCode: inviteCode,
+                            name: name,
+                            email: email,
+                            password: pwd
+                        }, {
+                            renderImmediately: false
+                        }),
+                        minimumFeedback
+                    ]);
+                    const response = results[0];
                     renderAll();
                     showToast("已成功加入 " + response.data.team.Team_Name, "success");
-                } catch (error) {
-                    console.error("GAS 組員註冊失敗", error);
-                    showToast(error.message || "組員註冊失敗，請稍後再試。", "error");
+                    return;
                 }
-                return;
+
+                const targetTeam = state.Teams.find(function(t) { return t.Invite_Code === inviteCode; });
+                if (!targetTeam) {
+                    throw new Error("查無此邀請代碼！");
+                }
+
+                const duplicated = state.Users.find(function(u) { return u.Email === email; });
+                if (duplicated) {
+                    throw new Error("該信箱已被註冊！");
+                }
+
+                const userId = "U" + String(state.Users.length + 1).padStart(2, '0');
+                const newMember = {
+                    User_ID: userId, Email: email, Password: pwd, Name: name, Team_ID: targetTeam.Team_ID, Role: "Member", Status: "Active"
+                };
+
+                state.Users.push(newMember);
+                currentUser = newMember;
+                activeWorkspace = resolveWorkspaceForUser(currentUser);
+                activeTab = "overview";
+                persistCurrentSession();
+                await minimumFeedback;
+                saveState();
+                showToast("已成功加入 " + targetTeam.Team_Name, "success");
+            } catch (error) {
+                await minimumFeedback;
+                if (isRemoteSyncEnabled()) console.error("GAS 組員註冊失敗", error);
+                showToast(error.message || "組員註冊失敗，請稍後再試。", "error");
+            } finally {
+                setRegisterSubmitting("member", false);
             }
-
-            const targetTeam = state.Teams.find(function(t) { return t.Invite_Code === inviteCode; });
-            if (!targetTeam) {
-                showToast("查無此邀請代碼！", "error");
-                return;
-            }
-
-            const duplicated = state.Users.find(function(u) { return u.Email === email; });
-            if (duplicated) {
-                showToast("該信箱已被註冊！", "error");
-                return;
-            }
-
-            const userId = "U" + String(state.Users.length + 1).padStart(2, '0');
-            const newMember = {
-                User_ID: userId, Email: email, Password: pwd, Name: name, Team_ID: targetTeam.Team_ID, Role: "Member", Status: "Active"
-            };
-
-            state.Users.push(newMember);
-            currentUser = newMember;
-            activeWorkspace = resolveWorkspaceForUser(currentUser);
-            showToast("已成功加入 " + targetTeam.Team_Name, "success");
-            activeTab = "overview";
-            persistCurrentSession();
-            saveState();
         }
 
         async function handleRegisterPending(e) {
             e.preventDefault();
+            if (registerSubmitInFlight) return;
+
             const email = document.getElementById('reg-pending-email').value.trim();
             const name = document.getElementById('reg-pending-name').value.trim();
             const pwd = document.getElementById('reg-pending-pwd').value;
+            const minimumFeedback = waitForMs(460);
 
-            if (isRemoteSyncEnabled()) {
-                try {
+            setRegisterSubmitting("pending", true);
+
+            try {
+                if (isRemoteSyncEnabled()) {
                     activeTab = "overview";
-                    await submitRemoteAuth("activatePending", {
-                        email: email,
-                        name: name,
-                        password: pwd
-                    });
+                    await Promise.all([
+                        submitRemoteAuth("activatePending", {
+                            email: email,
+                            name: name,
+                            password: pwd
+                        }, {
+                            renderImmediately: false
+                        }),
+                        minimumFeedback
+                    ]);
                     renderAll();
                     showToast("帳號啟用成功！已為您安全登入", "success");
-                } catch (error) {
-                    console.error("GAS 帳號開通失敗", error);
-                    showToast(error.message || "帳號開通失敗，請稍後再試。", "error");
+                    return;
                 }
-                return;
+
+                const found = state.Users.find(function(u) {
+                    return u.Email === email && u.Status === "Pending";
+                });
+                if (!found) {
+                    throw new Error("無待開通帳號或已被啟用！");
+                }
+
+                found.Name = name;
+                found.Password = pwd;
+                found.Status = "Active";
+
+                currentUser = found;
+                activeWorkspace = resolveWorkspaceForUser(currentUser);
+                activeTab = "overview";
+                persistCurrentSession();
+                await minimumFeedback;
+                saveState();
+                showToast("帳號啟用成功！已為您安全登入", "success");
+            } catch (error) {
+                await minimumFeedback;
+                if (isRemoteSyncEnabled()) console.error("GAS 帳號開通失敗", error);
+                showToast(error.message || "帳號開通失敗，請稍後再試。", "error");
+            } finally {
+                setRegisterSubmitting("pending", false);
             }
-
-            const found = state.Users.find(function(u) {
-                return u.Email === email && u.Status === "Pending";
-            });
-            if (!found) {
-                showToast("無待開通帳號或已被啟用！", "error");
-                return;
-            }
-
-            found.Name = name;
-            found.Password = pwd;
-            found.Status = "Active";
-
-            currentUser = found;
-            activeWorkspace = resolveWorkspaceForUser(currentUser);
-            showToast("帳號啟用成功！已為您安全登入", "success");
-            activeTab = "overview";
-            persistCurrentSession();
-            saveState();
         }
 
         function handleRegisterPurchase(e) {
