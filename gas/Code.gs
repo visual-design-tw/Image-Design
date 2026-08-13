@@ -220,6 +220,25 @@ var TABLE_SCHEMAS = {
     ],
     types: {}
   },
+  Calendar_Events: {
+    headers: [
+      'Event_ID',
+      'Stage_ID',
+      'Title',
+      'Description',
+      'Starts_At',
+      'Ends_At',
+      'All_Day',
+      'Event_Type',
+      'Created_At',
+      'Updated_At',
+      'Created_By_User_ID',
+      'Updated_By_User_ID'
+    ],
+    types: {
+      All_Day: 'boolean'
+    }
+  },
   Password_Reset_Tokens: {
     headers: [
       'Reset_ID',
@@ -408,6 +427,27 @@ function doPost(e) {
     if (action === 'deleteStage') {
       result = withLock_(function() {
         return handleDeleteStage_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'createCalendarEvent') {
+      result = withLock_(function() {
+        return handleCreateCalendarEvent_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'updateCalendarEvent') {
+      result = withLock_(function() {
+        return handleUpdateCalendarEvent_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'deleteCalendarEvent') {
+      result = withLock_(function() {
+        return handleDeleteCalendarEvent_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -1593,6 +1633,7 @@ function loadState_() {
     Discussion_Comments: readTable_(spreadsheet, 'Discussion_Comments'),
     Design_Service_Settings: readTable_(spreadsheet, 'Design_Service_Settings'),
     Design_Service_Orders: readTable_(spreadsheet, 'Design_Service_Orders'),
+    Calendar_Events: readTable_(spreadsheet, 'Calendar_Events'),
     Meta: readMetaSheet_(spreadsheet)
   };
 
@@ -2283,6 +2324,232 @@ function handleDeleteAssignment_(payload) {
   });
 }
 
+// Calendar events are deliberately handled through dedicated actions. This
+// keeps a stale browser-wide saveState request from restoring deleted events.
+function assertShapePrintCalendarAccess_(actor) {
+  if (!isShapePrintUser_(actor)) {
+    throw new Error('FORBIDDEN: 只有形印組可以管理工作行事曆。');
+  }
+}
+
+function normalizeCalendarEventDateTime_(value, label, required) {
+  var raw = String(value || '').trim().replace('T', ' ');
+  if (!raw) {
+    if (required) {
+      throw new Error((label || '時間') + '不可留空。');
+    }
+    return '';
+  }
+
+  var match = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (!match) {
+    throw new Error((label || '時間') + '格式不正確，請使用日期與時間。');
+  }
+
+  var year = Number(match[1]);
+  var month = Number(match[2]);
+  var day = Number(match[3]);
+  var hour = typeof match[4] === 'undefined' ? 0 : Number(match[4]);
+  var minute = typeof match[5] === 'undefined' ? 0 : Number(match[5]);
+  var parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day
+      || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error((label || '時間') + '不是有效日期。');
+  }
+
+  return [
+    padNumber_(year, 4), '-', padNumber_(month, 2), '-', padNumber_(day, 2), ' ',
+    padNumber_(hour, 2), ':', padNumber_(minute, 2)
+  ].join('');
+}
+
+function calendarEventTimestamp_(value) {
+  var normalized = normalizeCalendarEventDateTime_(value, '時間', true);
+  var parts = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  return new Date(
+    Number(parts[1]),
+    Number(parts[2]) - 1,
+    Number(parts[3]),
+    Number(parts[4]),
+    Number(parts[5]),
+    0,
+    0
+  ).getTime();
+}
+
+function hydrateCalendarEventRecord_(event) {
+  if (!event || typeof event !== 'object') {
+    event = {};
+  }
+
+  event.Event_ID = String(event.Event_ID || '');
+  event.Stage_ID = String(event.Stage_ID || '');
+  event.Title = String(event.Title || '').trim();
+  event.Description = String(event.Description || '').trim();
+  event.Starts_At = String(event.Starts_At || '').trim().replace('T', ' ');
+  event.Ends_At = String(event.Ends_At || '').trim().replace('T', ' ');
+  event.All_Day = event.All_Day === true || String(event.All_Day || '').toLowerCase() === 'true';
+  event.Event_Type = String(event.Event_Type || 'meeting');
+  event.Created_At = String(event.Created_At || '');
+  event.Updated_At = String(event.Updated_At || event.Created_At || '');
+  event.Created_By_User_ID = String(event.Created_By_User_ID || '');
+  event.Updated_By_User_ID = String(event.Updated_By_User_ID || event.Created_By_User_ID || '');
+
+  return event;
+}
+
+function buildCalendarEventFromPayload_(payload, actor, existingEvent) {
+  var title = String(payload && payload.title || '').trim();
+  if (!title) {
+    throw new Error('請輸入事件名稱。');
+  }
+  if (title.length > 120) {
+    throw new Error('事件名稱請控制在 120 個字以內。');
+  }
+
+  var description = String(payload && payload.description || '').trim();
+  if (description.length > 1000) {
+    throw new Error('事件說明請控制在 1,000 個字以內。');
+  }
+
+  var startsAt = normalizeCalendarEventDateTime_(payload && payload.startsAt, '開始時間', true);
+  var endsAt = normalizeCalendarEventDateTime_(payload && payload.endsAt, '結束時間', true);
+  if (calendarEventTimestamp_(endsAt) < calendarEventTimestamp_(startsAt)) {
+    throw new Error('結束時間不能早於開始時間。');
+  }
+
+  var allowedTypes = ['meeting', 'production', 'review', 'print', 'reminder'];
+  var eventType = String(payload && payload.eventType || 'meeting');
+  if (allowedTypes.indexOf(eventType) < 0) {
+    eventType = 'meeting';
+  }
+
+  var stageId = String(payload && payload.stageId || '').trim();
+  var now = nowString_();
+  return hydrateCalendarEventRecord_({
+    Event_ID: existingEvent ? existingEvent.Event_ID : '',
+    Stage_ID: stageId,
+    Title: title,
+    Description: description,
+    Starts_At: startsAt,
+    Ends_At: endsAt,
+    All_Day: payload && payload.allDay === true,
+    Event_Type: eventType,
+    Created_At: existingEvent ? existingEvent.Created_At : now,
+    Updated_At: now,
+    Created_By_User_ID: existingEvent ? existingEvent.Created_By_User_ID : actor.User_ID,
+    Updated_By_User_ID: actor.User_ID
+  });
+}
+
+function handleCreateCalendarEvent_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertShapePrintCalendarAccess_(actor);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var nextState = cloneObject_(previousState);
+  var event = buildCalendarEventFromPayload_(payload, actor, null);
+  event.Event_ID = generateSequentialId_('CE', nextState.Calendar_Events, 'Event_ID');
+  nextState.Calendar_Events.unshift(event);
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveCalendarEventState: false
+  });
+
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '新增工作行事曆事件',
+      '已新增「' + event.Title + '」。',
+      'calendar-event',
+      event.Event_ID,
+      'normal',
+      { source: 'createCalendarEvent', stageId: event.Stage_ID, eventType: event.Event_Type }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, { calendarEvent: event });
+}
+
+function handleUpdateCalendarEvent_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertShapePrintCalendarAccess_(actor);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var eventId = String(payload && payload.eventId || '').trim();
+  var existingEvent = ensureArray_(previousState.Calendar_Events).find(function(event) {
+    return String(event && event.Event_ID || '') === eventId;
+  });
+  if (!existingEvent) {
+    throw new Error('NOT_FOUND: 找不到要編輯的行事曆事件，請重新整理後再試。');
+  }
+
+  var nextEvent = buildCalendarEventFromPayload_(payload, actor, existingEvent);
+  var nextState = cloneObject_(previousState);
+  nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).map(function(event) {
+    return String(event && event.Event_ID || '') === eventId ? nextEvent : event;
+  });
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveCalendarEventState: false
+  });
+
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '更新工作行事曆事件',
+      '已更新「' + nextEvent.Title + '」。',
+      'calendar-event',
+      eventId,
+      'normal',
+      { source: 'updateCalendarEvent', stageId: nextEvent.Stage_ID, eventType: nextEvent.Event_Type }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, { calendarEvent: nextEvent });
+}
+
+function handleDeleteCalendarEvent_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertShapePrintCalendarAccess_(actor);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var eventId = String(payload && payload.eventId || '').trim();
+  var existingEvent = ensureArray_(previousState.Calendar_Events).find(function(event) {
+    return String(event && event.Event_ID || '') === eventId;
+  });
+  if (!existingEvent) {
+    throw new Error('NOT_FOUND: 找不到要刪除的行事曆事件，請重新整理後再試。');
+  }
+
+  var nextState = cloneObject_(previousState);
+  nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).filter(function(event) {
+    return String(event && event.Event_ID || '') !== eventId;
+  });
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveCalendarEventState: false
+  });
+
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, '刪除工作行事曆事件', '已刪除「' + existingEvent.Title + '」。', 'calendar-event', eventId, 'warning', {
+      source: 'deleteCalendarEvent',
+      stageId: existingEvent.Stage_ID,
+      eventType: existingEvent.Event_Type
+    })
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, { deletedCalendarEvent: existingEvent });
+}
+
 // Delete a review stage and all records that are scoped to it in one locked
 // server transaction. This avoids a stale browser snapshot restoring data
 // after the interface has already removed it optimistically.
@@ -2363,6 +2630,9 @@ function handleDeleteStage_(payload) {
   nextState.Purchase_Items = ensureArray_(nextState.Purchase_Items).filter(function(item) {
     return String(item && item.Stage_ID || '') !== stageId;
   });
+  nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).filter(function(event) {
+    return String(event && event.Stage_ID || '') !== stageId;
+  });
   nextState.Notifications = ensureArray_(nextState.Notifications).filter(function(notification) {
     var refType = String(notification && notification.Ref_Type || '');
     var refId = String(notification && notification.Ref_ID || '');
@@ -2395,7 +2665,8 @@ function handleDeleteStage_(payload) {
   persistState_(nextState, {
     existingState: previousState,
     nextRevision: getStateRevision_(previousState) + 1,
-    preserveAssignmentResourceState: false
+    preserveAssignmentResourceState: false,
+    preserveCalendarEventState: false
   });
   var persistedState = loadState_();
   appendActivityLogEntries_(buildStateAuditEntries_(previousState, persistedState, actor));
@@ -2722,6 +2993,7 @@ function writeStateTables_(spreadsheet, state) {
   writeTable_(spreadsheet, 'Discussion_Comments', state.Discussion_Comments);
   writeTable_(spreadsheet, 'Design_Service_Settings', state.Design_Service_Settings);
   writeTable_(spreadsheet, 'Design_Service_Orders', state.Design_Service_Orders);
+  writeTable_(spreadsheet, 'Calendar_Events', state.Calendar_Events);
   writeMetaSheet_(spreadsheet, state.Meta || {});
   cacheState_(state);
 }
@@ -2980,6 +3252,8 @@ function filterStateForUser_(state, user) {
   safeState.Design_Service_Orders = safeState.Design_Service_Orders.filter(function(order) {
     return String(order.Team_ID || '') === teamId;
   });
+  // 工作行事曆是形印組內部排程，小組帳號不取得任何事件資料。
+  safeState.Calendar_Events = [];
   safeState.Meta = { State_Revision: getStateRevision_(state) };
   return safeState;
 }
@@ -3082,6 +3356,15 @@ function mergeSensitiveState_(nextState, existingState, options) {
   } else {
     nextState.Assignment_Resources = ensureArray_(nextState.Assignment_Resources).map(function(resource) {
       return hydrateAssignmentResourceRecord_(resource);
+    });
+  }
+
+  // 工作行事曆僅由專用 action 異動，避免一般 saveState 的舊快照覆蓋排程。
+  if (options.preserveCalendarEventState !== false) {
+    nextState.Calendar_Events = cloneObject_(ensureArray_(existingState && existingState.Calendar_Events));
+  } else {
+    nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).map(function(event) {
+      return hydrateCalendarEventRecord_(event);
     });
   }
 
@@ -3253,6 +3536,9 @@ function normalizeState_(state) {
   });
   state.Design_Service_Orders = ensureArray_(state.Design_Service_Orders).map(function(order) {
     return hydrateDesignServiceOrderRecord_(order);
+  });
+  state.Calendar_Events = ensureArray_(state.Calendar_Events).map(function(event) {
+    return hydrateCalendarEventRecord_(event);
   });
   state.Meta = state.Meta && typeof state.Meta === 'object' ? state.Meta : {};
 
@@ -7160,6 +7446,7 @@ function buildDemoState_() {
         Drive_Folder_ID: ''
       }
     ],
+    Calendar_Events: [],
     Notifications: [
       {
         Notification_ID: 'N01',

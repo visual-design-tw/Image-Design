@@ -9,10 +9,14 @@
 - `Teams`
 - `Purchase_Items`
 - `Assignments`
+- `Assignment_Resources`
 - `Assignment_Submissions`
 - `Files`
 - `Notifications`
 - `Discussion_Comments`
+- `Design_Service_Settings`
+- `Design_Service_Orders`
+- `Calendar_Events`
 - `Password_Reset_Tokens`
 - `Auth_Sessions`
 - `Activity_Logs`
@@ -32,7 +36,8 @@
   - `action=saveState`：以 `stateRevision` 防止舊畫面覆蓋其他人的新資料
 - `action=uploadFile`：接收瀏覽器直傳檔案，建立/續版繳交紀錄，並自動存到 `會審 / 小組` 資料夾
 - `action=uploadAssignmentAsset`：接收公告作業直傳檔案，並自動存到 `會審 / 小組 / 公告作業 / 作業標題` 資料夾
-  - `action=reviewFile`：更新審核狀態並產生通知
+- `action=reviewFile`：更新審核狀態並產生通知
+  - `action=createCalendarEvent` / `updateCalendarEvent` / `deleteCalendarEvent`：管理形印組專用工作行事曆事件
   - `action=markNotificationsRead`
   - `action=clearNotifications`
   - `action=requestPasswordReset`：寄出密碼重設信
@@ -49,6 +54,7 @@
 - 新註冊與重設密碼至少需 8 碼；既有帳號可登入後再透過重設流程更新為新密碼。
 - 所有資料讀取、寫入、上傳、審核與通知操作都會由後端 session 判斷登入身分，不採信前端傳來的 `userId`。
 - 形印組長與組員可看完整工作資料；小組帳號只能取得自身小組、被指派的繳交項目與自己的通知。
+- 工作行事曆事件只會回傳給形印組長與組員；一般小組帳號不會取得事件資料，也不能透過 API 建立、編輯或刪除事件。
 - 每一次 `saveState` 都必須帶回最後一次讀取到的 `stateRevision`。版本不一致時會回傳 `STATE_CONFLICT`，前端會重新載入雲端資料，而不會覆蓋他人的更新。
 
 ## 操作紀錄
@@ -74,6 +80,13 @@
   - 截止後第一次掃描時補一封逾期提醒
 
 提醒紀錄會寫進 `Meta.AssignmentReminderLog`，避免同一個節點重複寄送。
+
+## 形印組工作行事曆
+
+- `Calendar_Events` 只儲存形印組自行建立的會議、製作、審核、印刷與提醒排程。
+- 繳交項目的截止時間會在前端自動顯示為紅色截止日，不會額外複製成可刪除的行事曆事件。
+- 行事曆事件的新增、編輯與刪除都走專用 API，並帶有 `stateRevision`，不會被其他頁面舊資料的 `saveState` 覆蓋。
+- 刪除會審期數時，該會期下的形印組排程會一併移除。
 
 ## 部署步驟
 

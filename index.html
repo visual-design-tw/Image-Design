@@ -1574,6 +1574,71 @@
     </div>
 
     <!-- 頁尾資訊彈窗 -->
+    <div id="calendar-event-modal" class="fixed inset-0 z-[92] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeCalendarEventModal()">
+        <div class="max-h-[88vh] w-full max-w-[560px] overflow-y-auto rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.94)] shadow-[0_16px_40px_rgba(15,23,42,0.12),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
+            <div class="flex items-start justify-between gap-4 px-5 pt-5 pb-4">
+                <div class="flex items-center gap-3">
+                    <span class="flex h-11 w-11 items-center justify-center rounded-[15px] border border-[#CFE3FF] bg-[#F4F8FF] text-[#0066CC]">
+                        <i data-lucide="calendar-plus" class="h-5 w-5"></i>
+                    </span>
+                    <div>
+                        <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#86868B]">Shape Print Only</p>
+                        <h3 id="calendar-event-modal-title" class="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-[#1D1D1F]">新增工作事件</h3>
+                    </div>
+                </div>
+                <button type="button" onclick="closeCalendarEventModal()" class="flex h-9 w-9 items-center justify-center rounded-full text-[#86868B] transition hover:bg-[#F5F5F7] hover:text-[#1D1D1F]" aria-label="關閉">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            <div class="space-y-4 px-5 pb-5">
+                <div>
+                    <label for="calendar-event-title" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">事件名稱</label>
+                    <input id="calendar-event-title" type="text" maxlength="120" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-sm font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]" placeholder="例如：印前校對會議">
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                        <label for="calendar-event-start" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">開始時間</label>
+                        <input id="calendar-event-start" type="datetime-local" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                    </div>
+                    <div>
+                        <label for="calendar-event-end" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">結束時間</label>
+                        <input id="calendar-event-end" type="datetime-local" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                        <label for="calendar-event-type" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">類型</label>
+                        <select id="calendar-event-type" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                            <option value="meeting">會議</option>
+                            <option value="production">製作</option>
+                            <option value="review">審核</option>
+                            <option value="print">印刷</option>
+                            <option value="reminder">提醒</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="calendar-event-stage" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">關聯會期</label>
+                        <select id="calendar-event-stage" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"></select>
+                    </div>
+                </div>
+                <label class="flex items-center gap-2.5 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3.5 py-3 text-xs font-semibold text-[#1D1D1F]">
+                    <input id="calendar-event-all-day" type="checkbox" class="h-4 w-4 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]">
+                    全天事件
+                </label>
+                <div>
+                    <label for="calendar-event-description" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">備註</label>
+                    <textarea id="calendar-event-description" rows="3" maxlength="1000" class="w-full resize-none rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-xs leading-5 text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]" placeholder="可記錄會議地點、負責事項或提醒內容。"></textarea>
+                </div>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
+                <button id="calendar-event-delete" type="button" onclick="deleteCalendarEvent()" class="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">刪除事件</button>
+                <span id="calendar-event-delete-spacer" class="flex-1"></span>
+                <button type="button" onclick="closeCalendarEventModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
+                <button id="calendar-event-save" type="button" onclick="saveCalendarEvent()" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">儲存事件</button>
+            </div>
+        </div>
+    </div>
+
     <div id="site-info-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeSiteInfoModal()">
         <div class="bg-white rounded-3xl max-w-2xl w-full p-6 border border-[#E8E8ED] shadow-xl space-y-5 animate-in fade-in zoom-in duration-200 max-h-[88vh] overflow-y-auto">
             <div class="flex items-start justify-between gap-4">
@@ -1769,10 +1834,15 @@
         let activeDesignServiceRequestAssignmentId = "";
         let activeDesignServiceReviewOrderId = "";
         let activeDesignServiceUploadOrderId = "";
+        let calendarViewCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        let activeCalendarEventId = "";
+        let calendarEventSaveInFlight = false;
+        let calendarEventDeleteArmed = false;
         const NAVIGATION_MENU_CONFIGS = [
             { id: "overview", name: "會審總覽", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "notifications", name: "通知中心", icon: "bell", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "files", name: "繳交專區", icon: "clipboard-list", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
+            { id: "calendar", name: "工作行事曆", icon: "calendar-days", roles: ["SuperAdmin", "Admin"] },
             { id: "design-service", name: "形印代做", icon: "briefcase", roles: ["SuperAdmin", "Admin"] },
             { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "activity", name: "操作紀錄", icon: "scroll-text", roles: ["SuperAdmin", "Admin"] },
@@ -2831,6 +2901,7 @@
             Discussion_Comments: [],
             Design_Service_Settings: [],
             Design_Service_Orders: [],
+            Calendar_Events: [],
             Meta: {}
         };
         const DEFAULT_STATE = JSON.parse(JSON.stringify(state));
@@ -2959,7 +3030,7 @@
 
         function createUnauthenticatedState() {
             const snapshot = cloneStateSnapshot(DEFAULT_STATE);
-            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Resources", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders"].forEach(function(key) {
+            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Resources", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders", "Calendar_Events"].forEach(function(key) {
                 snapshot[key] = [];
             });
             snapshot.Meta = { State_Revision: 0 };
@@ -5125,6 +5196,23 @@
             return order;
         }
 
+        function hydrateCalendarEventRecord(event) {
+            if (!event || typeof event !== "object") return event;
+            [
+                "Event_ID", "Stage_ID", "Title", "Description", "Starts_At", "Ends_At",
+                "Event_Type", "Created_At", "Updated_At", "Created_By_User_ID", "Updated_By_User_ID"
+            ].forEach(function(key) {
+                event[key] = String(event[key] || "");
+            });
+            event.Starts_At = normalizeDateTimeText(event.Starts_At);
+            event.Ends_At = normalizeDateTimeText(event.Ends_At || event.Starts_At);
+            event.All_Day = event.All_Day === true || String(event.All_Day || "").toLowerCase() === "true";
+            if (!["meeting", "production", "review", "print", "reminder"].includes(event.Event_Type)) {
+                event.Event_Type = "meeting";
+            }
+            return event;
+        }
+
         function migrateLegacyFileCommentsToDiscussionThreads() {
             if (!state.Meta || typeof state.Meta !== "object") {
                 state.Meta = {};
@@ -5222,6 +5310,7 @@
             state.Discussion_Comments = ensureArray(state.Discussion_Comments);
             state.Design_Service_Settings = ensureArray(state.Design_Service_Settings);
             state.Design_Service_Orders = ensureArray(state.Design_Service_Orders);
+            state.Calendar_Events = ensureArray(state.Calendar_Events);
 
             state.Purchase_Items.forEach(function(item) {
                 hydratePurchaseItemRecord(item);
@@ -5252,6 +5341,9 @@
             });
             state.Design_Service_Orders.forEach(function(order) {
                 hydrateDesignServiceOrderRecord(order);
+            });
+            state.Calendar_Events.forEach(function(event) {
+                hydrateCalendarEventRecord(event);
             });
 
             if (isLegacyDemoNotificationSeedBatch(state.Notifications)) {
@@ -11441,6 +11533,361 @@
             }
         }
 
+        function calendarPad(value) {
+            return String(value).padStart(2, "0");
+        }
+
+        function calendarDateKey(value) {
+            const date = value instanceof Date ? value : new Date(value);
+            if (!Number.isFinite(date.getTime())) return "";
+            return date.getFullYear() + "-" + calendarPad(date.getMonth() + 1) + "-" + calendarPad(date.getDate());
+        }
+
+        function calendarDateFromText(value) {
+            const normalized = normalizeDateTimeText(value);
+            const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?$/);
+            if (!match) return null;
+            const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0));
+            return Number.isFinite(date.getTime()) ? date : null;
+        }
+
+        function calendarInputValue(value) {
+            const date = calendarDateFromText(value);
+            if (!date) return "";
+            return calendarDateKey(date) + "T" + calendarPad(date.getHours()) + ":" + calendarPad(date.getMinutes());
+        }
+
+        function calendarDateTimeLabel(value, allDay) {
+            const normalized = normalizeDateTimeText(value);
+            if (!normalized) return "";
+            const formatted = formatCompactDateTimeLabel(normalized);
+            return allDay ? formatted.slice(0, 10) + " 全天" : formatted;
+        }
+
+        function getCalendarEventTypeMeta(eventType) {
+            const types = {
+                meeting: { label: "會議", dot: "bg-[#0066CC]", chip: "bg-[#EEF6FF] text-[#0066CC]" },
+                production: { label: "製作", dot: "bg-[#34C759]", chip: "bg-[#EDF9F0] text-[#14833B]" },
+                review: { label: "審核", dot: "bg-[#5E5CE6]", chip: "bg-[#F1F0FF] text-[#5E5CE6]" },
+                print: { label: "印刷", dot: "bg-[#FF9500]", chip: "bg-[#FFF5E8] text-[#D06F00]" },
+                reminder: { label: "提醒", dot: "bg-[#6E6E73]", chip: "bg-[#F2F2F7] text-[#6E6E73]" },
+                assignment: { label: "繳交截止", dot: "bg-[#FF3B30]", chip: "bg-[#FFF2F0] text-[#C9342B]" }
+            };
+            return types[eventType] || types.meeting;
+        }
+
+        function getCalendarCustomEvents() {
+            return ensureArray(state.Calendar_Events).map(function(event) {
+                hydrateCalendarEventRecord(event);
+                const startsAt = calendarDateFromText(event.Starts_At);
+                if (!startsAt) return null;
+                return {
+                    id: String(event.Event_ID || ""),
+                    source: "calendar",
+                    title: event.Title || "未命名事件",
+                    description: event.Description || "",
+                    startsAt: event.Starts_At,
+                    endsAt: event.Ends_At || event.Starts_At,
+                    allDay: Boolean(event.All_Day),
+                    eventType: event.Event_Type || "meeting",
+                    stageId: event.Stage_ID || "",
+                    editable: true
+                };
+            }).filter(Boolean);
+        }
+
+        function getCalendarDeadlineEvents() {
+            return ensureArray(state.Assignments).map(function(assignment) {
+                const dueAt = normalizeDateTimeText(assignment && assignment.Due_At);
+                if (!calendarDateFromText(dueAt)) return null;
+                return {
+                    id: "assignment:" + String(assignment.Assignment_ID || ""),
+                    source: "assignment",
+                    title: "截止：" + String(assignment.Title || "繳交項目"),
+                    description: String(assignment.Requirement_Text || assignment.Body || ""),
+                    startsAt: dueAt,
+                    endsAt: dueAt,
+                    allDay: false,
+                    eventType: "assignment",
+                    stageId: String(assignment.Stage_ID || ""),
+                    editable: false,
+                    assignmentId: String(assignment.Assignment_ID || "")
+                };
+            }).filter(Boolean);
+        }
+
+        function getAllCalendarEvents() {
+            return getCalendarCustomEvents().concat(getCalendarDeadlineEvents()).sort(function(a, b) {
+                const aDate = calendarDateFromText(a.startsAt);
+                const bDate = calendarDateFromText(b.startsAt);
+                return (aDate ? aDate.getTime() : 0) - (bDate ? bDate.getTime() : 0);
+            });
+        }
+
+        function getCalendarEventDayKeys(event) {
+            const start = calendarDateFromText(event && event.startsAt);
+            const end = calendarDateFromText(event && event.endsAt) || start;
+            if (!start || !end) return [];
+            const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+            const finalDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+            const keys = [];
+            while (cursor.getTime() <= finalDay.getTime() && keys.length < 366) {
+                keys.push(calendarDateKey(cursor));
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            return keys;
+        }
+
+        function changeCalendarMonth(offset) {
+            calendarViewCursor = new Date(calendarViewCursor.getFullYear(), calendarViewCursor.getMonth() + Number(offset || 0), 1);
+            renderAll();
+        }
+
+        function goToCalendarToday() {
+            calendarViewCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+            renderAll();
+        }
+
+        function getCalendarMonthLabel(date) {
+            return date.getFullYear() + " 年 " + (date.getMonth() + 1) + " 月";
+        }
+
+        function buildCalendarDayEventsMarkup(events) {
+            const visible = events.slice(0, 2);
+            return visible.map(function(event) {
+                const meta = getCalendarEventTypeMeta(event.eventType);
+                const action = event.editable
+                    ? "openCalendarEventModal('" + escapeInlineJsString(event.id) + "')"
+                    : "openAssignmentDetailModal('" + escapeInlineJsString(event.assignmentId || "") + "')";
+                const time = event.allDay ? "全天" : String(normalizeDateTimeText(event.startsAt).split(" ")[1] || "");
+                return `<button type="button" title="${escapeHtml(event.title)}" onclick="${action}" class="flex w-full items-center gap-1.5 truncate rounded-lg px-1.5 py-1 text-left text-[9px] font-semibold text-[#1D1D1F] transition hover:bg-white hover:shadow-sm"><span class="h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}"></span><span class="truncate">${escapeHtml(time ? time + " " : "")}${escapeHtml(event.title)}</span></button>`;
+            }).join("") + (events.length > 2
+                ? `<button type="button" onclick="openCalendarEventModal('', '${escapeInlineJsString(calendarDateKey(calendarDateFromText(events[0].startsAt)))}')" class="mt-0.5 px-1.5 text-[9px] font-bold text-[#0066CC] hover:underline">+ ${events.length - 2} 項</button>`
+                : "");
+        }
+
+        function renderShapePrintCalendar(container, activeStage, isExhibitionAdmin) {
+            if (!isExhibitionAdmin) {
+                container.innerHTML = `<div class="rounded-3xl border border-[#E8E8ED] bg-white p-8 text-center text-sm text-[#86868B]">此行事曆僅供形印組工作台使用。</div>`;
+                return;
+            }
+
+            const monthStart = new Date(calendarViewCursor.getFullYear(), calendarViewCursor.getMonth(), 1);
+            const gridStart = new Date(monthStart);
+            const dayOffset = (monthStart.getDay() + 6) % 7;
+            gridStart.setDate(gridStart.getDate() - dayOffset);
+            const todayKey = calendarDateKey(new Date());
+            const visibleMonth = calendarViewCursor.getMonth();
+            const eventsByDay = getAllCalendarEvents().reduce(function(result, event) {
+                getCalendarEventDayKeys(event).forEach(function(key) {
+                    if (!result[key]) result[key] = [];
+                    result[key].push(event);
+                });
+                return result;
+            }, {});
+            const monthEvents = getAllCalendarEvents().filter(function(event) {
+                const date = calendarDateFromText(event.startsAt);
+                return date && date.getFullYear() === calendarViewCursor.getFullYear() && date.getMonth() === visibleMonth;
+            });
+            const upcomingEvents = getAllCalendarEvents().filter(function(event) {
+                const date = calendarDateFromText(event.startsAt);
+                return date && date.getTime() >= new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+            }).slice(0, 6);
+            const weekdays = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
+
+            const cells = Array.from({ length: 42 }, function(_, index) {
+                const date = new Date(gridStart);
+                date.setDate(gridStart.getDate() + index);
+                const key = calendarDateKey(date);
+                const events = eventsByDay[key] || [];
+                const outsideMonth = date.getMonth() !== visibleMonth;
+                return `<div class="min-h-[98px] border-b border-r border-[#ECECF1] p-1.5 sm:min-h-[118px] sm:p-2 ${outsideMonth ? 'bg-[#FBFBFD] text-[#AEAEB2]' : 'bg-white'}">
+                    <div class="mb-1 flex items-center justify-between gap-1 px-1">
+                        <button type="button" onclick="openCalendarEventModal('', '${key}')" class="flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold transition ${key === todayKey ? 'bg-[#0066CC] text-white' : outsideMonth ? 'text-[#AEAEB2] hover:bg-[#F2F2F7]' : 'text-[#1D1D1F] hover:bg-[#F2F2F7]'}">${date.getDate()}</button>
+                        ${events.length ? `<span class="text-[8px] font-bold text-[#86868B]">${events.length}</span>` : ''}
+                    </div>
+                    <div class="space-y-0.5">${buildCalendarDayEventsMarkup(events)}</div>
+                </div>`;
+            }).join("");
+
+            container.innerHTML = `
+                <section class="rounded-[28px] border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
+                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                            <div class="inline-flex items-center gap-2 rounded-full border border-[#E5E5EA] bg-[#FBFBFD] px-3 py-1.5 text-[10px] font-bold tracking-[0.16em] text-[#1D1D1F] uppercase"><i data-lucide="calendar-days" class="h-3.5 w-3.5 text-[#0066CC]"></i>形印組專用</div>
+                            <h3 class="mt-3 text-2xl font-bold tracking-[-0.04em] text-[#1D1D1F]">工作行事曆</h3>
+                            <p class="mt-1 text-xs leading-relaxed text-[#86868B]">統整形印組的會議、製作與印刷排程；繳交截止日會自動同步顯示。</p>
+                        </div>
+                        <button type="button" onclick="openCalendarEventModal()" class="inline-flex items-center justify-center gap-1.5 self-start rounded-xl bg-[#1D1D1F] px-4 py-2.5 text-xs font-bold text-white transition hover:opacity-90"><i data-lucide="plus" class="h-4 w-4"></i>新增事件</button>
+                    </div>
+                    <div class="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+                        <div class="overflow-hidden rounded-[24px] border border-[#E8E8ED] bg-white">
+                            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#ECECF1] px-3 py-3 sm:px-4">
+                                <div class="flex items-center gap-1">
+                                    <button type="button" onclick="changeCalendarMonth(-1)" class="flex h-8 w-8 items-center justify-center rounded-full text-[#6E6E73] transition hover:bg-[#F5F5F7]"><i data-lucide="chevron-left" class="h-4 w-4"></i></button>
+                                    <button type="button" onclick="changeCalendarMonth(1)" class="flex h-8 w-8 items-center justify-center rounded-full text-[#6E6E73] transition hover:bg-[#F5F5F7]"><i data-lucide="chevron-right" class="h-4 w-4"></i></button>
+                                    <h4 class="ml-1 text-sm font-bold text-[#1D1D1F]">${getCalendarMonthLabel(calendarViewCursor)}</h4>
+                                </div>
+                                <button type="button" onclick="goToCalendarToday()" class="rounded-lg border border-[#E5E5EA] px-3 py-1.5 text-[10px] font-bold text-[#0066CC] transition hover:bg-[#F4F8FF]">今天</button>
+                            </div>
+                            <div class="grid grid-cols-7 border-b border-[#ECECF1] bg-[#FBFBFD]">${weekdays.map(function(day) { return `<div class="px-1 py-2 text-center text-[9px] font-bold text-[#86868B] sm:text-[10px]">${day}</div>`; }).join("")}</div>
+                            <div class="grid grid-cols-7">${cells}</div>
+                        </div>
+                        <aside class="rounded-[24px] border border-[#E8E8ED] bg-[#FBFBFD] p-4">
+                            <div class="flex items-center justify-between gap-3"><div><p class="text-[10px] font-bold tracking-[0.16em] text-[#86868B] uppercase">This month</p><h4 class="mt-1 text-sm font-bold text-[#1D1D1F]">${monthEvents.length} 項排程</h4></div><span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-[#0066CC] shadow-sm"><i data-lucide="sparkles" class="h-4 w-4"></i></span></div>
+                            <div class="mt-4 space-y-2.5">${upcomingEvents.length ? upcomingEvents.map(function(event) {
+                                const meta = getCalendarEventTypeMeta(event.eventType);
+                                const action = event.editable ? "openCalendarEventModal('" + escapeInlineJsString(event.id) + "')" : "openAssignmentDetailModal('" + escapeInlineJsString(event.assignmentId || "") + "')";
+                                return `<button type="button" onclick="${action}" class="flex w-full items-start gap-2.5 rounded-2xl bg-white p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full ${meta.dot}"></span><span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-[#1D1D1F]">${escapeHtml(event.title)}</span><span class="mt-1 block text-[10px] text-[#86868B]">${escapeHtml(calendarDateTimeLabel(event.startsAt, event.allDay))}</span></span></button>`;
+                            }).join("") : `<div class="rounded-2xl border border-dashed border-[#D8D8DE] bg-white p-4 text-center text-[11px] leading-relaxed text-[#86868B]">尚未有近期工作事件。<br>可先新增會議或製作排程。</div>`}</div>
+                            <div class="mt-4 rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-[10px] leading-relaxed text-[#6E6E73]"><span class="font-bold text-[#1D1D1F]">提示：</span>紅色圓點為繳交截止日，會隨繳交項目自動更新。</div>
+                        </aside>
+                    </div>
+                </section>
+            `;
+            renderLucideIcons();
+        }
+
+        function openCalendarEventModal(eventId = "", seedDate = "") {
+            const roleContext = getEffectiveRoleContext();
+            if (!canManageAssignmentBoard(roleContext.effectiveRole)) {
+                showToast("只有形印組可以管理工作行事曆。", "warning");
+                return;
+            }
+            const modal = document.getElementById("calendar-event-modal");
+            if (!modal) return;
+            const titleInput = document.getElementById("calendar-event-title");
+            const startInput = document.getElementById("calendar-event-start");
+            const endInput = document.getElementById("calendar-event-end");
+            const typeInput = document.getElementById("calendar-event-type");
+            const stageInput = document.getElementById("calendar-event-stage");
+            const allDayInput = document.getElementById("calendar-event-all-day");
+            const descriptionInput = document.getElementById("calendar-event-description");
+            const title = document.getElementById("calendar-event-modal-title");
+            const deleteButton = document.getElementById("calendar-event-delete");
+            const spacer = document.getElementById("calendar-event-delete-spacer");
+            const event = eventId ? getCalendarCustomEvents().find(function(item) { return item.id === eventId; }) : null;
+            activeCalendarEventId = event ? event.id : "";
+            calendarEventDeleteArmed = false;
+            const baseDate = (seedDate && calendarDateFromText(seedDate)) || new Date();
+            const defaultStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 10, 0);
+            const defaultEnd = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 11, 0);
+            if (title) title.textContent = event ? "編輯工作事件" : "新增工作事件";
+            if (titleInput) titleInput.value = event ? event.title : "";
+            if (startInput) startInput.value = event ? calendarInputValue(event.startsAt) : calendarInputValue(formatDateTimeTaipei(defaultStart));
+            if (endInput) endInput.value = event ? calendarInputValue(event.endsAt) : calendarInputValue(formatDateTimeTaipei(defaultEnd));
+            if (typeInput) typeInput.value = event ? event.eventType : "meeting";
+            if (stageInput) {
+                stageInput.innerHTML = `<option value="">不指定會期</option>` + state.Config_Stages.map(function(stage) {
+                    return `<option value="${escapeHtml(stage.Stage_ID)}">${escapeHtml(stage.Stage_Name)}</option>`;
+                }).join("");
+                stageInput.value = event ? event.stageId : "";
+            }
+            if (allDayInput) allDayInput.checked = Boolean(event && event.allDay);
+            if (descriptionInput) descriptionInput.value = event ? event.description : "";
+            if (deleteButton) deleteButton.classList.toggle("hidden", !event);
+            if (spacer) spacer.classList.toggle("hidden", !event);
+            enhanceNativeSoftSelects(modal);
+            animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.975, fromBlur: 12, duration: 360 });
+            renderLucideIcons();
+            window.setTimeout(function() { if (titleInput) titleInput.focus(); }, 180);
+        }
+
+        function closeCalendarEventModal(force) {
+            if (calendarEventSaveInFlight && force !== true) return;
+            activeCalendarEventId = "";
+            calendarEventDeleteArmed = false;
+            const modal = document.getElementById("calendar-event-modal");
+            if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
+        }
+
+        function getCalendarModalPayload() {
+            const startsAt = String(document.getElementById("calendar-event-start") && document.getElementById("calendar-event-start").value || "").replace("T", " ");
+            const endsAt = String(document.getElementById("calendar-event-end") && document.getElementById("calendar-event-end").value || "").replace("T", " ");
+            return {
+                title: String(document.getElementById("calendar-event-title") && document.getElementById("calendar-event-title").value || "").trim(),
+                startsAt: startsAt,
+                endsAt: endsAt,
+                eventType: String(document.getElementById("calendar-event-type") && document.getElementById("calendar-event-type").value || "meeting"),
+                stageId: String(document.getElementById("calendar-event-stage") && document.getElementById("calendar-event-stage").value || ""),
+                allDay: Boolean(document.getElementById("calendar-event-all-day") && document.getElementById("calendar-event-all-day").checked),
+                description: String(document.getElementById("calendar-event-description") && document.getElementById("calendar-event-description").value || "").trim()
+            };
+        }
+
+        async function saveCalendarEvent() {
+            if (calendarEventSaveInFlight) return;
+            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
+                showToast("工作行事曆需要保持 GAS 連線，請重新同步後再儲存。", "warning");
+                return;
+            }
+            const payload = getCalendarModalPayload();
+            if (!payload.title || !payload.startsAt || !payload.endsAt) {
+                showToast("請完整填寫事件名稱與開始、結束時間。", "warning");
+                return;
+            }
+            const button = document.getElementById("calendar-event-save");
+            const isEditing = Boolean(activeCalendarEventId);
+            calendarEventSaveInFlight = true;
+            if (button) { button.disabled = true; button.textContent = "儲存中…"; }
+            try {
+                const action = isEditing ? "updateCalendarEvent" : "createCalendarEvent";
+                if (activeCalendarEventId) payload.eventId = activeCalendarEventId;
+                const response = await requestGas(action, Object.assign({}, payload, { stateRevision: remoteStateRevision }));
+                if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "" })) {
+                    throw new Error("雲端沒有回傳最新行事曆資料。");
+                }
+                const savedDate = calendarDateFromText(payload.startsAt);
+                if (savedDate) calendarViewCursor = new Date(savedDate.getFullYear(), savedDate.getMonth(), 1);
+                closeCalendarEventModal(true);
+                renderAll();
+                showToast(isEditing ? "工作事件已更新。" : "工作事件已新增。", "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "儲存工作事件失敗。", "warning");
+            } finally {
+                calendarEventSaveInFlight = false;
+                if (button) { button.disabled = false; button.textContent = "儲存事件"; }
+            }
+        }
+
+        async function deleteCalendarEvent() {
+            if (!activeCalendarEventId || calendarEventSaveInFlight) return;
+            const button = document.getElementById("calendar-event-delete");
+            if (!calendarEventDeleteArmed) {
+                calendarEventDeleteArmed = true;
+                if (button) button.textContent = "再按一次確認刪除";
+                window.setTimeout(function() {
+                    if (!calendarEventSaveInFlight) {
+                        calendarEventDeleteArmed = false;
+                        if (button) button.textContent = "刪除事件";
+                    }
+                }, 2600);
+                return;
+            }
+            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
+                showToast("工作行事曆需要保持 GAS 連線，請重新同步後再刪除。", "warning");
+                return;
+            }
+            const eventId = activeCalendarEventId;
+            calendarEventSaveInFlight = true;
+            if (button) { button.disabled = true; button.textContent = "刪除中…"; }
+            try {
+                const response = await requestGas("deleteCalendarEvent", { eventId: eventId, stateRevision: remoteStateRevision });
+                if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "" })) {
+                    throw new Error("雲端沒有回傳最新行事曆資料。");
+                }
+                closeCalendarEventModal(true);
+                renderAll();
+                showToast("工作事件已刪除。", "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "刪除工作事件失敗。", "warning");
+            } finally {
+                calendarEventSaveInFlight = false;
+                calendarEventDeleteArmed = false;
+                if (button) { button.disabled = false; button.textContent = "刪除事件"; }
+            }
+        }
+
         // 變更熱量圖過濾視角
         function changeHeatmapFilter(filter) {
             activeHeatmapFilter = filter;
@@ -12343,6 +12790,10 @@
 
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
 
+            if (activeTab === "calendar") {
+                renderShapePrintCalendar(container, activeStage, isExhibitionAdmin);
+                return;
+            }
             if (activeTab === "overview") {
                 // 會審總覽視窗
                 const visibleAssignments = isExhibitionAdmin
