@@ -26,6 +26,8 @@ var ASSIGNMENT_REMINDER_TRIGGER_HANDLER = 'runScheduledAssignmentReminders';
 var ASSIGNMENT_REMINDER_LOG_META_KEY = 'AssignmentReminderLog';
 var ASSIGNMENT_REMINDER_SETTINGS_META_KEY = 'AssignmentReminderSettings';
 var ASSIGNMENT_REMINDER_DEFAULT_OFFSETS_HOURS = [72, 24, 6];
+var RECYCLE_BIN_RETENTION_DAYS = 30;
+var RECYCLE_BIN_MAX_SNAPSHOT_CHARACTERS = 45000;
 var DEFERRED_DRIVE_TRASH_QUEUE_PROPERTY = 'DEFERRED_DRIVE_TRASH_QUEUE_V1';
 var DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER = 'runDeferredDriveTrashQueue';
 var DEFERRED_DRIVE_TRASH_MAX_ITEMS_PER_RUN = 20;
@@ -239,6 +241,51 @@ var TABLE_SCHEMAS = {
       All_Day: 'boolean'
     }
   },
+  Work_Items: {
+    headers: [
+      'Work_Item_ID',
+      'Stage_ID',
+      'Title',
+      'Description',
+      'Due_At',
+      'Priority',
+      'Status',
+      'Created_At',
+      'Created_By_User_ID',
+      'Created_By_Name',
+      'Assigned_To_User_ID',
+      'Assigned_To_Name',
+      'Assigned_At',
+      'Claimed_At',
+      'Started_At',
+      'Completed_At',
+      'Completed_By_User_ID',
+      'Updated_At',
+      'Updated_By_User_ID'
+    ],
+    types: {}
+  },
+  Recycle_Bin: {
+    headers: [
+      'Recycle_ID',
+      'Entity_Type',
+      'Entity_ID',
+      'Title',
+      'Snapshot_JSON',
+      'Drive_File_IDs',
+      'Deleted_At',
+      'Deleted_By_User_ID',
+      'Deleted_By_Name',
+      'Expires_At',
+      'Status',
+      'Restored_At',
+      'Restored_By_User_ID'
+    ],
+    types: {
+      Snapshot_JSON: 'json',
+      Drive_File_IDs: 'json'
+    }
+  },
   Password_Reset_Tokens: {
     headers: [
       'Reset_ID',
@@ -431,6 +478,13 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'restoreRecycleBinItem') {
+      result = withLock_(function() {
+        return handleRestoreRecycleBinItem_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'createCalendarEvent') {
       result = withLock_(function() {
         return handleCreateCalendarEvent_(payload);
@@ -448,6 +502,41 @@ function doPost(e) {
     if (action === 'deleteCalendarEvent') {
       result = withLock_(function() {
         return handleDeleteCalendarEvent_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'createWorkItem') {
+      result = withLock_(function() {
+        return handleCreateWorkItem_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'updateWorkItem') {
+      result = withLock_(function() {
+        return handleUpdateWorkItem_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'claimWorkItem') {
+      result = withLock_(function() {
+        return handleClaimWorkItem_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'updateWorkItemProgress') {
+      result = withLock_(function() {
+        return handleUpdateWorkItemProgress_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'deleteWorkItem') {
+      result = withLock_(function() {
+        return handleDeleteWorkItem_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -1446,8 +1535,12 @@ function runScheduledAssignmentReminders() {
     var driveCleanup = processDeferredDriveTrashQueue_();
     var state = loadState_();
     var result = runScheduledAssignmentRemindersInternal_(state);
+    var recycleCleanup = purgeExpiredRecycleBinEntries_(state);
+    if (recycleCleanup.changed) {
+      result.changed = true;
+    }
     if (result.changed) {
-      persistState_(state);
+      persistState_(state, { preserveRecycleBinState: false });
     } else {
       setupSheets_();
       var config = getConfig_();
@@ -1455,6 +1548,7 @@ function runScheduledAssignmentReminders() {
       writeMetaSheet_(spreadsheet, state.Meta || {});
     }
     result.driveCleanup = driveCleanup;
+    result.recycleCleanup = recycleCleanup;
     return result;
   });
 }
@@ -1634,6 +1728,8 @@ function loadState_() {
     Design_Service_Settings: readTable_(spreadsheet, 'Design_Service_Settings'),
     Design_Service_Orders: readTable_(spreadsheet, 'Design_Service_Orders'),
     Calendar_Events: readTable_(spreadsheet, 'Calendar_Events'),
+    Work_Items: readTable_(spreadsheet, 'Work_Items'),
+    Recycle_Bin: readTable_(spreadsheet, 'Recycle_Bin'),
     Meta: readMetaSheet_(spreadsheet)
   };
 
@@ -1809,6 +1905,7 @@ function buildStateAuditEntries_(beforeState, afterState, actor) {
     { key: 'Assignments', idField: 'Assignment_ID', label: '繳交項目', labelField: 'Title', targetType: 'assignment' },
     { key: 'Assignment_Submissions', idField: 'Submission_ID', label: '繳交紀錄', labelField: 'File_Name', targetType: 'submission' },
     { key: 'Files', idField: 'File_ID', label: '檔案紀錄', labelField: 'File_Name', targetType: 'file' },
+    { key: 'Work_Items', idField: 'Work_Item_ID', label: '工作事項', labelField: 'Title', targetType: 'work-item' },
     { key: 'Users', idField: 'User_ID', label: '帳號與角色', labelField: 'Name', targetType: 'user', excludedFields: ['Password'] },
     { key: 'Teams', idField: 'Team_ID', label: '小組資料', labelField: 'Team_Name', targetType: 'team' }
   ];
@@ -2176,17 +2273,28 @@ function handleDeletePurchaseItem_(payload) {
   nextState.Purchase_Items = ensureArray_(nextState.Purchase_Items).filter(function(item) {
     return String(item && item.Item_ID || '') !== itemId;
   });
+  var recycleEntry = buildRecycleBinEntry_(
+    nextState,
+    actor,
+    'purchase-item',
+    itemId,
+    String(targetItem.Item_Name || itemId),
+    buildRecycleSnapshot_({ Purchase_Items: [targetItem] }),
+    []
+  );
 
   persistState_(nextState, {
     existingState: previousState,
-    nextRevision: getStateRevision_(previousState) + 1
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveRecycleBinState: false
   });
 
   var savedState = loadState_();
   appendActivityLogEntries_(buildStateAuditEntries_(previousState, savedState, actor));
 
   return buildClientStateResultForUser_(savedState, actor, {
-    deletedItem: targetItem
+    deletedItem: targetItem,
+    recycleBinItem: recycleEntry
   });
 }
 
@@ -2265,22 +2373,43 @@ function handleDeleteAssignment_(payload) {
   nextState.Meta = nextState.Meta && typeof nextState.Meta === 'object' ? nextState.Meta : {};
   var reminderLog = getAssignmentReminderLog_(nextState);
   var removedReminderCount = 0;
+  var removedReminderLog = {};
   Object.keys(reminderLog).forEach(function(key) {
     var reminderAssignmentId = String(
       reminderLog[key] && reminderLog[key].assignmentId || key.split('|')[0] || ''
     );
     if (reminderAssignmentId === assignmentId) {
+      removedReminderLog[key] = cloneObject_(reminderLog[key]);
       delete reminderLog[key];
       removedReminderCount += 1;
     }
   });
   nextState.Meta[ASSIGNMENT_REMINDER_LOG_META_KEY] = reminderLog;
+  var recycleEntry = buildRecycleBinEntry_(
+    nextState,
+    actor,
+    'assignment',
+    assignmentId,
+    String(targetAssignment.Title || assignmentId),
+    buildRecycleSnapshot_({
+      Assignments: [targetAssignment],
+      Assignment_Resources: resources,
+      Assignment_Submissions: submissions,
+      Notifications: notifications,
+      Discussion_Comments: discussionComments,
+      Design_Service_Orders: serviceOrders
+    }, {
+      assignmentReminderLog: removedReminderLog
+    }),
+    Object.keys(driveFileIds)
+  );
 
   persistState_(nextState, {
     existingState: previousState,
     nextRevision: getStateRevision_(previousState) + 1,
     preserveDesignServiceState: false,
-    preserveAssignmentResourceState: false
+    preserveAssignmentResourceState: false,
+    preserveRecycleBinState: false
   });
 
   var persistedState = loadState_();
@@ -2320,6 +2449,7 @@ function handleDeleteAssignment_(payload) {
       reminderCount: removedReminderCount,
       driveFileCount: Object.keys(driveFileIds).length
     },
+    recycleBinItem: recycleEntry,
     driveTrashSummary: driveTrashSummary
   });
 }
@@ -2396,6 +2526,66 @@ function hydrateCalendarEventRecord_(event) {
   event.Updated_By_User_ID = String(event.Updated_By_User_ID || event.Created_By_User_ID || '');
 
   return event;
+}
+
+function hydrateWorkItemRecord_(item) {
+  if (!item || typeof item !== 'object') {
+    item = {};
+  }
+
+  item.Work_Item_ID = String(item.Work_Item_ID || '');
+  item.Stage_ID = String(item.Stage_ID || '');
+  item.Title = String(item.Title || '').trim();
+  item.Description = String(item.Description || '').trim();
+  item.Due_At = String(item.Due_At || '').trim().replace('T', ' ');
+  item.Priority = ['高', '一般', '低'].indexOf(String(item.Priority || '')) >= 0
+    ? String(item.Priority)
+    : '一般';
+  item.Status = ['待認養', '待處理', '進行中', '已完成'].indexOf(String(item.Status || '')) >= 0
+    ? String(item.Status)
+    : (String(item.Assigned_To_User_ID || '').trim() ? '待處理' : '待認養');
+  item.Created_At = String(item.Created_At || '');
+  item.Created_By_User_ID = String(item.Created_By_User_ID || '');
+  item.Created_By_Name = String(item.Created_By_Name || '');
+  item.Assigned_To_User_ID = String(item.Assigned_To_User_ID || '');
+  item.Assigned_To_Name = String(item.Assigned_To_Name || '');
+  item.Assigned_At = String(item.Assigned_At || '');
+  item.Claimed_At = String(item.Claimed_At || '');
+  item.Started_At = String(item.Started_At || '');
+  item.Completed_At = String(item.Completed_At || '');
+  item.Completed_By_User_ID = String(item.Completed_By_User_ID || '');
+  item.Updated_At = String(item.Updated_At || item.Created_At || '');
+  item.Updated_By_User_ID = String(item.Updated_By_User_ID || item.Created_By_User_ID || '');
+
+  return item;
+}
+
+function hydrateRecycleBinRecord_(entry) {
+  if (!entry || typeof entry !== 'object') {
+    entry = {};
+  }
+
+  entry.Recycle_ID = String(entry.Recycle_ID || '');
+  entry.Entity_Type = String(entry.Entity_Type || '');
+  entry.Entity_ID = String(entry.Entity_ID || '');
+  entry.Title = String(entry.Title || '未命名項目');
+  entry.Snapshot_JSON = entry.Snapshot_JSON && typeof entry.Snapshot_JSON === 'object'
+    ? entry.Snapshot_JSON
+    : {};
+  entry.Drive_File_IDs = ensureArray_(entry.Drive_File_IDs).map(function(fileId) {
+    return String(fileId || '').trim();
+  }).filter(function(fileId, index, list) {
+    return fileId && list.indexOf(fileId) === index;
+  });
+  entry.Deleted_At = String(entry.Deleted_At || '');
+  entry.Deleted_By_User_ID = String(entry.Deleted_By_User_ID || '');
+  entry.Deleted_By_Name = String(entry.Deleted_By_Name || '');
+  entry.Expires_At = String(entry.Expires_At || '');
+  entry.Status = String(entry.Status || 'deleted');
+  entry.Restored_At = String(entry.Restored_At || '');
+  entry.Restored_By_User_ID = String(entry.Restored_By_User_ID || '');
+
+  return entry;
 }
 
 function buildCalendarEventFromPayload_(payload, actor, existingEvent) {
@@ -2533,10 +2723,20 @@ function handleDeleteCalendarEvent_(payload) {
   nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).filter(function(event) {
     return String(event && event.Event_ID || '') !== eventId;
   });
+  var recycleEntry = buildRecycleBinEntry_(
+    nextState,
+    actor,
+    'calendar-event',
+    eventId,
+    String(existingEvent.Title || eventId),
+    buildRecycleSnapshot_({ Calendar_Events: [existingEvent] }),
+    []
+  );
   persistState_(nextState, {
     existingState: previousState,
     nextRevision: getStateRevision_(previousState) + 1,
-    preserveCalendarEventState: false
+    preserveCalendarEventState: false,
+    preserveRecycleBinState: false
   });
 
   var savedState = loadState_();
@@ -2547,7 +2747,451 @@ function handleDeleteCalendarEvent_(payload) {
       eventType: existingEvent.Event_Type
     })
   ]);
-  return buildClientStateResultForUser_(savedState, actor, { deletedCalendarEvent: existingEvent });
+  return buildClientStateResultForUser_(savedState, actor, {
+    deletedCalendarEvent: existingEvent,
+    recycleBinItem: recycleEntry
+  });
+}
+
+function isWorkItemManager_(actor) {
+  return Boolean(actor) && String(actor.Role || '') === 'SuperAdmin';
+}
+
+function assertWorkItemManager_(actor) {
+  if (!isWorkItemManager_(actor)) {
+    throw new Error('FORBIDDEN: 只有形印組長或形印指導教師可以建立與分配工作事項。');
+  }
+}
+
+function getWorkItemById_(state, workItemId) {
+  var targetId = String(workItemId || '').trim();
+  if (!targetId) return null;
+  return ensureArray_(state && state.Work_Items).find(function(item) {
+    return String(item && item.Work_Item_ID || '') === targetId;
+  }) || null;
+}
+
+function getWorkItemAssignee_(state, userId) {
+  var targetId = String(userId || '').trim();
+  if (!targetId) return null;
+  return ensureArray_(state && state.Users).find(function(user) {
+    return String(user && user.User_ID || '') === targetId
+      && String(user && user.Role || '') === 'Admin'
+      && String(user && user.Status || '') === 'Active';
+  }) || null;
+}
+
+function buildWorkItemFromPayload_(state, payload, actor, existingItem) {
+  var title = String(payload && payload.title || '').trim();
+  if (!title) {
+    throw new Error('請輸入工作事項名稱。');
+  }
+  if (title.length > 120) {
+    throw new Error('工作事項名稱請控制在 120 個字以內。');
+  }
+
+  var description = String(payload && payload.description || '').trim();
+  if (description.length > 5000) {
+    throw new Error('工作說明請控制在 5,000 個字以內。');
+  }
+
+  var dueAt = normalizeCalendarEventDateTime_(payload && payload.dueAt, '到期時間', false);
+  var stageId = String(payload && payload.stageId || '').trim();
+  if (stageId && !ensureArray_(state.Config_Stages).some(function(stage) {
+    return String(stage && stage.Stage_ID || '') === stageId;
+  })) {
+    throw new Error('找不到所選的會審期數，請重新整理後再試。');
+  }
+
+  var priority = String(payload && payload.priority || '一般').trim();
+  if (['高', '一般', '低'].indexOf(priority) < 0) {
+    priority = '一般';
+  }
+
+  var assignedToUserId = String(payload && payload.assignedToUserId || '').trim();
+  var assignee = assignedToUserId ? getWorkItemAssignee_(state, assignedToUserId) : null;
+  if (assignedToUserId && !assignee) {
+    throw new Error('只能指派給目前啟用中的形印組員。');
+  }
+
+  var now = nowString_();
+  var previousAssigneeId = String(existingItem && existingItem.Assigned_To_User_ID || '');
+  var assignmentChanged = !existingItem || previousAssigneeId !== assignedToUserId;
+  var item = hydrateWorkItemRecord_({
+    Work_Item_ID: existingItem ? existingItem.Work_Item_ID : '',
+    Stage_ID: stageId,
+    Title: title,
+    Description: description,
+    Due_At: dueAt,
+    Priority: priority,
+    Status: existingItem ? existingItem.Status : (assignee ? '待處理' : '待認養'),
+    Created_At: existingItem ? existingItem.Created_At : now,
+    Created_By_User_ID: existingItem ? existingItem.Created_By_User_ID : actor.User_ID,
+    Created_By_Name: existingItem ? existingItem.Created_By_Name : actor.Name,
+    Assigned_To_User_ID: assignee ? assignee.User_ID : '',
+    Assigned_To_Name: assignee ? assignee.Name : '',
+    Assigned_At: existingItem ? existingItem.Assigned_At : (assignee ? now : ''),
+    Claimed_At: existingItem ? existingItem.Claimed_At : '',
+    Started_At: existingItem ? existingItem.Started_At : '',
+    Completed_At: existingItem ? existingItem.Completed_At : '',
+    Completed_By_User_ID: existingItem ? existingItem.Completed_By_User_ID : '',
+    Updated_At: now,
+    Updated_By_User_ID: actor.User_ID
+  });
+
+  if (existingItem && assignmentChanged) {
+    item.Status = assignee ? '待處理' : '待認養';
+    item.Assigned_At = assignee ? now : '';
+    item.Claimed_At = '';
+    item.Started_At = '';
+    item.Completed_At = '';
+    item.Completed_By_User_ID = '';
+  }
+
+  return {
+    item: item,
+    assignmentChanged: assignmentChanged,
+    previousAssigneeId: previousAssigneeId
+  };
+}
+
+function handleCreateWorkItem_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin']);
+  assertWorkItemManager_(actor);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var prepared = buildWorkItemFromPayload_(previousState, payload, actor, null);
+  var item = prepared.item;
+  var nextState = cloneObject_(previousState);
+  item.Work_Item_ID = generateSequentialId_('WI', nextState.Work_Items, 'Work_Item_ID');
+  nextState.Work_Items.unshift(item);
+
+  if (item.Assigned_To_User_ID) {
+    createNotifications_(nextState, {
+      type: 'work-item-assigned',
+      title: '新的工作已指派給你',
+      message: '「' + item.Title + '」已由 ' + actor.Name + ' 指派給你處理。',
+      tab: 'work-items',
+      refType: 'work-item',
+      refId: item.Work_Item_ID,
+      audience: { userIds: [item.Assigned_To_User_ID] },
+      createdAt: item.Created_At,
+      priority: item.Priority === '高' ? 'high' : 'normal'
+    });
+  } else {
+    createNotifications_(nextState, {
+      type: 'work-item-open',
+      title: '有新的可認養工作',
+      message: '「' + item.Title + '」正在開放形印組員認養。',
+      tab: 'work-items',
+      refType: 'work-item',
+      refId: item.Work_Item_ID,
+      audience: { roles: ['Admin'] },
+      createdAt: item.Created_At,
+      priority: item.Priority === '高' ? 'high' : 'normal'
+    });
+  }
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveWorkItemState: false
+  });
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '新增工作事項',
+      '已新增工作「' + item.Title + '」' + (item.Assigned_To_Name ? '，並指派給 ' + item.Assigned_To_Name + '。' : '，開放形印組員認養。'),
+      'work-item',
+      item.Work_Item_ID,
+      item.Priority === '高' ? 'warning' : 'normal',
+      { source: 'createWorkItem', stageId: item.Stage_ID, assignedToUserId: item.Assigned_To_User_ID }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, {
+    workItem: getWorkItemById_(savedState, item.Work_Item_ID)
+  });
+}
+
+function handleUpdateWorkItem_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin']);
+  assertWorkItemManager_(actor);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var workItemId = String(payload && payload.workItemId || '').trim();
+  var existingItem = getWorkItemById_(previousState, workItemId);
+  if (!existingItem) {
+    throw new Error('NOT_FOUND: 找不到要修改的工作事項，請重新整理後再試。');
+  }
+
+  var prepared = buildWorkItemFromPayload_(previousState, payload, actor, existingItem);
+  var item = prepared.item;
+  var nextState = cloneObject_(previousState);
+  nextState.Work_Items = ensureArray_(nextState.Work_Items).map(function(record) {
+    return String(record && record.Work_Item_ID || '') === workItemId ? item : record;
+  });
+
+  if (prepared.assignmentChanged) {
+    if (item.Assigned_To_User_ID) {
+      createNotifications_(nextState, {
+        type: 'work-item-assigned',
+        title: '工作事項已指派給你',
+        message: '「' + item.Title + '」已由 ' + actor.Name + ' 指派給你處理。',
+        tab: 'work-items',
+        refType: 'work-item',
+        refId: item.Work_Item_ID,
+        audience: { userIds: [item.Assigned_To_User_ID] },
+        createdAt: item.Updated_At,
+        priority: item.Priority === '高' ? 'high' : 'normal'
+      });
+    }
+    if (prepared.previousAssigneeId) {
+      createNotifications_(nextState, {
+        type: 'work-item-reassigned',
+        title: '工作事項已調整分配',
+        message: item.Assigned_To_Name
+          ? '「' + item.Title + '」已改由 ' + item.Assigned_To_Name + ' 負責。'
+          : '「' + item.Title + '」已改為開放認養。',
+        tab: 'work-items',
+        refType: 'work-item',
+        refId: item.Work_Item_ID,
+        audience: { userIds: [prepared.previousAssigneeId], excludeUserIds: [item.Assigned_To_User_ID] },
+        createdAt: item.Updated_At,
+        priority: 'normal'
+      });
+    }
+  }
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveWorkItemState: false
+  });
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '更新工作事項',
+      '已更新工作「' + item.Title + '」。',
+      'work-item',
+      item.Work_Item_ID,
+      'normal',
+      { source: 'updateWorkItem', assignmentChanged: prepared.assignmentChanged, assignedToUserId: item.Assigned_To_User_ID }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, {
+    workItem: getWorkItemById_(savedState, item.Work_Item_ID)
+  });
+}
+
+function handleClaimWorkItem_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var workItemId = String(payload && payload.workItemId || '').trim();
+  var existingItem = getWorkItemById_(previousState, workItemId);
+  if (!existingItem) {
+    throw new Error('NOT_FOUND: 找不到這筆工作事項，請重新整理後再試。');
+  }
+  if (String(existingItem.Status || '') !== '待認養' || String(existingItem.Assigned_To_User_ID || '')) {
+    throw new Error('這項工作已被其他人認養或改為直接分配，請重新整理後再查看。');
+  }
+
+  var now = nowString_();
+  var item = hydrateWorkItemRecord_(cloneObject_(existingItem));
+  item.Assigned_To_User_ID = String(actor.User_ID || '');
+  item.Assigned_To_Name = String(actor.Name || '');
+  item.Assigned_At = now;
+  item.Claimed_At = now;
+  item.Started_At = now;
+  item.Status = '進行中';
+  item.Updated_At = now;
+  item.Updated_By_User_ID = String(actor.User_ID || '');
+
+  var nextState = cloneObject_(previousState);
+  nextState.Work_Items = ensureArray_(nextState.Work_Items).map(function(record) {
+    return String(record && record.Work_Item_ID || '') === workItemId ? item : record;
+  });
+  createNotifications_(nextState, {
+    type: 'work-item-claimed',
+    title: '工作事項已被認養',
+    message: actor.Name + ' 已認養並開始處理「' + item.Title + '」。',
+    tab: 'work-items',
+    refType: 'work-item',
+    refId: item.Work_Item_ID,
+    audience: { roles: ['SuperAdmin'], excludeUserIds: [actor.User_ID] },
+    createdAt: now,
+    priority: item.Priority === '高' ? 'high' : 'normal'
+  });
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveWorkItemState: false
+  });
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '認養工作事項',
+      '已認養工作「' + item.Title + '」。',
+      'work-item',
+      item.Work_Item_ID,
+      'normal',
+      { source: 'claimWorkItem' }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, {
+    workItem: getWorkItemById_(savedState, item.Work_Item_ID)
+  });
+}
+
+function handleUpdateWorkItemProgress_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var workItemId = String(payload && payload.workItemId || '').trim();
+  var action = String(payload && payload.progressAction || '').trim();
+  var existingItem = getWorkItemById_(previousState, workItemId);
+  if (!existingItem) {
+    throw new Error('NOT_FOUND: 找不到這筆工作事項，請重新整理後再試。');
+  }
+  if (['start', 'complete', 'reopen'].indexOf(action) < 0) {
+    throw new Error('不支援的工作進度操作。');
+  }
+
+  var isManager = isWorkItemManager_(actor);
+  if (!isManager && String(existingItem.Assigned_To_User_ID || '') !== String(actor.User_ID || '')) {
+    throw new Error('FORBIDDEN: 只有目前負責這項工作的形印組員可以更新進度。');
+  }
+  if (action === 'reopen' && !isManager) {
+    throw new Error('FORBIDDEN: 只有形印組長或形印指導教師可以重新開啟工作事項。');
+  }
+  if (action !== 'reopen' && !String(existingItem.Assigned_To_User_ID || '')) {
+    throw new Error('請先指派或認養這項工作，再更新進度。');
+  }
+  if (action !== 'reopen' && String(existingItem.Status || '') === '已完成') {
+    throw new Error('這項工作已完成；如需再次處理，請由組長或指導教師重新開啟。');
+  }
+
+  var now = nowString_();
+  var item = hydrateWorkItemRecord_(cloneObject_(existingItem));
+  if (action === 'start') {
+    item.Status = '進行中';
+    item.Started_At = item.Started_At || now;
+  } else if (action === 'complete') {
+    item.Status = '已完成';
+    item.Completed_At = now;
+    item.Completed_By_User_ID = String(actor.User_ID || '');
+  } else {
+    item.Status = item.Assigned_To_User_ID ? '待處理' : '待認養';
+    item.Claimed_At = '';
+    item.Started_At = '';
+    item.Completed_At = '';
+    item.Completed_By_User_ID = '';
+  }
+  item.Updated_At = now;
+  item.Updated_By_User_ID = String(actor.User_ID || '');
+
+  var nextState = cloneObject_(previousState);
+  nextState.Work_Items = ensureArray_(nextState.Work_Items).map(function(record) {
+    return String(record && record.Work_Item_ID || '') === workItemId ? item : record;
+  });
+
+  if (action === 'complete') {
+    createNotifications_(nextState, {
+      type: 'work-item-completed',
+      title: '工作事項已完成',
+      message: actor.Name + ' 已完成「' + item.Title + '」。',
+      tab: 'work-items',
+      refType: 'work-item',
+      refId: item.Work_Item_ID,
+      audience: {
+        roles: ['SuperAdmin'],
+        userIds: item.Assigned_To_User_ID ? [item.Assigned_To_User_ID] : [],
+        excludeUserIds: [actor.User_ID]
+      },
+      createdAt: now,
+      priority: 'normal'
+    });
+  } else if (action === 'reopen' && item.Assigned_To_User_ID) {
+    createNotifications_(nextState, {
+      type: 'work-item-reopened',
+      title: '工作事項已重新開啟',
+      message: '「' + item.Title + '」已重新開啟，請繼續處理。',
+      tab: 'work-items',
+      refType: 'work-item',
+      refId: item.Work_Item_ID,
+      audience: { userIds: [item.Assigned_To_User_ID], excludeUserIds: [actor.User_ID] },
+      createdAt: now,
+      priority: item.Priority === '高' ? 'high' : 'normal'
+    });
+  }
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveWorkItemState: false
+  });
+  var savedState = loadState_();
+  var actionLabel = action === 'start' ? '開始處理工作事項' : action === 'complete' ? '完成工作事項' : '重新開啟工作事項';
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, actionLabel, '已更新「' + item.Title + '」為「' + item.Status + '」。', 'work-item', item.Work_Item_ID, 'normal', {
+      source: 'updateWorkItemProgress', progressAction: action
+    })
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, {
+    workItem: getWorkItemById_(savedState, item.Work_Item_ID)
+  });
+}
+
+function handleDeleteWorkItem_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin']);
+  assertWorkItemManager_(actor);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var workItemId = String(payload && payload.workItemId || '').trim();
+  var item = getWorkItemById_(previousState, workItemId);
+  if (!item) {
+    throw new Error('NOT_FOUND: 找不到要刪除的工作事項，請重新整理後再試。');
+  }
+
+  var nextState = cloneObject_(previousState);
+  nextState.Work_Items = ensureArray_(nextState.Work_Items).filter(function(record) {
+    return String(record && record.Work_Item_ID || '') !== workItemId;
+  });
+  var recycleEntry = buildRecycleBinEntry_(
+    nextState,
+    actor,
+    'work-item',
+    workItemId,
+    String(item.Title || workItemId),
+    buildRecycleSnapshot_({ Work_Items: [item] }),
+    []
+  );
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveWorkItemState: false,
+    preserveRecycleBinState: false
+  });
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, '刪除工作事項', '已刪除工作「' + item.Title + '」，可在 30 天內從回收桶復原。', 'work-item', workItemId, 'warning', {
+      source: 'deleteWorkItem'
+    })
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, {
+    deletedWorkItem: item,
+    recycleBinItem: recycleEntry
+  });
 }
 
 // Delete a review stage and all records that are scoped to it in one locked
@@ -2579,11 +3223,40 @@ function handleDeleteStage_(payload) {
   var assignmentIds = {};
   var fileIds = {};
   var fileGroupKeys = {};
+  var workItemIds = {};
   var driveFileIds = {};
   ensureArray_(previousState.Assignments).forEach(function(assignment) {
     if (String(assignment && assignment.Stage_ID || '') === stageId) {
       assignmentIds[String(assignment.Assignment_ID || '')] = true;
     }
+  });
+  var stageAssignments = ensureArray_(previousState.Assignments).filter(function(assignment) {
+    return String(assignment && assignment.Stage_ID || '') === stageId;
+  });
+  var stageFiles = ensureArray_(previousState.Files).filter(function(file) {
+    return String(file && file.Stage_ID || '') === stageId;
+  });
+  var stageResources = ensureArray_(previousState.Assignment_Resources).filter(function(resource) {
+    return assignmentIds[String(resource && resource.Assignment_ID || '')];
+  });
+  var stageSubmissions = ensureArray_(previousState.Assignment_Submissions).filter(function(submission) {
+    return assignmentIds[String(submission && submission.Assignment_ID || '')];
+  });
+  var stagePurchases = ensureArray_(previousState.Purchase_Items).filter(function(item) {
+    return String(item && item.Stage_ID || '') === stageId;
+  });
+  var stageCalendarEvents = ensureArray_(previousState.Calendar_Events).filter(function(event) {
+    return String(event && event.Stage_ID || '') === stageId;
+  });
+  var stageWorkItems = ensureArray_(previousState.Work_Items).filter(function(item) {
+    return String(item && item.Stage_ID || '') === stageId;
+  });
+  stageWorkItems.forEach(function(item) {
+    workItemIds[String(item.Work_Item_ID || '')] = true;
+  });
+  var stageServiceOrders = ensureArray_(previousState.Design_Service_Orders).filter(function(order) {
+    return String(order && order.Stage_ID || '') === stageId
+      || assignmentIds[String(order && order.Assignment_ID || '')];
   });
   ensureArray_(previousState.Files).forEach(function(file) {
     if (String(file && file.Stage_ID || '') === stageId) {
@@ -2610,6 +3283,12 @@ function handleDeleteStage_(payload) {
       driveFileIds[resourceFileId] = true;
     }
   });
+  collectDriveFileIdsFromRecords_(stageServiceOrders).forEach(function(fileId) {
+    driveFileIds[fileId] = true;
+  });
+  collectDriveFileIdsFromRecords_(stageFiles.concat(stageSubmissions, stageResources)).forEach(function(fileId) {
+    driveFileIds[fileId] = true;
+  });
 
   var nextState = cloneObject_(previousState);
   nextState.Config_Stages = ensureArray_(nextState.Config_Stages).filter(function(stage) {
@@ -2633,13 +3312,38 @@ function handleDeleteStage_(payload) {
   nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).filter(function(event) {
     return String(event && event.Stage_ID || '') !== stageId;
   });
+  nextState.Work_Items = ensureArray_(nextState.Work_Items).filter(function(item) {
+    return String(item && item.Stage_ID || '') !== stageId;
+  });
+  nextState.Design_Service_Orders = ensureArray_(nextState.Design_Service_Orders).filter(function(order) {
+    return !(String(order && order.Stage_ID || '') === stageId
+      || assignmentIds[String(order && order.Assignment_ID || '')]);
+  });
+  var stageNotifications = ensureArray_(previousState.Notifications).filter(function(notification) {
+    var refType = String(notification && notification.Ref_Type || '');
+    var refId = String(notification && notification.Ref_ID || '');
+    return (refType === 'stage' && refId === stageId)
+      || (refType === 'assignment' && assignmentIds[refId])
+      || (refType === 'file' && fileIds[refId])
+      || (refType === 'file-group' && fileGroupKeys[refId])
+      || (refType === 'work-item' && workItemIds[refId]);
+  });
   nextState.Notifications = ensureArray_(nextState.Notifications).filter(function(notification) {
     var refType = String(notification && notification.Ref_Type || '');
     var refId = String(notification && notification.Ref_ID || '');
     return !(refType === 'stage' && refId === stageId)
       && !(refType === 'assignment' && assignmentIds[refId])
       && !(refType === 'file' && fileIds[refId])
-      && !(refType === 'file-group' && fileGroupKeys[refId]);
+      && !(refType === 'file-group' && fileGroupKeys[refId])
+      && !(refType === 'work-item' && workItemIds[refId]);
+  });
+  var stageDiscussionComments = ensureArray_(previousState.Discussion_Comments).filter(function(comment) {
+    var refType = String(comment && comment.Ref_Type || '');
+    var refId = String(comment && comment.Ref_ID || '');
+    return (refType === 'stage' && refId === stageId)
+      || (refType === 'assignment' && assignmentIds[refId])
+      || (refType === 'file' && fileIds[refId])
+      || (refType === 'file-group' && fileGroupKeys[refId]);
   });
   nextState.Discussion_Comments = ensureArray_(nextState.Discussion_Comments).filter(function(comment) {
     var refType = String(comment && comment.Ref_Type || '');
@@ -2654,25 +3358,293 @@ function handleDeleteStage_(payload) {
   // until the next background reminder pass cleans them up.
   nextState.Meta = nextState.Meta && typeof nextState.Meta === 'object' ? nextState.Meta : {};
   var reminderLog = getAssignmentReminderLog_(nextState);
+  var removedReminderLog = {};
   Object.keys(reminderLog).forEach(function(key) {
     var assignmentId = String(reminderLog[key] && reminderLog[key].assignmentId || key.split('|')[0] || '');
     if (assignmentIds[assignmentId]) {
+      removedReminderLog[key] = cloneObject_(reminderLog[key]);
       delete reminderLog[key];
     }
   });
   nextState.Meta[ASSIGNMENT_REMINDER_LOG_META_KEY] = reminderLog;
+  var recycleEntry = buildRecycleBinEntry_(
+    nextState,
+    actor,
+    'stage',
+    stageId,
+    String(targetStage.Stage_Name || stageId),
+    buildRecycleSnapshot_({
+      Config_Stages: [targetStage],
+      Assignments: stageAssignments,
+      Assignment_Resources: stageResources,
+      Assignment_Submissions: stageSubmissions,
+      Files: stageFiles,
+      Purchase_Items: stagePurchases,
+      Work_Items: stageWorkItems,
+      Notifications: stageNotifications,
+      Discussion_Comments: stageDiscussionComments,
+      Design_Service_Orders: stageServiceOrders,
+      Calendar_Events: stageCalendarEvents
+    }, {
+      assignmentReminderLog: removedReminderLog
+    }),
+    Object.keys(driveFileIds)
+  );
 
   persistState_(nextState, {
     existingState: previousState,
     nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false,
     preserveAssignmentResourceState: false,
-    preserveCalendarEventState: false
+    preserveCalendarEventState: false,
+    preserveWorkItemState: false,
+    preserveRecycleBinState: false
   });
   var persistedState = loadState_();
   appendActivityLogEntries_(buildStateAuditEntries_(previousState, persistedState, actor));
   var driveTrashSummary = enqueueDeferredDriveTrash_(Object.keys(driveFileIds));
   return buildClientStateResultForUser_(persistedState, actor, {
+    deletedStage: targetStage,
+    recycleBinItem: recycleEntry,
     driveTrashSummary: driveTrashSummary
+  });
+}
+
+function collectDriveFileIdsFromRecords_(records) {
+  var seen = {};
+  ensureArray_(records).forEach(function(record) {
+    if (!record || typeof record !== 'object') return;
+    var fileId = String(record.Drive_File_ID || '').trim()
+      || extractDriveFileId_(record.Google_Drive_URL);
+    if (fileId) {
+      seen[fileId] = true;
+    }
+  });
+  return Object.keys(seen);
+}
+
+function buildRecycleBinEntry_(state, actor, entityType, entityId, title, snapshot, driveFileIds) {
+  var safeSnapshot = cloneObject_(snapshot || {});
+  var serializedSnapshot = JSON.stringify(safeSnapshot);
+  if (serializedSnapshot.length > RECYCLE_BIN_MAX_SNAPSHOT_CHARACTERS) {
+    throw new Error('這筆資料的關聯內容過多，無法安全放入回收桶。請先分批刪除，或聯絡形印組管理員協助處理。');
+  }
+
+  var deletedAt = nowString_();
+  var expiresAtDate = new Date();
+  expiresAtDate.setDate(expiresAtDate.getDate() + RECYCLE_BIN_RETENTION_DAYS);
+  var entry = hydrateRecycleBinRecord_({
+    Recycle_ID: generateSequentialId_('RB', state.Recycle_Bin, 'Recycle_ID'),
+    Entity_Type: String(entityType || ''),
+    Entity_ID: String(entityId || ''),
+    Title: String(title || '未命名項目'),
+    Snapshot_JSON: safeSnapshot,
+    Drive_File_IDs: ensureArray_(driveFileIds),
+    Deleted_At: deletedAt,
+    Deleted_By_User_ID: String(actor && actor.User_ID || ''),
+    Deleted_By_Name: String(actor && actor.Name || ''),
+    Expires_At: formatDateTime_(expiresAtDate),
+    Status: 'deleted',
+    Restored_At: '',
+    Restored_By_User_ID: ''
+  });
+
+  state.Recycle_Bin = ensureArray_(state.Recycle_Bin);
+  state.Recycle_Bin.unshift(entry);
+  return entry;
+}
+
+function buildRecycleSnapshot_(collections, meta) {
+  return {
+    collections: collections && typeof collections === 'object' ? collections : {},
+    meta: meta && typeof meta === 'object' ? meta : {}
+  };
+}
+
+function prependRestoredRecords_(state, collectionName, records, idField) {
+  var existing = ensureArray_(state[collectionName]);
+  var existingIds = {};
+  existing.forEach(function(record) {
+    var id = String(record && record[idField] || '').trim();
+    if (id) existingIds[id] = true;
+  });
+
+  var restored = ensureArray_(records).filter(function(record) {
+    var id = String(record && record[idField] || '').trim();
+    return id && !existingIds[id];
+  });
+  state[collectionName] = restored.concat(existing);
+  return restored.length;
+}
+
+function restoreRecycleBinSnapshot_(state, entry) {
+  var snapshot = entry && entry.Snapshot_JSON && typeof entry.Snapshot_JSON === 'object'
+    ? entry.Snapshot_JSON
+    : {};
+  var collections = snapshot.collections && typeof snapshot.collections === 'object'
+    ? snapshot.collections
+    : {};
+  var idFields = {
+    Config_Stages: 'Stage_ID',
+    Purchase_Items: 'Item_ID',
+    Assignments: 'Assignment_ID',
+    Assignment_Resources: 'Resource_ID',
+    Assignment_Submissions: 'Submission_ID',
+    Files: 'File_ID',
+    Notifications: 'Notification_ID',
+    Discussion_Comments: 'Comment_ID',
+    Design_Service_Orders: 'Service_Order_ID',
+    Calendar_Events: 'Event_ID',
+    Work_Items: 'Work_Item_ID'
+  };
+  var summary = {
+    restoredRecords: 0,
+    collections: {}
+  };
+
+  Object.keys(idFields).forEach(function(collectionName) {
+    var count = prependRestoredRecords_(state, collectionName, collections[collectionName], idFields[collectionName]);
+    if (count > 0) {
+      summary.collections[collectionName] = count;
+      summary.restoredRecords += count;
+    }
+  });
+
+  var snapshotMeta = snapshot.meta && typeof snapshot.meta === 'object' ? snapshot.meta : {};
+  if (snapshotMeta.assignmentReminderLog && typeof snapshotMeta.assignmentReminderLog === 'object') {
+    state.Meta = state.Meta && typeof state.Meta === 'object' ? state.Meta : {};
+    var reminderLog = getAssignmentReminderLog_(state);
+    Object.keys(snapshotMeta.assignmentReminderLog).forEach(function(key) {
+      if (!reminderLog[key]) {
+        reminderLog[key] = snapshotMeta.assignmentReminderLog[key];
+      }
+    });
+    state.Meta[ASSIGNMENT_REMINDER_LOG_META_KEY] = reminderLog;
+  }
+
+  return summary;
+}
+
+function removeDeferredDriveTrashItems_(driveFileIds) {
+  var ids = ensureArray_(driveFileIds).map(function(fileId) {
+    return String(fileId || '').trim();
+  }).filter(function(fileId, index, list) {
+    return fileId && list.indexOf(fileId) === index;
+  });
+  if (ids.length === 0) {
+    return { removed: 0, pending: loadDeferredDriveTrashQueue_().length };
+  }
+
+  var idSet = {};
+  ids.forEach(function(fileId) { idSet[fileId] = true; });
+  var queue = loadDeferredDriveTrashQueue_();
+  var remaining = queue.filter(function(item) {
+    return !idSet[String(item && item.fileId || '').trim()];
+  });
+  saveDeferredDriveTrashQueue_(remaining);
+  if (remaining.length === 0) {
+    removeDeferredDriveTrashTriggers_();
+  }
+  return {
+    removed: queue.length - remaining.length,
+    pending: remaining.length
+  };
+}
+
+function restoreDriveFiles_(driveFileIds) {
+  var ids = ensureArray_(driveFileIds).map(function(fileId) {
+    return String(fileId || '').trim();
+  }).filter(function(fileId, index, list) {
+    return fileId && list.indexOf(fileId) === index;
+  });
+  var summary = { requested: ids.length, restored: 0, failed: 0 };
+  ids.forEach(function(fileId) {
+    try {
+      DriveApp.getFileById(fileId).setTrashed(false);
+      summary.restored += 1;
+    } catch (error) {
+      summary.failed += 1;
+      console.warn('Unable to restore Drive file from trash: ' + fileId + ' / ' + String(error && error.message || error));
+    }
+  });
+  return summary;
+}
+
+function purgeExpiredRecycleBinEntries_(state) {
+  var now = new Date().getTime();
+  var removed = 0;
+  state.Recycle_Bin = ensureArray_(state.Recycle_Bin).filter(function(entry) {
+    var expiresAt = parseConfiguredDateTime_(entry && entry.Expires_At);
+    var isExpired = expiresAt && expiresAt.getTime() < now;
+    if (isExpired) removed += 1;
+    return !isExpired;
+  });
+  return { removed: removed, changed: removed > 0 };
+}
+
+function handleRestoreRecycleBinItem_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+  var recycleId = String(payload && payload.recycleId || '').trim();
+  if (!recycleId) {
+    throw new Error('restoreRecycleBinItem requires `recycleId`.');
+  }
+
+  var recycleEntry = ensureArray_(previousState.Recycle_Bin).find(function(entry) {
+    return String(entry && entry.Recycle_ID || '') === recycleId;
+  });
+  if (!recycleEntry) {
+    throw new Error('NOT_FOUND: 找不到這筆回收桶資料。');
+  }
+  if (String(recycleEntry.Status || '') !== 'deleted') {
+    throw new Error('這筆資料已經復原，或不再可復原。');
+  }
+
+  var expiryDate = parseConfiguredDateTime_(recycleEntry.Expires_At);
+  if (expiryDate && expiryDate.getTime() < new Date().getTime()) {
+    throw new Error('這筆回收桶資料已超過 30 天保留期限，無法復原。');
+  }
+
+  var nextState = cloneObject_(previousState);
+  var nextEntry = ensureArray_(nextState.Recycle_Bin).find(function(entry) {
+    return String(entry && entry.Recycle_ID || '') === recycleId;
+  });
+  var restoreSummary = restoreRecycleBinSnapshot_(nextState, nextEntry);
+  nextEntry.Status = 'restored';
+  nextEntry.Restored_At = nowString_();
+  nextEntry.Restored_By_User_ID = String(actor.User_ID || '');
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false,
+    preserveAssignmentResourceState: false,
+    preserveCalendarEventState: false,
+    preserveWorkItemState: false,
+    preserveRecycleBinState: false
+  });
+
+  var queueSummary = removeDeferredDriveTrashItems_(nextEntry.Drive_File_IDs);
+  var driveRestoreSummary = restoreDriveFiles_(nextEntry.Drive_File_IDs);
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, '從回收桶復原資料', '已復原「' + String(nextEntry.Title || recycleId) + '」。', 'recycle-bin', recycleId, 'normal', {
+      source: 'restoreRecycleBinItem',
+      entityType: nextEntry.Entity_Type,
+      entityId: nextEntry.Entity_ID,
+      restoredRecords: restoreSummary.restoredRecords,
+      driveFileCount: ensureArray_(nextEntry.Drive_File_IDs).length,
+      driveFilesRestored: driveRestoreSummary.restored,
+      driveFilesFailed: driveRestoreSummary.failed,
+      deferredTrashCancelled: queueSummary.removed
+    })
+  ]);
+
+  return buildClientStateResultForUser_(savedState, actor, {
+    restoredRecycleBinItem: nextEntry,
+    restoreSummary: restoreSummary,
+    driveRestoreSummary: driveRestoreSummary
   });
 }
 
@@ -2994,6 +3966,8 @@ function writeStateTables_(spreadsheet, state) {
   writeTable_(spreadsheet, 'Design_Service_Settings', state.Design_Service_Settings);
   writeTable_(spreadsheet, 'Design_Service_Orders', state.Design_Service_Orders);
   writeTable_(spreadsheet, 'Calendar_Events', state.Calendar_Events);
+  writeTable_(spreadsheet, 'Work_Items', state.Work_Items);
+  writeTable_(spreadsheet, 'Recycle_Bin', state.Recycle_Bin);
   writeMetaSheet_(spreadsheet, state.Meta || {});
   cacheState_(state);
 }
@@ -3252,8 +4226,12 @@ function filterStateForUser_(state, user) {
   safeState.Design_Service_Orders = safeState.Design_Service_Orders.filter(function(order) {
     return String(order.Team_ID || '') === teamId;
   });
+  // 工作事項是形印組內部協作資料，不提供給畢製小組帳號。
+  safeState.Work_Items = [];
   // 工作行事曆是形印組內部排程，小組帳號不取得任何事件資料。
   safeState.Calendar_Events = [];
+  // 回收桶內含其他小組與管理端的刪除快照，僅限形印組查看與復原。
+  safeState.Recycle_Bin = [];
   safeState.Meta = { State_Revision: getStateRevision_(state) };
   return safeState;
 }
@@ -3365,6 +4343,24 @@ function mergeSensitiveState_(nextState, existingState, options) {
   } else {
     nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).map(function(event) {
       return hydrateCalendarEventRecord_(event);
+    });
+  }
+
+  // 工作事項只能由專用 action 異動，避免舊畫面快照覆蓋認養或指派結果。
+  if (options.preserveWorkItemState !== false) {
+    nextState.Work_Items = cloneObject_(ensureArray_(existingState && existingState.Work_Items));
+  } else {
+    nextState.Work_Items = ensureArray_(nextState.Work_Items).map(function(item) {
+      return hydrateWorkItemRecord_(item);
+    });
+  }
+
+  // 回收桶只能由專用刪除／復原 action 異動，避免舊版網頁快照覆蓋掉待復原資料。
+  if (options.preserveRecycleBinState !== false) {
+    nextState.Recycle_Bin = cloneObject_(ensureArray_(existingState && existingState.Recycle_Bin));
+  } else {
+    nextState.Recycle_Bin = ensureArray_(nextState.Recycle_Bin).map(function(entry) {
+      return hydrateRecycleBinRecord_(entry);
     });
   }
 
@@ -3539,6 +4535,12 @@ function normalizeState_(state) {
   });
   state.Calendar_Events = ensureArray_(state.Calendar_Events).map(function(event) {
     return hydrateCalendarEventRecord_(event);
+  });
+  state.Work_Items = ensureArray_(state.Work_Items).map(function(item) {
+    return hydrateWorkItemRecord_(item);
+  });
+  state.Recycle_Bin = ensureArray_(state.Recycle_Bin).map(function(entry) {
+    return hydrateRecycleBinRecord_(entry);
   });
   state.Meta = state.Meta && typeof state.Meta === 'object' ? state.Meta : {};
 
@@ -3891,11 +4893,23 @@ function normalizeAssignmentReminderSettings_(rawSettings) {
     });
   }
 
+  var leaderEscalationHours = Number(settings.leaderEscalationHours);
+  if (isNaN(leaderEscalationHours) || leaderEscalationHours <= 0) {
+    leaderEscalationHours = 24;
+  }
+  var shapePrintEscalationHours = Number(settings.shapePrintEscalationHours);
+  if (isNaN(shapePrintEscalationHours) || shapePrintEscalationHours < 0) {
+    shapePrintEscalationHours = 6;
+  }
+
   return {
     enabled: settings.enabled !== false,
     offsetsHours: offsets,
     sendEmail: settings.sendEmail !== false,
-    sendSiteNotifications: settings.sendSiteNotifications !== false
+    sendSiteNotifications: settings.sendSiteNotifications !== false,
+    escalationEnabled: settings.escalationEnabled !== false,
+    leaderEscalationHours: leaderEscalationHours,
+    shapePrintEscalationHours: shapePrintEscalationHours
   };
 }
 
@@ -3936,6 +4950,23 @@ function getActiveStudentRecipientsForTeam_(state, teamId) {
   });
 }
 
+function getActiveLeaderRecipientsForTeam_(state, teamId) {
+  return ensureArray_(state && state.Users).filter(function(user) {
+    return String(user.Team_ID || '') === String(teamId || '')
+      && String(user.Status || '') === 'Active'
+      && String(user.Role || '') === 'Leader'
+      && normalizeEmail_(user.Email);
+  });
+}
+
+function getActiveShapePrintRecipients_(state) {
+  return ensureArray_(state && state.Users).filter(function(user) {
+    return String(user.Status || '') === 'Active'
+      && ['SuperAdmin', 'Admin'].indexOf(String(user.Role || '')) >= 0
+      && normalizeEmail_(user.Email);
+  });
+}
+
 function getAssignmentReminderBucket_(hoursUntilDue, offsetsHours) {
   if (isNaN(hoursUntilDue)) {
     return null;
@@ -3963,6 +4994,32 @@ function getAssignmentReminderBucket_(hoursUntilDue, offsetsHours) {
     priority: Number(matchedOffset) <= 6 ? 'high' : 'normal',
     offsetHours: Number(matchedOffset)
   };
+}
+
+function getAssignmentEscalationBucket_(hoursUntilDue, settings) {
+  if (isNaN(hoursUntilDue) || !settings || settings.escalationEnabled === false) {
+    return null;
+  }
+
+  var leaderHours = Number(settings.leaderEscalationHours || 24);
+  var shapePrintHours = Number(settings.shapePrintEscalationHours || 6);
+  if (hoursUntilDue > 0 && hoursUntilDue <= leaderHours) {
+    return {
+      code: 'leader_before_' + String(leaderHours).replace(/\./g, '_') + 'h',
+      label: '截止前 ' + formatReminderOffsetLabel_(leaderHours) + '通知組長',
+      audience: 'leader',
+      priority: 'high'
+    };
+  }
+  if (hoursUntilDue <= -shapePrintHours) {
+    return {
+      code: 'shapeprint_overdue_' + String(shapePrintHours).replace(/\./g, '_') + 'h',
+      label: '逾期 ' + (shapePrintHours > 0 ? String(shapePrintHours) + ' 小時' : '後') + '通知形印組',
+      audience: 'shapeprint',
+      priority: 'high'
+    };
+  }
+  return null;
 }
 
 function formatReminderOffsetLabel_(hours) {
@@ -4088,6 +5145,81 @@ function sendAssignmentReminderEmails_(state, recipients, assignment, team, buck
   return sentCount;
 }
 
+function buildAssignmentEscalationMessage_(assignment, team, bucket) {
+  var dueLabel = formatCompactDateTimeLabel_(assignment && assignment.Due_At || '') || '指定時間';
+  var teamName = String(team && team.Team_Name || '指定小組');
+  if (bucket && bucket.audience === 'shapeprint') {
+    return '「' + teamName + '」尚未繳交「' + String(assignment.Title || '未命名作業') + '」，已超過截止時間 ' + dueLabel + '，請協助追蹤。';
+  }
+  return '你的小組尚未繳交「' + String(assignment.Title || '未命名作業') + '」，截止時間為 ' + dueLabel + '。請優先確認並完成繳交。';
+}
+
+function sendAssignmentEscalationEmails_(state, recipients, assignment, team, bucket) {
+  if (!assignment || assignment.Notify_By_Email !== true) {
+    return 0;
+  }
+
+  var stage = ensureArray_(state && state.Config_Stages).find(function(item) {
+    return String(item.Stage_ID || '') === String(assignment.Stage_ID || '');
+  }) || null;
+  var stageName = String(stage && stage.Stage_Name || '未設定');
+  var teamName = String(team && team.Team_Name || '指定小組');
+  var frontendUrl = String(getConfig_().frontendBaseUrl || APP_DEFAULTS.frontendBaseUrl || '').trim();
+  var dueLabel = formatCompactDateTimeLabel_(assignment.Due_At || '') || '未設定';
+  var isShapePrint = bucket && bucket.audience === 'shapeprint';
+  var subject = isShapePrint
+    ? '【畢展形印組管理系統】逾期追蹤：' + teamName + ' · ' + String(assignment.Title || '未命名作業')
+    : '【畢展形印組管理系統】請優先處理：' + String(assignment.Title || '未命名作業');
+  var sentCount = 0;
+
+  ensureArray_(recipients).forEach(function(user) {
+    var email = normalizeEmail_(user.Email);
+    if (!email) return;
+    var displayName = String(user.Name || '使用者');
+    var intro = isShapePrint
+      ? '系統偵測到以下小組的繳交項目已逾期，請協助追蹤。'
+      : '系統偵測到你負責的小組仍未完成以下繳交，請優先提醒組員。';
+    var text = [
+      displayName + ' 您好，',
+      '',
+      intro,
+      '',
+      '小組：' + teamName,
+      '會期：' + stageName,
+      '項目：' + String(assignment.Title || ''),
+      '截止時間：' + dueLabel,
+      '提醒層級：' + String(bucket && bucket.label || '升級提醒'),
+      '',
+      frontendUrl ? '請登入系統查看與處理：' + frontendUrl : '請登入系統查看與處理。',
+      '',
+      '畢展形印組管理系統'
+    ].join('\n');
+    var html = [
+      '<div style="font-family:Arial,\'PingFang TC\',\'Microsoft JhengHei\',sans-serif;line-height:1.7;color:#1D1D1F;">',
+      '<p>' + escapeHtml_(displayName) + ' 您好，</p>',
+      '<p>' + escapeHtml_(intro) + '</p>',
+      '<div style="background:#F5F5F7;border:1px solid #E5E5EA;border-radius:16px;padding:16px;">',
+      '<p style="margin:0 0 6px;"><strong>小組</strong>：' + escapeHtml_(teamName) + '</p>',
+      '<p style="margin:0 0 6px;"><strong>會期</strong>：' + escapeHtml_(stageName) + '</p>',
+      '<p style="margin:0 0 6px;"><strong>項目</strong>：' + escapeHtml_(assignment.Title || '') + '</p>',
+      '<p style="margin:0 0 6px;"><strong>截止時間</strong>：' + escapeHtml_(dueLabel) + '</p>',
+      '<p style="margin:0;"><strong>提醒層級</strong>：' + escapeHtml_(bucket && bucket.label || '升級提醒') + '</p>',
+      '</div>',
+      frontendUrl ? '<p style="margin-top:20px;"><a href="' + escapeHtml_(frontendUrl) + '" style="display:inline-block;padding:10px 18px;border-radius:999px;background:#1D1D1F;color:#FFFFFF;text-decoration:none;font-weight:700;">前往系統處理</a></p>' : '',
+      '<p style="font-size:12px;color:#6E6E73;">此信件由 GAS 背景排程自動發送。</p>',
+      '</div>'
+    ].join('');
+    try {
+      sendSystemEmail_(email, subject, text, html);
+      sentCount += 1;
+    } catch (error) {
+      Logger.log('Failed to send assignment escalation email to ' + email + ': ' + error);
+    }
+  });
+
+  return sentCount;
+}
+
 function pruneAssignmentReminderLog_(state) {
   var reminderLog = getAssignmentReminderLog_(state);
   var activeAssignmentIds = {};
@@ -4133,6 +5265,8 @@ function runScheduledAssignmentRemindersInternal_(state) {
     remindedTeams: 0,
     notificationsCreated: 0,
     emailsSent: 0,
+    leaderEscalations: 0,
+    shapePrintEscalations: 0,
     sweepAt: sweepAt
   };
 
@@ -4153,8 +5287,10 @@ function runScheduledAssignmentRemindersInternal_(state) {
       return;
     }
 
-    var bucket = getAssignmentReminderBucket_((dueDate.getTime() - now.getTime()) / 3600000, settings.offsetsHours);
-    if (!bucket) {
+    var hoursUntilDue = (dueDate.getTime() - now.getTime()) / 3600000;
+    var bucket = getAssignmentReminderBucket_(hoursUntilDue, settings.offsetsHours);
+    var escalationBucket = getAssignmentEscalationBucket_(hoursUntilDue, settings);
+    if (!bucket && !escalationBucket) {
       return;
     }
 
@@ -4170,55 +5306,106 @@ function runScheduledAssignmentRemindersInternal_(state) {
         return;
       }
 
-      var reminderKey = buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, bucket.code);
-      if (reminderLog[reminderKey]) {
-        return;
-      }
-
       var team = ensureArray_(state.Teams).find(function(item) {
         return String(item.Team_ID || '') === String(teamId || '');
       }) || null;
-      var recipients = getActiveStudentRecipientsForTeam_(state, teamId);
-      var createdNotifications = [];
-      var sentEmailCount = 0;
+      var reminderKey = bucket ? buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, bucket.code) : '';
+      if (bucket && !reminderLog[reminderKey]) {
+        var recipients = getActiveStudentRecipientsForTeam_(state, teamId);
+        var createdNotifications = [];
+        var sentEmailCount = 0;
 
-      if (settings.sendSiteNotifications && recipients.length > 0) {
-        createdNotifications = createNotifications_(state, {
-          type: 'assignment-reminder',
-          title: bucket.code === 'overdue'
-            ? '作業逾期提醒：' + String(assignment.Title || '未命名作業')
-            : '作業繳交提醒：' + String(assignment.Title || '未命名作業'),
-          message: buildAssignmentReminderNotificationMessage_(assignment, assignment.Due_At, bucket),
+        if (settings.sendSiteNotifications && recipients.length > 0) {
+          createdNotifications = createNotifications_(state, {
+            type: 'assignment-reminder',
+            title: bucket.code === 'overdue'
+              ? '作業逾期提醒：' + String(assignment.Title || '未命名作業')
+              : '作業繳交提醒：' + String(assignment.Title || '未命名作業'),
+            message: buildAssignmentReminderNotificationMessage_(assignment, assignment.Due_At, bucket),
+            tab: 'files',
+            refType: 'assignment',
+            refId: assignment.Assignment_ID,
+            audience: {
+              userIds: recipients.map(function(user) {
+                return String(user.User_ID || '');
+              })
+            },
+            createdAt: sweepAt,
+            priority: bucket.priority || 'normal'
+          });
+        }
+
+        if (settings.sendEmail && recipients.length > 0) {
+          sentEmailCount = sendAssignmentReminderEmails_(state, recipients, assignment, team, bucket);
+        }
+
+        reminderLog[reminderKey] = {
+          assignmentId: String(assignment.Assignment_ID || ''),
+          teamId: String(teamId || ''),
+          reminderCode: bucket.code,
+          dueAt: String(assignment.Due_At || ''),
+          sentAt: sweepAt,
+          notificationCount: createdNotifications.length,
+          emailCount: sentEmailCount
+        };
+
+        summary.remindedTeams += 1;
+        summary.notificationsCreated += createdNotifications.length;
+        summary.emailsSent += sentEmailCount;
+        summary.changed = true;
+      }
+
+      if (!escalationBucket) {
+        return;
+      }
+      var escalationKey = buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, escalationBucket.code);
+      if (reminderLog[escalationKey]) {
+        return;
+      }
+      var escalationRecipients = escalationBucket.audience === 'shapeprint'
+        ? getActiveShapePrintRecipients_(state)
+        : getActiveLeaderRecipientsForTeam_(state, teamId);
+      var escalationNotifications = [];
+      var escalationEmails = 0;
+      if (settings.sendSiteNotifications && escalationRecipients.length > 0) {
+        escalationNotifications = createNotifications_(state, {
+          type: 'assignment-escalation',
+          title: escalationBucket.audience === 'shapeprint'
+            ? '逾期追蹤：' + String(team && team.Team_Name || '指定小組')
+            : '組長提醒：' + String(assignment.Title || '未命名作業'),
+          message: buildAssignmentEscalationMessage_(assignment, team, escalationBucket),
           tab: 'files',
           refType: 'assignment',
           refId: assignment.Assignment_ID,
           audience: {
-            userIds: recipients.map(function(user) {
+            userIds: escalationRecipients.map(function(user) {
               return String(user.User_ID || '');
             })
           },
           createdAt: sweepAt,
-          priority: bucket.priority || 'normal'
+          priority: escalationBucket.priority || 'high'
         });
       }
-
-      if (settings.sendEmail && recipients.length > 0) {
-        sentEmailCount = sendAssignmentReminderEmails_(state, recipients, assignment, team, bucket);
+      if (settings.sendEmail && escalationRecipients.length > 0) {
+        escalationEmails = sendAssignmentEscalationEmails_(state, escalationRecipients, assignment, team, escalationBucket);
       }
-
-      reminderLog[reminderKey] = {
+      reminderLog[escalationKey] = {
         assignmentId: String(assignment.Assignment_ID || ''),
         teamId: String(teamId || ''),
-        reminderCode: bucket.code,
+        reminderCode: escalationBucket.code,
         dueAt: String(assignment.Due_At || ''),
         sentAt: sweepAt,
-        notificationCount: createdNotifications.length,
-        emailCount: sentEmailCount
+        notificationCount: escalationNotifications.length,
+        emailCount: escalationEmails,
+        audience: escalationBucket.audience
       };
-
-      summary.remindedTeams += 1;
-      summary.notificationsCreated += createdNotifications.length;
-      summary.emailsSent += sentEmailCount;
+      summary.notificationsCreated += escalationNotifications.length;
+      summary.emailsSent += escalationEmails;
+      if (escalationBucket.audience === 'shapeprint') {
+        summary.shapePrintEscalations += 1;
+      } else {
+        summary.leaderEscalations += 1;
+      }
       summary.changed = true;
     });
   });
@@ -5513,10 +6700,22 @@ function handleDeleteAssignmentResource_(payload) {
   nextState.Assignment_Resources = ensureArray_(nextState.Assignment_Resources).filter(function(item) {
     return String(item && item.Resource_ID || '') !== resourceId;
   });
+  var driveFileId = String(resource.Drive_File_ID || '').trim()
+    || extractDriveFileId_(resource.Google_Drive_URL);
+  var recycleEntry = buildRecycleBinEntry_(
+    nextState,
+    actor,
+    'assignment-resource',
+    resourceId,
+    String(resource.File_Name || resourceId),
+    buildRecycleSnapshot_({ Assignment_Resources: [resource] }),
+    driveFileId ? [driveFileId] : []
+  );
   persistState_(nextState, {
     existingState: previousState,
     nextRevision: getStateRevision_(previousState) + 1,
-    preserveAssignmentResourceState: false
+    preserveAssignmentResourceState: false,
+    preserveRecycleBinState: false
   });
 
   var persistedState = loadState_();
@@ -5532,11 +6731,10 @@ function handleDeleteAssignmentResource_(payload) {
     )
   ]);
 
-  var driveFileId = String(resource.Drive_File_ID || '').trim()
-    || extractDriveFileId_(resource.Google_Drive_URL);
   var driveTrashSummary = enqueueDeferredDriveTrash_(driveFileId ? [driveFileId] : []);
   return buildClientStateResultForUser_(persistedState, actor, {
     deletedAssignmentResource: resource,
+    recycleBinItem: recycleEntry,
     driveTrashSummary: driveTrashSummary
   });
 }
@@ -7447,6 +8645,8 @@ function buildDemoState_() {
       }
     ],
     Calendar_Events: [],
+    Work_Items: [],
+    Recycle_Bin: [],
     Notifications: [
       {
         Notification_ID: 'N01',
@@ -7533,7 +8733,10 @@ function buildDemoState_() {
         enabled: true,
         offsetsHours: [72, 24, 6],
         sendEmail: true,
-        sendSiteNotifications: true
+        sendSiteNotifications: true,
+        escalationEnabled: true,
+        leaderEscalationHours: 24,
+        shapePrintEscalationHours: 6
       },
       AssignmentReminderLog: {}
     }

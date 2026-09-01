@@ -1573,6 +1573,38 @@
         </div>
     </div>
 
+    <!-- 檔案預覽 Modal -->
+    <div id="file-preview-modal" class="fixed inset-0 z-[84] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFilePreviewModal()">
+        <div class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
+            <div class="flex items-center justify-between gap-4 border-b border-[#E8E8ED] px-5 py-4">
+                <div class="min-w-0">
+                    <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#86868B]">File Preview</p>
+                    <h3 id="file-preview-modal-title" class="mt-1 truncate text-base font-bold text-[#1D1D1F]">檔案預覽</h3>
+                </div>
+                <button type="button" onclick="closeFilePreviewModal()" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#6E6E73] transition hover:bg-[#F5F5F7] hover:text-[#1D1D1F]" aria-label="關閉檔案預覽">
+                    <i data-lucide="x" class="h-4.5 w-4.5"></i>
+                </button>
+            </div>
+            <div id="file-preview-modal-body" class="min-h-0 overflow-y-auto p-4 sm:p-5"></div>
+        </div>
+    </div>
+
+    <!-- 版本比較 Modal -->
+    <div id="file-compare-modal" class="fixed inset-0 z-[85] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFileCompareModal()">
+        <div class="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
+            <div class="flex items-center justify-between gap-4 border-b border-[#E8E8ED] px-5 py-4">
+                <div class="min-w-0">
+                    <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#86868B]">Version Compare</p>
+                    <h3 id="file-compare-modal-title" class="mt-1 truncate text-base font-bold text-[#1D1D1F]">版本比較</h3>
+                </div>
+                <button type="button" onclick="closeFileCompareModal()" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#6E6E73] transition hover:bg-[#F5F5F7] hover:text-[#1D1D1F]" aria-label="關閉版本比較">
+                    <i data-lucide="x" class="h-4.5 w-4.5"></i>
+                </button>
+            </div>
+            <div id="file-compare-modal-body" class="min-h-0 overflow-y-auto p-4 sm:p-5"></div>
+        </div>
+    </div>
+
     <!-- 頁尾資訊彈窗 -->
     <div id="calendar-event-modal" class="fixed inset-0 z-[92] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeCalendarEventModal()">
         <div class="max-h-[88vh] w-full max-w-[560px] overflow-y-auto rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.94)] shadow-[0_16px_40px_rgba(15,23,42,0.12),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
@@ -1582,7 +1614,7 @@
                         <i data-lucide="calendar-plus" class="h-5 w-5"></i>
                     </span>
                     <div>
-                        <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#86868B]">Shape Print Only</p>
+                        <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#86868B]">形印組專用</p>
                         <h3 id="calendar-event-modal-title" class="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-[#1D1D1F]">新增工作事件</h3>
                     </div>
                 </div>
@@ -1635,6 +1667,57 @@
                 <span id="calendar-event-delete-spacer" class="flex-1"></span>
                 <button type="button" onclick="closeCalendarEventModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
                 <button id="calendar-event-save" type="button" onclick="saveCalendarEvent()" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">儲存事件</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="work-item-modal" class="fixed inset-0 z-[93] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeWorkItemModal()">
+        <div class="max-h-[90vh] w-full max-w-[620px] overflow-y-auto rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
+            <div class="flex items-start justify-between gap-4 px-5 pb-4 pt-5">
+                <div class="flex items-center gap-3">
+                    <span class="flex h-11 w-11 items-center justify-center rounded-[15px] border border-[#DCE8F8] bg-[#F4F8FF] text-[#0066CC]"><i data-lucide="list-checks" class="h-5 w-5"></i></span>
+                    <div>
+                        <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#86868B]">Shape Print Only</p>
+                        <h3 id="work-item-modal-title" class="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-[#1D1D1F]">新增工作事項</h3>
+                    </div>
+                </div>
+                <button type="button" onclick="closeWorkItemModal()" class="flex h-9 w-9 items-center justify-center rounded-full text-[#86868B] transition hover:bg-[#F5F5F7]" aria-label="關閉工作事項視窗"><i data-lucide="x" class="h-5 w-5"></i></button>
+            </div>
+            <div class="space-y-4 px-5 pb-5">
+                <div class="rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] px-3.5 py-3 text-[11px] leading-relaxed text-[#5F6975]">可先開放給組員認養，也可以直接指定負責人；建立後仍可由組長或指導教師重新分配。</div>
+                <div>
+                    <label for="work-item-title" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">工作事項名稱</label>
+                    <input id="work-item-title" type="text" maxlength="120" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-sm font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]" placeholder="例如：整理第二次會審送印檔案">
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div class="sm:col-span-1">
+                        <label for="work-item-due" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">到期時間</label>
+                        <input id="work-item-due" type="datetime-local" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                    </div>
+                    <div>
+                        <label for="work-item-priority" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">優先程度</label>
+                        <select id="work-item-priority" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="高">高</option><option value="一般">一般</option><option value="低">低</option></select>
+                    </div>
+                    <div>
+                        <label for="work-item-stage" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">關聯會期</label>
+                        <select id="work-item-stage" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">不指定會期</option></select>
+                    </div>
+                </div>
+                <div>
+                    <label for="work-item-assignee" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">負責方式</label>
+                    <select id="work-item-assignee" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">開放認養</option></select>
+                    <p class="mt-1.5 text-[10px] leading-relaxed text-[#86868B]">選擇組員後會直接分配；保留「開放認養」則由組員自行接下。</p>
+                </div>
+                <div>
+                    <label for="work-item-description" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">工作說明</label>
+                    <textarea id="work-item-description" rows="5" maxlength="5000" class="w-full resize-none rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-xs leading-5 text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]" placeholder="補充工作內容、交付標準或注意事項。"></textarea>
+                </div>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
+                <button id="work-item-delete" type="button" onclick="deleteWorkItem()" class="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">刪除工作</button>
+                <span id="work-item-delete-spacer" class="flex-1"></span>
+                <button type="button" onclick="closeWorkItemModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
+                <button id="work-item-save" type="button" onclick="saveWorkItem()" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">建立工作</button>
             </div>
         </div>
     </div>
@@ -1785,6 +1868,8 @@
         };
         let selectedNotificationIds = [];
         let activeFileGroupKey = null;
+        let activeFilePreviewContext = null;
+        let activeFileCompareContext = null;
         let activeAssignmentId = "";
         let activeAssignmentReviewSubmissionId = "";
         let pendingUploadContext = null;
@@ -1799,6 +1884,7 @@
         let remoteSaveTimer = null;
         let remoteSaveInFlight = false;
         let pendingRemoteSave = false;
+        let remoteMutationInFlight = false;
         let pendingPurchaseDeletionIds = new Set();
         let gasModalLastResult = "idle";
         let gasConnectionStatus = "local";
@@ -1836,16 +1922,24 @@
         let activeDesignServiceUploadOrderId = "";
         let calendarViewCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         let activeCalendarEventId = "";
+        let calendarEventFilter = "all";
         let calendarEventSaveInFlight = false;
         let calendarEventDeleteArmed = false;
+        let recycleRestoreInFlight = false;
+        let activeWorkItemId = "";
+        let workItemSaveInFlight = false;
+        let workItemDeleteArmed = false;
+        let workItemActionInFlight = false;
         const NAVIGATION_MENU_CONFIGS = [
             { id: "overview", name: "會審總覽", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "notifications", name: "通知中心", icon: "bell", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "files", name: "繳交專區", icon: "clipboard-list", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "calendar", name: "工作行事曆", icon: "calendar-days", roles: ["SuperAdmin", "Admin"] },
+            { id: "work-items", name: "工作事項", icon: "list-checks", roles: ["SuperAdmin", "Admin"] },
             { id: "design-service", name: "形印代做", icon: "briefcase", roles: ["SuperAdmin", "Admin"] },
             { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "activity", name: "操作紀錄", icon: "scroll-text", roles: ["SuperAdmin", "Admin"] },
+            { id: "recycle", name: "回收桶", icon: "trash-2", roles: ["SuperAdmin", "Admin"] },
             { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Leader", "Member"] },
             { id: "stages", name: "會審設定", icon: "settings", roles: ["SuperAdmin"] }
         ];
@@ -2902,6 +2996,8 @@
             Design_Service_Settings: [],
             Design_Service_Orders: [],
             Calendar_Events: [],
+            Work_Items: [],
+            Recycle_Bin: [],
             Meta: {}
         };
         const DEFAULT_STATE = JSON.parse(JSON.stringify(state));
@@ -3030,7 +3126,7 @@
 
         function createUnauthenticatedState() {
             const snapshot = cloneStateSnapshot(DEFAULT_STATE);
-            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Resources", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders", "Calendar_Events"].forEach(function(key) {
+            ["Config_Stages", "Users", "Teams", "Purchase_Items", "Assignments", "Assignment_Resources", "Assignment_Submissions", "Files", "Notifications", "Discussion_Comments", "Design_Service_Settings", "Design_Service_Orders", "Calendar_Events", "Work_Items", "Recycle_Bin"].forEach(function(key) {
                 snapshot[key] = [];
             });
             snapshot.Meta = { State_Revision: 0 };
@@ -3373,16 +3469,41 @@
         }
 
         function scheduleRemoteStateSync() {
+            if (remoteMutationInFlight) {
+                return;
+            }
             if (remoteSaveTimer) {
                 clearTimeout(remoteSaveTimer);
             }
             remoteSaveTimer = setTimeout(function() {
+                remoteSaveTimer = null;
+                if (remoteMutationInFlight) {
+                    return;
+                }
                 syncStateToBackend();
             }, 250);
         }
 
+        function cancelQueuedRemoteStateSync() {
+            if (remoteSaveTimer) {
+                clearTimeout(remoteSaveTimer);
+                remoteSaveTimer = null;
+            }
+            pendingRemoteSave = false;
+        }
+
+        async function waitForRemoteStateSaveToSettle(timeoutMs = 35000) {
+            const deadline = Date.now() + timeoutMs;
+            while (remoteSaveInFlight && Date.now() < deadline) {
+                await new Promise(function(resolve) {
+                    setTimeout(resolve, 100);
+                });
+            }
+            return !remoteSaveInFlight;
+        }
+
         async function syncStateToBackend() {
-            if (!isRemoteSyncEnabled() || !authSessionToken || !currentUser) {
+            if (remoteMutationInFlight || !isRemoteSyncEnabled() || !authSessionToken || !currentUser) {
                 return { ok: false, skipped: true };
             }
 
@@ -3443,7 +3564,7 @@
             } finally {
                 remoteSaveInFlight = false;
                 renderConnectionStatusBadge();
-                if (pendingRemoteSave) {
+                if (pendingRemoteSave && !remoteMutationInFlight) {
                     pendingRemoteSave = false;
                     syncStateToBackend();
                 }
@@ -3586,7 +3707,7 @@
                     return ["user", "team"].includes(targetType) || /帳號|小組|登入|密碼/.test(action);
                 }
                 if (activityLogFilter === "management") {
-                    return ["stage", "purchase", "assignment"].includes(targetType) || /會審|印刷|繳交項目/.test(action);
+                    return ["stage", "purchase", "assignment", "work-item"].includes(targetType) || /會審|印刷|繳交項目|工作事項|工作/.test(action);
                 }
                 return true;
             });
@@ -5213,6 +5334,43 @@
             return event;
         }
 
+        function hydrateWorkItemRecord(item) {
+            if (!item || typeof item !== "object") return item;
+            [
+                "Work_Item_ID", "Stage_ID", "Title", "Description", "Due_At", "Priority", "Status",
+                "Created_At", "Created_By_User_ID", "Created_By_Name", "Assigned_To_User_ID",
+                "Assigned_To_Name", "Assigned_At", "Claimed_At", "Started_At", "Completed_At",
+                "Completed_By_User_ID", "Updated_At", "Updated_By_User_ID"
+            ].forEach(function(key) {
+                item[key] = String(item[key] || "");
+            });
+            item.Due_At = normalizeDateTimeText(item.Due_At);
+            if (!["高", "一般", "低"].includes(item.Priority)) item.Priority = "一般";
+            if (!["待認養", "待處理", "進行中", "已完成"].includes(item.Status)) {
+                item.Status = item.Assigned_To_User_ID ? "待處理" : "待認養";
+            }
+            return item;
+        }
+
+        function hydrateRecycleBinRecord(entry) {
+            if (!entry || typeof entry !== "object") return entry;
+            [
+                "Recycle_ID", "Entity_Type", "Entity_ID", "Title", "Deleted_At",
+                "Deleted_By_User_ID", "Deleted_By_Name", "Expires_At", "Status",
+                "Restored_At", "Restored_By_User_ID"
+            ].forEach(function(key) {
+                entry[key] = String(entry[key] || "");
+            });
+            if (!entry.Snapshot_JSON || typeof entry.Snapshot_JSON !== "object") {
+                entry.Snapshot_JSON = {};
+            }
+            entry.Drive_File_IDs = ensureArray(entry.Drive_File_IDs).map(function(fileId) {
+                return String(fileId || "").trim();
+            }).filter(Boolean);
+            if (!entry.Status) entry.Status = "deleted";
+            return entry;
+        }
+
         function migrateLegacyFileCommentsToDiscussionThreads() {
             if (!state.Meta || typeof state.Meta !== "object") {
                 state.Meta = {};
@@ -5311,6 +5469,8 @@
             state.Design_Service_Settings = ensureArray(state.Design_Service_Settings);
             state.Design_Service_Orders = ensureArray(state.Design_Service_Orders);
             state.Calendar_Events = ensureArray(state.Calendar_Events);
+            state.Work_Items = ensureArray(state.Work_Items);
+            state.Recycle_Bin = ensureArray(state.Recycle_Bin);
 
             state.Purchase_Items.forEach(function(item) {
                 hydratePurchaseItemRecord(item);
@@ -5344,6 +5504,12 @@
             });
             state.Calendar_Events.forEach(function(event) {
                 hydrateCalendarEventRecord(event);
+            });
+            state.Work_Items.forEach(function(item) {
+                hydrateWorkItemRecord(item);
+            });
+            state.Recycle_Bin.forEach(function(entry) {
+                hydrateRecycleBinRecord(entry);
             });
 
             if (isLegacyDemoNotificationSeedBatch(state.Notifications)) {
@@ -6746,6 +6912,12 @@
                 "assignment-submit": { icon: "send", badge: "bg-[#34C759] bg-opacity-10 text-[#34C759]", label: "繳交" },
                 "assignment-review": { icon: "badge-alert", badge: "bg-[#FF9500] bg-opacity-10 text-[#FF9500]", label: "審核" },
                 "assignment-reminder": { icon: "clock-3", badge: "bg-[#FF9500] bg-opacity-10 text-[#FF9500]", label: "催交" },
+                "work-item-open": { icon: "list-plus", badge: "bg-[#0066CC] bg-opacity-10 text-[#0066CC]", label: "工作" },
+                "work-item-assigned": { icon: "user-round-check", badge: "bg-[#5E5CE6] bg-opacity-10 text-[#5E5CE6]", label: "工作" },
+                "work-item-reassigned": { icon: "arrow-right-left", badge: "bg-[#5E5CE6] bg-opacity-10 text-[#5E5CE6]", label: "工作" },
+                "work-item-claimed": { icon: "hand", badge: "bg-[#0066CC] bg-opacity-10 text-[#0066CC]", label: "工作" },
+                "work-item-completed": { icon: "circle-check-big", badge: "bg-[#34C759] bg-opacity-10 text-[#34C759]", label: "工作" },
+                "work-item-reopened": { icon: "rotate-ccw", badge: "bg-[#FF9500] bg-opacity-10 text-[#FF9500]", label: "工作" },
                 "file-upload": { icon: "upload-cloud", badge: "bg-[#0066CC] bg-opacity-10 text-[#0066CC]", label: "上傳" },
                 "file-rejected": { icon: "circle-x", badge: "bg-[#FF3B30] bg-opacity-10 text-[#FF3B30]", label: "退件" },
                 "file-approved": { icon: "circle-check-big", badge: "bg-[#34C759] bg-opacity-10 text-[#34C759]", label: "通過" },
@@ -6790,6 +6962,7 @@
             if (String(notification.Type || "").indexOf("file-") === 0) return "files";
             if (String(notification.Type || "").indexOf("assignment-") === 0) return "files";
             if (String(notification.Type || "").indexOf("design-service-") === 0) return "files";
+            if (String(notification.Type || "").indexOf("work-item-") === 0) return "system";
             if (notification.Type === "review-comment") return "files";
             if (notification.Type === "budget") return "budget";
             if (notification.Type === "invite") return "invite";
@@ -7098,6 +7271,11 @@
                             openFileVersionHistory(refId);
                         }, 0);
                     }
+                    if (targetTab === "work-items" && refType === "work-item" && refId) {
+                        setTimeout(function() {
+                            openWorkItemFromCalendar(refId);
+                        }, 0);
+                    }
                 }).catch(function(error) {
                     console.error("GAS 通知導向同步失敗", error);
                     showToast("GAS 通知導向同步失敗：" + error.message, "error");
@@ -7129,6 +7307,11 @@
             if (targetTab === "files" && refType === "file-group" && refId) {
                 setTimeout(function() {
                     openFileVersionHistory(refId);
+                }, 0);
+            }
+            if (targetTab === "work-items" && refType === "work-item" && refId) {
+                setTimeout(function() {
+                    openWorkItemFromCalendar(refId);
                 }, 0);
             }
         }
@@ -7383,9 +7566,14 @@
                         <h3 class="text-lg font-bold text-[#1D1D1F] mt-1">${familyName}</h3>
                         <p class="text-xs text-[#86868B] mt-1">${team ? team.Team_Name : "未知小組"} · ${stage ? stage.Stage_Name : "未定會期"}</p>
                     </div>
-                    ${canResubmit ? `<button onclick="openUploadModal('${activeFileGroupKey}')" class="bg-[#0066CC] text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition shadow-sm">
-                        重新繳交附件
-                    </button>` : `<span class="text-[10px] text-[#86868B] font-semibold">僅退件後可重新繳交</span>`}
+                    <div class="flex flex-wrap items-center justify-end gap-2">
+                        ${groupFiles.length > 1 ? `<button type="button" onclick="openFileVersionComparison('${escapeInlineJsString(activeFileGroupKey)}')" class="inline-flex items-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3 py-2 text-xs font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]">
+                            <i data-lucide="columns-2" class="h-3.5 w-3.5"></i>比較版本
+                        </button>` : ''}
+                        ${canResubmit ? `<button onclick="openUploadModal('${escapeInlineJsString(activeFileGroupKey)}')" class="bg-[#0066CC] text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition shadow-sm">
+                            重新繳交附件
+                        </button>` : `<span class="text-[10px] text-[#86868B] font-semibold">僅退件後可重新繳交</span>`}
+                    </div>
                 </div>
                 <div class="space-y-3 max-h-[52vh] overflow-y-auto pr-1">
                     ${groupFiles.map(function(file) {
@@ -7404,7 +7592,7 @@
                                         ${file.Comment ? `<div class="text-[11px] text-[#FF3B30] bg-[#FF3B30] bg-opacity-[0.05] border border-[#FF3B30] border-opacity-10 rounded-xl p-3">${file.Comment}</div>` : ''}
                                     </div>
                                     <div class="flex items-center gap-2">
-                                        ${file.Google_Drive_URL ? `<a href="${file.Google_Drive_URL}" target="_blank" rel="noopener noreferrer" class="px-3 py-2 border border-[#E8E8ED] rounded-xl text-xs font-semibold text-[#1D1D1F] hover:bg-[#F5F5F7] transition">開啟已上傳檔案</a>` : `<span class="px-3 py-2 border border-[#E8E8ED] rounded-xl text-xs font-semibold text-[#AEAEB2] bg-white">本機紀錄</span>`}
+                                        ${file.Google_Drive_URL ? `<button type="button" onclick="openFilePreview('file', '${escapeInlineJsString(file.File_ID)}')" class="inline-flex items-center gap-1.5 px-3 py-2 border border-[#CFE3FF] bg-[#F7FAFF] rounded-xl text-xs font-semibold text-[#0066CC] hover:bg-[#EDF5FF] transition"><i data-lucide="eye" class="h-3.5 w-3.5"></i>預覽</button><a href="${escapeHtml(file.Google_Drive_URL)}" target="_blank" rel="noopener noreferrer" class="px-3 py-2 border border-[#E8E8ED] rounded-xl text-xs font-semibold text-[#1D1D1F] hover:bg-[#F5F5F7] transition">開啟檔案</a>` : `<span class="px-3 py-2 border border-[#E8E8ED] rounded-xl text-xs font-semibold text-[#AEAEB2] bg-white">本機紀錄</span>`}
                                     </div>
                                 </div>
                             </div>
@@ -7417,6 +7605,189 @@
                     placeholder: "可留下審核筆記、補件回覆，或說明這次版本更新的內容。"
                 })}
             `;
+            renderLucideIcons();
+        }
+
+        function getDriveFileIdFromRecord(record) {
+            if (!record || typeof record !== "object") return "";
+            const explicitId = String(record.Drive_File_ID || "").trim();
+            if (explicitId) return explicitId;
+
+            const url = String(record.Google_Drive_URL || "").trim();
+            if (!url) return "";
+            const directMatch = url.match(/\/d\/([^/?#]+)/);
+            if (directMatch && directMatch[1]) return directMatch[1];
+            const idMatch = url.match(/[?&]id=([^&#]+)/);
+            return idMatch && idMatch[1] ? decodeURIComponent(idMatch[1]) : "";
+        }
+
+        function getPreviewRecord(recordType, recordId) {
+            const id = String(recordId || "");
+            if (!id) return null;
+            const mapping = {
+                file: { collection: state.Files, key: "File_ID" },
+                "assignment-resource": { collection: state.Assignment_Resources, key: "Resource_ID" },
+                "assignment-submission": { collection: state.Assignment_Submissions, key: "Submission_ID" },
+                "design-service": { collection: state.Design_Service_Orders, key: "Service_Order_ID" }
+            };
+            const definition = mapping[recordType];
+            if (!definition) return null;
+            return ensureArray(definition.collection).find(function(item) {
+                return String(item && item[definition.key] || "") === id;
+            }) || null;
+        }
+
+        function getFilePreviewKind(record) {
+            const extension = String(parseFileMeta(record && record.File_Name).extension || "").toLowerCase();
+            if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"].includes(extension)) return "image";
+            if (extension === ".pdf") return "pdf";
+            return "document";
+        }
+
+        function getGoogleDrivePreviewUrl(record) {
+            const fileId = getDriveFileIdFromRecord(record);
+            return fileId ? "https://drive.google.com/file/d/" + encodeURIComponent(fileId) + "/preview" : "";
+        }
+
+        function getGoogleDriveImageUrl(record) {
+            const fileId = getDriveFileIdFromRecord(record);
+            return fileId ? "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(fileId) : "";
+        }
+
+        function getRecordPreviewTitle(record) {
+            return String(record && record.File_Name || record && record.Title || "未命名檔案");
+        }
+
+        function buildFilePreviewMarkup(record, options = {}) {
+            if (!record) {
+                return `<div class="rounded-3xl border border-dashed border-[#D9D9E3] bg-[#FBFBFD] px-5 py-12 text-center text-xs text-[#86868B]">找不到要預覽的檔案。</div>`;
+            }
+
+            const title = getRecordPreviewTitle(record);
+            const kind = getFilePreviewKind(record);
+            const previewUrl = getGoogleDrivePreviewUrl(record);
+            const imageUrl = getGoogleDriveImageUrl(record);
+            const openUrl = String(record.Google_Drive_URL || previewUrl || "").trim();
+            const compact = options.compact === true;
+            const heightClass = compact ? "h-[360px]" : "h-[58vh] min-h-[360px]";
+            const metadata = [
+                record.File_Size ? formatFileSize(record.File_Size) : "",
+                record.Upload_Time || record.Submitted_At || record.Created_At ? formatCompactDateTimeLabel(record.Upload_Time || record.Submitted_At || record.Created_At) : ""
+            ].filter(Boolean).join(" · ");
+
+            let canvasMarkup = "";
+            if (kind === "image" && imageUrl) {
+                canvasMarkup = `<div class="${heightClass} flex items-center justify-center overflow-hidden rounded-2xl border border-[#E8E8ED] bg-[#F5F5F7] p-3"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" class="max-h-full max-w-full rounded-xl object-contain" loading="lazy"></div>`;
+            } else if (previewUrl && (kind === "pdf" || kind === "document")) {
+                canvasMarkup = `<iframe title="${escapeHtml(title)}" src="${escapeHtml(previewUrl)}" class="${heightClass} w-full rounded-2xl border border-[#E8E8ED] bg-white" loading="lazy" referrerpolicy="no-referrer"></iframe>`;
+            } else {
+                canvasMarkup = `<div class="${heightClass} flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#D9D9E3] bg-[#FBFBFD] px-6 text-center"><span class="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#E5E5EA] bg-white text-[#6E6E73]"><i data-lucide="file-text" class="h-5 w-5"></i></span><p class="mt-3 text-sm font-bold text-[#1D1D1F]">此格式無法直接預覽</p><p class="mt-1 max-w-sm text-xs leading-relaxed text-[#86868B]">可改用 Google Drive 開啟原始檔案，保留完整編輯與下載能力。</p></div>`;
+            }
+
+            return `
+                <div class="space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3.5 py-3">
+                        <div class="min-w-0"><p class="truncate text-xs font-bold text-[#1D1D1F]">${escapeHtml(title)}</p>${metadata ? `<p class="mt-0.5 text-[10px] text-[#86868B]">${escapeHtml(metadata)}</p>` : ''}</div>
+                        ${openUrl ? `<a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[10px] font-bold text-[#0066CC] transition hover:bg-[#F4F8FF]"><i data-lucide="external-link" class="h-3.5 w-3.5"></i>在 Drive 開啟</a>` : ''}
+                    </div>
+                    ${canvasMarkup}
+                </div>
+            `;
+        }
+
+        function openFilePreview(recordType, recordId) {
+            const record = getPreviewRecord(recordType, recordId);
+            if (!record) {
+                showToast("找不到要預覽的檔案。", "warning");
+                return;
+            }
+            activeFilePreviewContext = { recordType: recordType, recordId: String(recordId || "") };
+            renderFilePreviewModal();
+            const modal = document.getElementById("file-preview-modal");
+            if (modal) animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.98, fromBlur: 10, duration: 360 });
+        }
+
+        function closeFilePreviewModal() {
+            activeFilePreviewContext = null;
+            const modal = document.getElementById("file-preview-modal");
+            if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
+        }
+
+        function renderFilePreviewModal() {
+            const title = document.getElementById("file-preview-modal-title");
+            const body = document.getElementById("file-preview-modal-body");
+            const context = activeFilePreviewContext;
+            const record = context ? getPreviewRecord(context.recordType, context.recordId) : null;
+            if (title) title.textContent = record ? getRecordPreviewTitle(record) : "檔案預覽";
+            if (body) body.innerHTML = buildFilePreviewMarkup(record);
+            renderLucideIcons();
+        }
+
+        function openFileVersionComparison(groupKey) {
+            const groupFiles = getFileVersionHistory(groupKey);
+            if (groupFiles.length < 2) {
+                showToast("至少需要兩個版本才能比較。", "info");
+                return;
+            }
+            activeFileCompareContext = {
+                groupKey: String(groupKey || ""),
+                leftId: String(groupFiles[1].File_ID || ""),
+                rightId: String(groupFiles[0].File_ID || "")
+            };
+            renderFileCompareModal();
+            const modal = document.getElementById("file-compare-modal");
+            if (modal) animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 18, fromScale: 0.98, fromBlur: 10, duration: 380 });
+        }
+
+        function closeFileCompareModal() {
+            activeFileCompareContext = null;
+            const modal = document.getElementById("file-compare-modal");
+            if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
+        }
+
+        function setFileVersionComparisonSide(side, fileId) {
+            if (!activeFileCompareContext || !["leftId", "rightId"].includes(side)) return;
+            activeFileCompareContext[side] = String(fileId || "");
+            renderFileCompareModal();
+        }
+
+        function renderFileCompareModal() {
+            const title = document.getElementById("file-compare-modal-title");
+            const body = document.getElementById("file-compare-modal-body");
+            const context = activeFileCompareContext;
+            const groupFiles = context ? getFileVersionHistory(context.groupKey) : [];
+            const left = groupFiles.find(function(file) { return String(file.File_ID || "") === String(context && context.leftId || ""); }) || groupFiles[1] || null;
+            const right = groupFiles.find(function(file) { return String(file.File_ID || "") === String(context && context.rightId || ""); }) || groupFiles[0] || null;
+            const familyName = groupFiles[0] ? String(groupFiles[0].Base_File_Name || groupFiles[0].File_Name || "版本比較") : "版本比較";
+            if (title) title.textContent = familyName;
+            if (!body) return;
+            if (!left || !right) {
+                body.innerHTML = `<div class="rounded-3xl border border-dashed border-[#D9D9E3] bg-[#FBFBFD] px-5 py-12 text-center text-xs text-[#86868B]">找不到可比較的檔案版本。</div>`;
+                return;
+            }
+
+            const options = groupFiles.map(function(file) {
+                return `<option value="${escapeHtml(file.File_ID)}">${escapeHtml(file.Version_Label || formatVersionLabel(file.Version_No))} · ${escapeHtml(formatCompactDateTimeLabel(file.Upload_Time))}</option>`;
+            }).join("");
+            body.innerHTML = `
+                <div class="grid gap-4 lg:grid-cols-2">
+                    <section class="min-w-0 rounded-[22px] border border-[#E8E8ED] bg-[#FBFBFD] p-3">
+                        <label class="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#86868B]">較舊版本</label>
+                        <select onchange="setFileVersionComparisonSide('leftId', this.value)" class="w-full rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-xs font-bold text-[#1D1D1F] focus:border-[#0066CC] focus:outline-none">${options}</select>
+                        <div class="mt-3">${buildFilePreviewMarkup(left, { compact: true })}</div>
+                    </section>
+                    <section class="min-w-0 rounded-[22px] border border-[#CFE3FF] bg-[#F7FAFF] p-3">
+                        <label class="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#0066CC]">較新版本</label>
+                        <select onchange="setFileVersionComparisonSide('rightId', this.value)" class="w-full rounded-xl border border-[#CFE3FF] bg-white px-3 py-2 text-xs font-bold text-[#1D1D1F] focus:border-[#0066CC] focus:outline-none">${options}</select>
+                        <div class="mt-3">${buildFilePreviewMarkup(right, { compact: true })}</div>
+                    </section>
+                </div>
+            `;
+
+            const selects = body.querySelectorAll("select");
+            if (selects[0]) selects[0].value = String(left.File_ID || "");
+            if (selects[1]) selects[1].value = String(right.File_ID || "");
+            enhanceNativeSoftSelects(body);
             renderLucideIcons();
         }
 
@@ -7965,11 +8336,14 @@
                     return `
                         <div class="flex items-center gap-2 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3 py-2.5">
                             ${resourceUrl ? `<a href="${escapeHtml(resourceUrl)}" target="_blank" rel="noopener noreferrer" class="flex min-w-0 flex-1 items-center gap-2 transition hover:opacity-75" title="開啟 ${escapeHtml(resource.File_Name || "項目附件")}">${rowContent}</a>` : `<div class="flex min-w-0 flex-1 items-center gap-2">${rowContent}</div>`}
-                            ${isExhibitionAdmin ? `
-                                <button type="button" onclick="deleteAssignmentResource('${resourceId}')" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#86868B] transition hover:bg-[#FFF0EE] hover:text-[#FF3B30]" title="移除附件" aria-label="移除 ${escapeHtml(resource.File_Name || "項目附件")}">
-                                    <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
-                                </button>
-                            ` : ''}
+                            <div class="flex shrink-0 items-center gap-1">
+                                ${resourceUrl ? `<button type="button" onclick="openFilePreview('assignment-resource', '${resourceId}')" class="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#0066CC] transition hover:bg-[#EDF5FF]" title="預覽附件" aria-label="預覽 ${escapeHtml(resource.File_Name || "項目附件")}"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>` : ''}
+                                ${isExhibitionAdmin ? `
+                                    <button type="button" onclick="deleteAssignmentResource('${resourceId}')" class="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#86868B] transition hover:bg-[#FFF0EE] hover:text-[#FF3B30]" title="移除附件" aria-label="移除 ${escapeHtml(resource.File_Name || "項目附件")}">
+                                        <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
                         </div>
                     `;
                 }).join("")
@@ -8323,15 +8697,57 @@
             }
 
             if (isRemoteSyncEnabled() && authSessionToken && gasConnectionStatus === "remote") {
+                remoteMutationInFlight = true;
                 assignmentDeleteInFlight = true;
                 setAssignmentDeleteModalPending(true);
                 const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
+                let response = null;
 
                 try {
-                    const response = await requestGas("deleteAssignment", {
-                        assignmentId: assignmentId,
-                        stateRevision: remoteStateRevision
-                    });
+                    // Let an already-running generic save finish first. This
+                    // prevents an older browser snapshot from racing the delete.
+                    cancelQueuedRemoteStateSync();
+                    await waitForRemoteStateSaveToSettle();
+
+                    for (let attempt = 0; attempt < 2; attempt += 1) {
+                        try {
+                            response = await requestGas("deleteAssignment", {
+                                assignmentId: assignmentId,
+                                stateRevision: remoteStateRevision
+                            });
+                            break;
+                        } catch (error) {
+                            if (!/STATE_CONFLICT/.test(String(error && error.message || "")) || attempt > 0) {
+                                throw error;
+                            }
+
+                            // A different manager may have updated the sheet
+                            // between bootstrap and this click. Reload once and
+                            // retry against the newest revision automatically.
+                            const latest = await requestGas("bootstrap", null, "GET");
+                            if (!applyBackendStateResponse(latest, {
+                                preferredUserId: preferredUserId,
+                                allowFallback: false
+                            })) {
+                                throw new Error("GAS 重新載入後沒有回傳最新資料。");
+                            }
+                            gasConnectionStatus = "remote";
+
+                            const refreshedAssignment = ensureArray(state.Assignments).find(function(item) {
+                                return String(item && item.Assignment_ID || "") === assignmentId;
+                            });
+                            if (!refreshedAssignment) {
+                                closeAssignmentDeleteModal(true);
+                                closeAssignmentDetailModal();
+                                showToast("這份繳交項目已由其他管理者刪除，頁面已同步。", "success");
+                                return;
+                            }
+                        }
+                    }
+
+                    if (!response) {
+                        throw new Error("GAS 刪除沒有回傳結果。");
+                    }
                     if (!applyBackendStateResponse(response, {
                         preferredUserId: preferredUserId,
                         allowFallback: false
@@ -8359,26 +8775,17 @@
                     }
                 } catch (error) {
                     const message = String(error && error.message || "");
-                    if (/STATE_CONFLICT/.test(message)) {
-                        try {
-                            const latest = await requestGas("bootstrap", null, "GET");
-                            applyBackendStateResponse(latest, {
-                                preferredUserId: preferredUserId,
-                                allowFallback: false
-                            });
-                            gasConnectionStatus = "remote";
-                            closeAssignmentDeleteModal(true);
-                            showToast("雲端資料剛更新，已重新載入最新版本；請再確認一次刪除。", "warning");
-                        } catch (reloadError) {
-                            gasConnectionStatus = "fallback";
-                            showToast("刪除衝突後無法重新載入雲端資料。", "error");
-                        }
-                    } else {
-                        showToast("雲端刪除失敗：" + message, "error");
-                    }
+                    showToast(
+                        /STATE_CONFLICT/.test(message)
+                            ? "雲端資料剛更新，刪除沒有完成，請重新整理後再試。"
+                            : "雲端刪除失敗：" + message,
+                        "error"
+                    );
                     console.error("GAS 繳交項目刪除失敗", error);
                 } finally {
+                    remoteMutationInFlight = false;
                     assignmentDeleteInFlight = false;
+                    cancelQueuedRemoteStateSync();
                     setAssignmentDeleteModalPending(false);
                     renderConnectionStatusBadge();
                 }
@@ -8643,7 +9050,7 @@
                         ${submission.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]"><span class="font-bold">審核意見：</span>${escapeHtml(submission.Review_Note)}</div>` : ''}
                         ${submission.Reviewed_At ? `<p class="mt-2 text-[10px] text-[#86868B]">審核時間：${escapeHtml(formatCompactDateTimeLabel(submission.Reviewed_At))}</p>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-2">
-                            ${submission.Google_Drive_URL ? `<a href="${submission.Google_Drive_URL}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-xl border border-[#E8E8ED] px-3 py-2 text-[10px] font-bold text-[#0066CC] hover:bg-white">開啟已上傳檔案</a>` : ''}
+                            ${submission.Google_Drive_URL ? `<button type="button" onclick="openFilePreview('assignment-submission', '${escapeInlineJsString(submission.Submission_ID)}')" class="inline-flex items-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3 py-2 text-[10px] font-bold text-[#0066CC] hover:bg-[#EDF5FF]"><i data-lucide="eye" class="h-3.5 w-3.5"></i>預覽</button><a href="${escapeHtml(submission.Google_Drive_URL)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-xl border border-[#E8E8ED] px-3 py-2 text-[10px] font-bold text-[#0066CC] hover:bg-white">開啟已上傳檔案</a>` : ''}
                             ${canReviewSubmission ? `
                                 <button type="button" onclick="openAssignmentReviewModal('${escapeHtml(submission.Submission_ID)}', '退回修正')" class="inline-flex items-center rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] font-bold text-[#C9342B] hover:bg-[#FFF0EE]">退回修正</button>
                                 <button type="button" onclick="openAssignmentReviewModal('${escapeHtml(submission.Submission_ID)}', '通過')" class="inline-flex items-center rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white hover:opacity-90">通過</button>
@@ -8832,7 +9239,7 @@
                                     <p class="text-[10px] text-[#86868B] mt-1">${mySubmission ? formatCompactDateTimeLabel(mySubmission.Submitted_At || mySubmission.Updated_At) : "尚未繳交"}</p>
                                     <p class="text-xs text-[#1D1D1F] mt-2 leading-relaxed whitespace-pre-wrap">${mySubmission ? escapeHtml(mySubmission.Text_Content || "（未填寫文字說明）") : "請完成繳交後再回來查看。"}</p>
                                     ${mySubmission && mySubmission.File_Name ? `<p class="text-[10px] text-[#0066CC] mt-2 break-all">${escapeHtml(mySubmission.File_Name)}</p>` : ''}
-                                    ${mySubmission && mySubmission.Google_Drive_URL ? `<a href="${mySubmission.Google_Drive_URL}" target="_blank" rel="noopener noreferrer" class="inline-flex mt-2 text-[10px] font-bold text-[#0066CC] hover:underline">開啟已上傳檔案</a>` : ''}
+                                    ${mySubmission && mySubmission.Google_Drive_URL ? `<div class="mt-2 flex flex-wrap items-center gap-2"><button type="button" onclick="openFilePreview('assignment-submission', '${escapeInlineJsString(mySubmission.Submission_ID)}')" class="inline-flex items-center gap-1.5 rounded-lg border border-[#CFE3FF] bg-[#F7FAFF] px-2.5 py-1.5 text-[10px] font-bold text-[#0066CC] hover:bg-[#EDF5FF]"><i data-lucide="eye" class="h-3 w-3"></i>預覽</button><a href="${escapeHtml(mySubmission.Google_Drive_URL)}" target="_blank" rel="noopener noreferrer" class="inline-flex text-[10px] font-bold text-[#0066CC] hover:underline">開啟已上傳檔案</a></div>` : ''}
                                     ${mySubmission && mySubmission.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]"><span class="font-bold">審核意見：</span>${escapeHtml(mySubmission.Review_Note)}</div>` : ''}
                                     ${mySubmission && mySubmission.Reviewed_At ? `<p class="mt-2 text-[10px] text-[#86868B]">審核時間：${escapeHtml(formatCompactDateTimeLabel(mySubmission.Reviewed_At))}</p>` : ''}
                                 </div>
@@ -11569,6 +11976,7 @@
                 meeting: { label: "會議", dot: "bg-[#0066CC]", chip: "bg-[#EEF6FF] text-[#0066CC]" },
                 production: { label: "製作", dot: "bg-[#34C759]", chip: "bg-[#EDF9F0] text-[#14833B]" },
                 review: { label: "審核", dot: "bg-[#5E5CE6]", chip: "bg-[#F1F0FF] text-[#5E5CE6]" },
+                task: { label: "工作", dot: "bg-[#FF9500]", chip: "bg-[#FFF5E8] text-[#B86A00]" },
                 print: { label: "印刷", dot: "bg-[#FF9500]", chip: "bg-[#FFF5E8] text-[#D06F00]" },
                 reminder: { label: "提醒", dot: "bg-[#6E6E73]", chip: "bg-[#F2F2F7] text-[#6E6E73]" },
                 assignment: { label: "繳交截止", dot: "bg-[#FF3B30]", chip: "bg-[#FFF2F0] text-[#C9342B]" }
@@ -11616,12 +12024,160 @@
             }).filter(Boolean);
         }
 
+        function getCalendarReviewEvents() {
+            const reviewEvents = [];
+            ensureArray(state.Assignments).forEach(function(assignment) {
+                const latestByTeam = {};
+                getAssignmentSubmissionsForAssignment(assignment.Assignment_ID).forEach(function(submission) {
+                    if (!latestByTeam[submission.Team_ID]) {
+                        latestByTeam[submission.Team_ID] = submission;
+                    }
+                });
+                Object.keys(latestByTeam).forEach(function(teamId) {
+                    const submission = latestByTeam[teamId];
+                    if (getAssignmentReviewSubmissionStatus(submission).key !== "submitted") return;
+                    const startsAt = normalizeDateTimeText(submission.Updated_At || submission.Submitted_At);
+                    if (!calendarDateFromText(startsAt)) return;
+                    const team = state.Teams.find(function(item) { return String(item.Team_ID || "") === String(teamId); });
+                    reviewEvents.push({
+                        id: "review:" + String(submission.Submission_ID || ""),
+                        source: "review",
+                        title: "待審：" + String(team ? team.Team_Name : teamId) + " · " + String(assignment.Title || "繳交項目"),
+                        description: String(submission.Text_Content || ""),
+                        startsAt: startsAt,
+                        endsAt: startsAt,
+                        allDay: false,
+                        eventType: "review",
+                        stageId: String(assignment.Stage_ID || ""),
+                        editable: false,
+                        assignmentId: String(assignment.Assignment_ID || "")
+                    });
+                });
+            });
+
+            ensureArray(state.Design_Service_Orders).forEach(function(order) {
+                if (String(order.Status || "") !== "待審核") return;
+                const startsAt = normalizeDateTimeText(order.Submitted_At || order.Updated_At);
+                if (!calendarDateFromText(startsAt)) return;
+                const assignment = state.Assignments.find(function(item) { return String(item.Assignment_ID || "") === String(order.Assignment_ID || ""); });
+                reviewEvents.push({
+                    id: "service-review:" + String(order.Service_Order_ID || ""),
+                    source: "review",
+                    title: "待審：形印代做 · " + String(assignment ? assignment.Title : order.Assignment_ID || "案件"),
+                    description: "形印代做成果等待組長審核。",
+                    startsAt: startsAt,
+                    endsAt: startsAt,
+                    allDay: false,
+                    eventType: "review",
+                    stageId: String(order.Stage_ID || ""),
+                    editable: false,
+                    assignmentId: String(order.Assignment_ID || "")
+                });
+            });
+
+            return reviewEvents;
+        }
+
+        function getCalendarWorkItemEvents() {
+            return ensureArray(state.Work_Items).map(function(item) {
+                hydrateWorkItemRecord(item);
+                const dueAt = normalizeDateTimeText(item && item.Due_At);
+                if (!calendarDateFromText(dueAt)) return null;
+                const statusLabel = getWorkItemStatusMeta(item.Status).label;
+                return {
+                    id: "work-item:" + String(item.Work_Item_ID || ""),
+                    source: "work-item",
+                    title: "工作：" + String(item.Title || "未命名工作"),
+                    description: String(item.Description || "") + (item.Assigned_To_Name ? " 負責人：" + item.Assigned_To_Name : "") + " 狀態：" + statusLabel,
+                    startsAt: dueAt,
+                    endsAt: dueAt,
+                    allDay: false,
+                    eventType: "task",
+                    stageId: String(item.Stage_ID || ""),
+                    editable: false,
+                    workItemId: String(item.Work_Item_ID || "")
+                };
+            }).filter(Boolean);
+        }
+
         function getAllCalendarEvents() {
-            return getCalendarCustomEvents().concat(getCalendarDeadlineEvents()).sort(function(a, b) {
+            return getCalendarCustomEvents().concat(getCalendarDeadlineEvents(), getCalendarReviewEvents(), getCalendarWorkItemEvents()).sort(function(a, b) {
                 const aDate = calendarDateFromText(a.startsAt);
                 const bDate = calendarDateFromText(b.startsAt);
                 return (aDate ? aDate.getTime() : 0) - (bDate ? bDate.getTime() : 0);
             });
+        }
+
+        function getVisibleCalendarEvents() {
+            return getAllCalendarEvents().filter(function(event) {
+                if (calendarEventFilter === "deadline") return event.source === "assignment";
+                if (calendarEventFilter === "review") return event.source === "review";
+                if (calendarEventFilter === "custom") return event.source === "calendar";
+                if (calendarEventFilter === "work") return event.source === "work-item";
+                return true;
+            });
+        }
+
+        function setCalendarEventFilter(filter) {
+            calendarEventFilter = ["all", "deadline", "review", "work", "custom"].includes(filter) ? filter : "all";
+            renderAll();
+        }
+
+        function escapeIcsText(value) {
+            return String(value || "").replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\r?\n/g, "\\n");
+        }
+
+        function toIcsDateTime(value, allDay) {
+            const normalized = normalizeDateTimeText(value);
+            const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/);
+            if (!match) return "";
+            const dateText = match[1] + match[2] + match[3];
+            return allDay ? dateText : dateText + "T" + (match[4] || "00") + (match[5] || "00") + "00";
+        }
+
+        function exportShapePrintCalendarIcs() {
+            const events = getAllCalendarEvents();
+            if (!events.length) {
+                showToast("目前沒有可匯出的行事曆資料。", "info");
+                return;
+            }
+            const now = new Date();
+            const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+            const body = events.map(function(event) {
+                const start = toIcsDateTime(event.startsAt, event.allDay);
+                let end = toIcsDateTime(event.endsAt || event.startsAt, event.allDay) || start;
+                if (!start) return "";
+                if (event.allDay && end <= start) {
+                    const startDate = calendarDateFromText(event.startsAt);
+                    if (startDate) {
+                        startDate.setDate(startDate.getDate() + 1);
+                        end = calendarDateKey(startDate).replace(/-/g, "");
+                    }
+                }
+                const dateProperties = event.allDay
+                    ? "DTSTART;VALUE=DATE:" + start + "\r\nDTEND;VALUE=DATE:" + end
+                    : "DTSTART;TZID=Asia/Taipei:" + start + "\r\nDTEND;TZID=Asia/Taipei:" + end;
+                return [
+                    "BEGIN:VEVENT",
+                    "UID:" + escapeIcsText(event.id || event.title) + "@shapeprint.local",
+                    "DTSTAMP:" + stamp,
+                    dateProperties,
+                    "SUMMARY:" + escapeIcsText(event.title),
+                    "DESCRIPTION:" + escapeIcsText(event.description || ""),
+                    "END:VEVENT"
+                ].join("\r\n");
+            }).filter(Boolean);
+            const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//畢展形印組管理系統//工作行事曆//ZH", "CALSCALE:GREGORIAN"].concat(body, ["END:VCALENDAR"]).join("\r\n");
+            const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "形印組工作行事曆.ics";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(function() { URL.revokeObjectURL(url); }, 1200);
+            showToast("工作行事曆已匯出，可加入常用行事曆 App。", "success");
         }
 
         function getCalendarEventDayKeys(event) {
@@ -11648,6 +12204,18 @@
             renderAll();
         }
 
+        function openWorkItemFromCalendar(workItemId) {
+            activeTab = "work-items";
+            renderAll();
+            const targetId = String(workItemId || "");
+            window.setTimeout(function() {
+                const target = Array.from(document.querySelectorAll("[data-work-item-card-id]")).find(function(card) {
+                    return String(card.getAttribute("data-work-item-card-id") || "") === targetId;
+                });
+                if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+            }, 80);
+        }
+
         function getCalendarMonthLabel(date) {
             return date.getFullYear() + " 年 " + (date.getMonth() + 1) + " 月";
         }
@@ -11658,6 +12226,8 @@
                 const meta = getCalendarEventTypeMeta(event.eventType);
                 const action = event.editable
                     ? "openCalendarEventModal('" + escapeInlineJsString(event.id) + "')"
+                    : event.source === "work-item"
+                    ? "openWorkItemFromCalendar('" + escapeInlineJsString(event.workItemId || "") + "')"
                     : "openAssignmentDetailModal('" + escapeInlineJsString(event.assignmentId || "") + "')";
                 const time = event.allDay ? "全天" : String(normalizeDateTimeText(event.startsAt).split(" ")[1] || "");
                 return `<button type="button" title="${escapeHtml(event.title)}" onclick="${action}" class="flex w-full items-center gap-1.5 truncate rounded-lg px-1.5 py-1 text-left text-[9px] font-semibold text-[#1D1D1F] transition hover:bg-white hover:shadow-sm"><span class="h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}"></span><span class="truncate">${escapeHtml(time ? time + " " : "")}${escapeHtml(event.title)}</span></button>`;
@@ -11678,22 +12248,34 @@
             gridStart.setDate(gridStart.getDate() - dayOffset);
             const todayKey = calendarDateKey(new Date());
             const visibleMonth = calendarViewCursor.getMonth();
-            const eventsByDay = getAllCalendarEvents().reduce(function(result, event) {
+            const allCalendarEvents = getAllCalendarEvents();
+            const visibleCalendarEvents = getVisibleCalendarEvents();
+            const eventsByDay = visibleCalendarEvents.reduce(function(result, event) {
                 getCalendarEventDayKeys(event).forEach(function(key) {
                     if (!result[key]) result[key] = [];
                     result[key].push(event);
                 });
                 return result;
             }, {});
-            const monthEvents = getAllCalendarEvents().filter(function(event) {
+            const monthEvents = visibleCalendarEvents.filter(function(event) {
                 const date = calendarDateFromText(event.startsAt);
                 return date && date.getFullYear() === calendarViewCursor.getFullYear() && date.getMonth() === visibleMonth;
             });
-            const upcomingEvents = getAllCalendarEvents().filter(function(event) {
+            const upcomingEvents = visibleCalendarEvents.filter(function(event) {
                 const date = calendarDateFromText(event.startsAt);
                 return date && date.getTime() >= new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
             }).slice(0, 6);
             const weekdays = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
+            const deadlineCount = allCalendarEvents.filter(function(event) { return event.source === "assignment"; }).length;
+            const reviewCount = allCalendarEvents.filter(function(event) { return event.source === "review"; }).length;
+            const workItemCount = allCalendarEvents.filter(function(event) { return event.source === "work-item"; }).length;
+            const filters = [
+                { id: "all", label: "全部" },
+                { id: "deadline", label: "截止" },
+                { id: "review", label: "待審" },
+                { id: "work", label: "工作" },
+                { id: "custom", label: "自訂" }
+            ];
 
             const cells = Array.from({ length: 42 }, function(_, index) {
                 const date = new Date(gridStart);
@@ -11716,9 +12298,21 @@
                         <div>
                             <div class="inline-flex items-center gap-2 rounded-full border border-[#E5E5EA] bg-[#FBFBFD] px-3 py-1.5 text-[10px] font-bold tracking-[0.16em] text-[#1D1D1F] uppercase"><i data-lucide="calendar-days" class="h-3.5 w-3.5 text-[#0066CC]"></i>形印組專用</div>
                             <h3 class="mt-3 text-2xl font-bold tracking-[-0.04em] text-[#1D1D1F]">工作行事曆</h3>
-                            <p class="mt-1 text-xs leading-relaxed text-[#86868B]">統整形印組的會議、製作與印刷排程；繳交截止日會自動同步顯示。</p>
+                            <p class="mt-1 text-xs leading-relaxed text-[#86868B]">統整會議、製作與印刷排程，並自動帶入繳交截止與待審核作品。</p>
                         </div>
-                        <button type="button" onclick="openCalendarEventModal()" class="inline-flex items-center justify-center gap-1.5 self-start rounded-xl bg-[#1D1D1F] px-4 py-2.5 text-xs font-bold text-white transition hover:opacity-90"><i data-lucide="plus" class="h-4 w-4"></i>新增事件</button>
+                        <div class="flex flex-wrap items-center gap-2 self-start">
+                            <button type="button" onclick="exportShapePrintCalendarIcs()" class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E5E5EA] bg-white px-3.5 py-2.5 text-xs font-bold text-[#0066CC] transition hover:bg-[#F4F8FF]"><i data-lucide="download" class="h-3.5 w-3.5"></i>匯出 .ics</button>
+                            <button type="button" onclick="openCalendarEventModal()" class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2.5 text-xs font-bold text-white transition hover:opacity-90"><i data-lucide="plus" class="h-4 w-4"></i>新增事件</button>
+                        </div>
+                    </div>
+                    <div class="mt-5 flex flex-col gap-3 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="inline-flex w-full items-center rounded-xl border border-[#E5E5EA] bg-white p-1 sm:w-auto">
+                            ${filters.map(function(filter) {
+                                const selected = calendarEventFilter === filter.id;
+                                return `<button type="button" onclick="setCalendarEventFilter('${filter.id}')" class="rounded-lg px-3 py-1.5 text-[10px] font-bold transition ${selected ? 'bg-[#1D1D1F] text-white shadow-sm' : 'text-[#86868B] hover:bg-[#F5F5F7] hover:text-[#1D1D1F]'}">${filter.label}</button>`;
+                            }).join('')}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-[#6E6E73]"><span class="rounded-full bg-[#FFF2F0] px-2.5 py-1 text-[#C9342B]">截止 ${deadlineCount}</span><span class="rounded-full bg-[#F1F0FF] px-2.5 py-1 text-[#5E5CE6]">待審 ${reviewCount}</span><span class="rounded-full bg-[#FFF5E8] px-2.5 py-1 text-[#B86A00]">工作 ${workItemCount}</span><span class="rounded-full bg-white px-2.5 py-1">目前顯示 ${visibleCalendarEvents.length}</span></div>
                     </div>
                     <div class="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
                         <div class="overflow-hidden rounded-[24px] border border-[#E8E8ED] bg-white">
@@ -11737,10 +12331,14 @@
                             <div class="flex items-center justify-between gap-3"><div><p class="text-[10px] font-bold tracking-[0.16em] text-[#86868B] uppercase">This month</p><h4 class="mt-1 text-sm font-bold text-[#1D1D1F]">${monthEvents.length} 項排程</h4></div><span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-[#0066CC] shadow-sm"><i data-lucide="sparkles" class="h-4 w-4"></i></span></div>
                             <div class="mt-4 space-y-2.5">${upcomingEvents.length ? upcomingEvents.map(function(event) {
                                 const meta = getCalendarEventTypeMeta(event.eventType);
-                                const action = event.editable ? "openCalendarEventModal('" + escapeInlineJsString(event.id) + "')" : "openAssignmentDetailModal('" + escapeInlineJsString(event.assignmentId || "") + "')";
+                                const action = event.editable
+                                    ? "openCalendarEventModal('" + escapeInlineJsString(event.id) + "')"
+                                    : event.source === "work-item"
+                                    ? "openWorkItemFromCalendar('" + escapeInlineJsString(event.workItemId || "") + "')"
+                                    : "openAssignmentDetailModal('" + escapeInlineJsString(event.assignmentId || "") + "')";
                                 return `<button type="button" onclick="${action}" class="flex w-full items-start gap-2.5 rounded-2xl bg-white p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full ${meta.dot}"></span><span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-[#1D1D1F]">${escapeHtml(event.title)}</span><span class="mt-1 block text-[10px] text-[#86868B]">${escapeHtml(calendarDateTimeLabel(event.startsAt, event.allDay))}</span></span></button>`;
                             }).join("") : `<div class="rounded-2xl border border-dashed border-[#D8D8DE] bg-white p-4 text-center text-[11px] leading-relaxed text-[#86868B]">尚未有近期工作事件。<br>可先新增會議或製作排程。</div>`}</div>
-                            <div class="mt-4 rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-[10px] leading-relaxed text-[#6E6E73]"><span class="font-bold text-[#1D1D1F]">提示：</span>紅色圓點為繳交截止日，會隨繳交項目自動更新。</div>
+                            <div class="mt-4 rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-[10px] leading-relaxed text-[#6E6E73]"><span class="font-bold text-[#1D1D1F]">提醒機制：</span>系統會在截止前提醒小組；距截止 24 小時時通知組長，逾期 6 小時後同步列入形印組追蹤。</div>
                         </aside>
                     </div>
                 </section>
@@ -12783,6 +13381,480 @@
             `;
         }
 
+        function getWorkItemById(workItemId) {
+            const targetId = String(workItemId || "");
+            return ensureArray(state.Work_Items).find(function(item) {
+                return String(item && item.Work_Item_ID || "") === targetId;
+            }) || null;
+        }
+
+        function getWorkItemsForBrowserView() {
+            const statusOrder = { "進行中": 1, "待處理": 2, "待認養": 3, "已完成": 4 };
+            return ensureArray(state.Work_Items).map(function(item) {
+                hydrateWorkItemRecord(item);
+                return item;
+            }).slice().sort(function(a, b) {
+                const statusDiff = (statusOrder[a.Status] || 9) - (statusOrder[b.Status] || 9);
+                if (statusDiff !== 0) return statusDiff;
+                const aDue = calendarDateFromText(a.Due_At);
+                const bDue = calendarDateFromText(b.Due_At);
+                if (aDue && bDue && aDue.getTime() !== bDue.getTime()) return aDue.getTime() - bDue.getTime();
+                if (aDue && !bDue) return -1;
+                if (!aDue && bDue) return 1;
+                return String(b.Updated_At || b.Created_At || "").localeCompare(String(a.Updated_At || a.Created_At || ""));
+            });
+        }
+
+        function getWorkItemStatusMeta(status) {
+            const metas = {
+                "待認養": { label: "待認養", tone: "bg-[#FFF5E8] text-[#B86A00]" },
+                "待處理": { label: "待處理", tone: "bg-[#F2F2F7] text-[#6E6E73]" },
+                "進行中": { label: "進行中", tone: "bg-[#EAF3FF] text-[#0066CC]" },
+                "已完成": { label: "已完成", tone: "bg-[#E8F7ED] text-[#14833B]" }
+            };
+            return metas[String(status || "")] || metas["待處理"];
+        }
+
+        function getWorkItemPriorityMeta(priority) {
+            const metas = {
+                "高": { label: "高優先", tone: "bg-[#FFF0EE] text-[#C9342B]" },
+                "一般": { label: "一般", tone: "bg-[#F2F2F7] text-[#6E6E73]" },
+                "低": { label: "低優先", tone: "bg-[#EDF9F0] text-[#14833B]" }
+            };
+            return metas[String(priority || "")] || metas["一般"];
+        }
+
+        function getWorkItemDueMeta(item) {
+            const dueDate = calendarDateFromText(item && item.Due_At);
+            if (!dueDate) return { label: "未設定到期時間", tone: "text-[#86868B]", overdue: false };
+            if (String(item && item.Status || "") === "已完成") {
+                return { label: "到期 " + formatCompactDateTimeLabel(item.Due_At), tone: "text-[#14833B]", overdue: false };
+            }
+            const remaining = dueDate.getTime() - Date.now();
+            if (remaining < 0) {
+                return { label: "已逾期 · " + formatCompactDateTimeLabel(item.Due_At), tone: "text-[#C9342B]", overdue: true };
+            }
+            return {
+                label: "截止 " + formatCompactDateTimeLabel(item.Due_At),
+                tone: remaining <= 24 * 60 * 60 * 1000 ? "text-[#B86A00]" : "text-[#86868B]",
+                overdue: false
+            };
+        }
+
+        function getWorkItemStageLabel(item) {
+            const stage = ensureArray(state.Config_Stages).find(function(entry) {
+                return String(entry && entry.Stage_ID || "") === String(item && item.Stage_ID || "");
+            });
+            return stage ? String(stage.Stage_Name || "") : "未指定會期";
+        }
+
+        function canCreateWorkItems() {
+            return getEffectiveRoleContext().effectiveRole === "SuperAdmin";
+        }
+
+        function canClaimWorkItem(item) {
+            const role = getEffectiveRoleContext().effectiveRole;
+            return role === "Admin"
+                && item
+                && String(item.Status || "") === "待認養"
+                && !String(item.Assigned_To_User_ID || "");
+        }
+
+        function canUpdateOwnWorkItem(item) {
+            return getEffectiveRoleContext().effectiveRole === "Admin"
+                && item
+                && String(item.Assigned_To_User_ID || "") === String(currentUser && currentUser.User_ID || "")
+                && String(item.Status || "") !== "已完成";
+        }
+
+        function getWorkItemActionButtons(workItemId) {
+            const targetId = String(workItemId || "");
+            return Array.from(document.querySelectorAll("[data-work-item-action-id]")).filter(function(button) {
+                return String(button.getAttribute("data-work-item-action-id") || "") === targetId;
+            });
+        }
+
+        async function submitWorkItemAction(action, payload, successMessage) {
+            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
+                throw new Error("工作事項需要保持 GAS 雲端連線，請重新同步後再操作。");
+            }
+            const response = await requestGas(action, Object.assign({}, payload || {}, {
+                stateRevision: remoteStateRevision
+            }));
+            if (!applyBackendStateResponse(response, {
+                preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                allowFallback: false
+            })) {
+                throw new Error("雲端沒有回傳最新工作事項資料。");
+            }
+            if (successMessage) showToast(successMessage, "success");
+            return response;
+        }
+
+        async function claimWorkItem(workItemId) {
+            if (workItemActionInFlight) return;
+            const item = getWorkItemById(workItemId);
+            if (!canClaimWorkItem(item)) return;
+            const buttons = getWorkItemActionButtons(workItemId);
+            workItemActionInFlight = true;
+            buttons.forEach(function(button) { button.disabled = true; button.textContent = "認養中…"; });
+            try {
+                await submitWorkItemAction("claimWorkItem", { workItemId: String(workItemId || "") }, "已認養工作事項，現在開始處理。");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "認養工作事項失敗，請重新整理後再試。", "warning");
+            } finally {
+                workItemActionInFlight = false;
+                buttons.forEach(function(button) { button.disabled = false; });
+            }
+        }
+
+        async function updateWorkItemProgress(workItemId, progressAction) {
+            if (workItemActionInFlight) return;
+            const item = getWorkItemById(workItemId);
+            const role = getEffectiveRoleContext().effectiveRole;
+            if (!item || !["start", "complete", "reopen"].includes(progressAction)) return;
+            if (progressAction === "reopen" && role !== "SuperAdmin") return;
+            if (progressAction !== "reopen" && role === "Admin" && !canUpdateOwnWorkItem(item)) return;
+            const buttons = getWorkItemActionButtons(workItemId);
+            workItemActionInFlight = true;
+            buttons.forEach(function(button) { button.disabled = true; button.classList.add("opacity-60"); });
+            const labels = { start: "開始處理中…", complete: "完成中…", reopen: "重新開啟中…" };
+            const successLabels = { start: "已開始處理工作事項。", complete: "已完成工作事項。", reopen: "工作事項已重新開啟。" };
+            const actionButtons = buttons.filter(function(button) {
+                return String(button.getAttribute("data-work-item-action") || "") === progressAction;
+            });
+            actionButtons.forEach(function(button) { button.textContent = labels[progressAction]; });
+            try {
+                await submitWorkItemAction("updateWorkItemProgress", {
+                    workItemId: String(workItemId || ""),
+                    progressAction: progressAction
+                }, successLabels[progressAction]);
+            } catch (error) {
+                showToast(error && error.message ? error.message : "更新工作進度失敗，請重新整理後再試。", "warning");
+            } finally {
+                workItemActionInFlight = false;
+                buttons.forEach(function(button) { button.disabled = false; button.classList.remove("opacity-60"); });
+            }
+        }
+
+        function openWorkItemModal(workItemId) {
+            if (!canCreateWorkItems()) {
+                showToast("只有形印組長或形印指導教師可以建立與分配工作。", "warning");
+                return;
+            }
+            const modal = document.getElementById("work-item-modal");
+            if (!modal) return;
+            const item = workItemId ? getWorkItemById(workItemId) : null;
+            activeWorkItemId = item ? String(item.Work_Item_ID || "") : "";
+            workItemDeleteArmed = false;
+
+            const title = document.getElementById("work-item-modal-title");
+            const titleInput = document.getElementById("work-item-title");
+            const dueInput = document.getElementById("work-item-due");
+            const priorityInput = document.getElementById("work-item-priority");
+            const stageInput = document.getElementById("work-item-stage");
+            const assigneeInput = document.getElementById("work-item-assignee");
+            const descriptionInput = document.getElementById("work-item-description");
+            const saveButton = document.getElementById("work-item-save");
+            const deleteButton = document.getElementById("work-item-delete");
+            const spacer = document.getElementById("work-item-delete-spacer");
+
+            const defaultDue = formatAssignmentDateTimeInput(formatDateTimeTaipei(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)));
+            if (title) title.textContent = item ? "編輯工作事項" : "新增工作事項";
+            if (titleInput) titleInput.value = item ? String(item.Title || "") : "";
+            if (dueInput) dueInput.value = item ? formatAssignmentDateTimeInput(item.Due_At) : defaultDue;
+            if (priorityInput) priorityInput.value = item ? String(item.Priority || "一般") : "一般";
+            if (stageInput) {
+                const defaultStage = ensureArray(state.Config_Stages).find(function(stage) { return stage.Is_Active === true; }) || state.Config_Stages[0];
+                stageInput.innerHTML = `<option value="">不指定會期</option>` + ensureArray(state.Config_Stages).map(function(stage) {
+                    return `<option value="${escapeHtml(stage.Stage_ID)}">${escapeHtml(stage.Stage_Name)}</option>`;
+                }).join("");
+                stageInput.value = item ? String(item.Stage_ID || "") : String(defaultStage && defaultStage.Stage_ID || "");
+            }
+            if (assigneeInput) {
+                const assignees = ensureArray(state.Users).filter(function(user) {
+                    return String(user.Role || "") === "Admin" && String(user.Status || "") === "Active";
+                });
+                if (item && item.Assigned_To_User_ID && !assignees.some(function(user) { return String(user.User_ID || "") === String(item.Assigned_To_User_ID || ""); })) {
+                    assignees.push({ User_ID: item.Assigned_To_User_ID, Name: item.Assigned_To_Name || "目前負責人", Role: "Admin", Status: "Active" });
+                }
+                assigneeInput.innerHTML = `<option value="">開放認養</option>` + assignees.map(function(user) {
+                    return `<option value="${escapeHtml(user.User_ID)}">直接指派：${escapeHtml(user.Name || user.User_ID)}</option>`;
+                }).join("");
+                assigneeInput.value = item ? String(item.Assigned_To_User_ID || "") : "";
+            }
+            if (descriptionInput) descriptionInput.value = item ? String(item.Description || "") : "";
+            if (saveButton) saveButton.textContent = item ? "儲存變更" : "建立工作";
+            if (deleteButton) deleteButton.classList.toggle("hidden", !item);
+            if (spacer) spacer.classList.toggle("hidden", !item);
+            enhanceNativeSoftSelects(modal);
+            animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.975, fromBlur: 12, duration: 360 });
+            renderLucideIcons();
+            window.setTimeout(function() { if (titleInput) titleInput.focus(); }, 180);
+        }
+
+        function closeWorkItemModal(force) {
+            if (workItemSaveInFlight && force !== true) return;
+            activeWorkItemId = "";
+            workItemDeleteArmed = false;
+            const modal = document.getElementById("work-item-modal");
+            if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
+        }
+
+        function getWorkItemModalPayload() {
+            return {
+                title: String(document.getElementById("work-item-title") && document.getElementById("work-item-title").value || "").trim(),
+                dueAt: String(document.getElementById("work-item-due") && document.getElementById("work-item-due").value || "").replace("T", " "),
+                priority: String(document.getElementById("work-item-priority") && document.getElementById("work-item-priority").value || "一般"),
+                stageId: String(document.getElementById("work-item-stage") && document.getElementById("work-item-stage").value || ""),
+                assignedToUserId: String(document.getElementById("work-item-assignee") && document.getElementById("work-item-assignee").value || ""),
+                description: String(document.getElementById("work-item-description") && document.getElementById("work-item-description").value || "").trim()
+            };
+        }
+
+        async function saveWorkItem() {
+            if (workItemSaveInFlight) return;
+            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
+                showToast("工作事項需要保持 GAS 雲端連線，請重新同步後再建立。", "warning");
+                return;
+            }
+            const payload = getWorkItemModalPayload();
+            if (!payload.title) {
+                showToast("請輸入工作事項名稱。", "warning");
+                return;
+            }
+            const button = document.getElementById("work-item-save");
+            const isEditing = Boolean(activeWorkItemId);
+            workItemSaveInFlight = true;
+            if (button) { button.disabled = true; button.textContent = isEditing ? "儲存中…" : "建立中…"; }
+            try {
+                if (isEditing) payload.workItemId = activeWorkItemId;
+                const response = await requestGas(isEditing ? "updateWorkItem" : "createWorkItem", Object.assign({}, payload, { stateRevision: remoteStateRevision }));
+                if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "", allowFallback: false })) {
+                    throw new Error("雲端沒有回傳最新工作事項資料。");
+                }
+                closeWorkItemModal(true);
+                renderAll();
+                showToast(isEditing ? "工作事項已更新。" : (payload.assignedToUserId ? "工作事項已建立並完成指派。" : "工作事項已建立，組員可以認養。"), "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "儲存工作事項失敗，請稍後再試。", "warning");
+            } finally {
+                workItemSaveInFlight = false;
+                if (button) { button.disabled = false; button.textContent = isEditing ? "儲存變更" : "建立工作"; }
+            }
+        }
+
+        async function deleteWorkItem() {
+            if (!activeWorkItemId || workItemSaveInFlight) return;
+            const button = document.getElementById("work-item-delete");
+            if (!workItemDeleteArmed) {
+                workItemDeleteArmed = true;
+                if (button) button.textContent = "再按一次確認刪除";
+                window.setTimeout(function() {
+                    if (!workItemSaveInFlight) {
+                        workItemDeleteArmed = false;
+                        if (button) button.textContent = "刪除工作";
+                    }
+                }, 2600);
+                return;
+            }
+            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
+                showToast("工作事項需要保持 GAS 雲端連線，請重新同步後再刪除。", "warning");
+                return;
+            }
+            const workItemId = activeWorkItemId;
+            workItemSaveInFlight = true;
+            if (button) { button.disabled = true; button.textContent = "刪除中…"; }
+            try {
+                const response = await requestGas("deleteWorkItem", { workItemId: workItemId, stateRevision: remoteStateRevision });
+                if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "", allowFallback: false })) {
+                    throw new Error("雲端沒有回傳最新工作事項資料。");
+                }
+                closeWorkItemModal(true);
+                renderAll();
+                showToast("工作事項已移至回收桶。", "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "刪除工作事項失敗，請稍後再試。", "warning");
+            } finally {
+                workItemSaveInFlight = false;
+                workItemDeleteArmed = false;
+                if (button) { button.disabled = false; button.textContent = "刪除工作"; }
+            }
+        }
+
+        function renderWorkItemsBoard(container, effectiveRole) {
+            if (!["SuperAdmin", "Admin"].includes(effectiveRole)) {
+                container.innerHTML = `<div class="rounded-3xl border border-[#E8E8ED] bg-white p-8 text-center text-sm text-[#86868B]">工作事項僅供形印組工作台使用。</div>`;
+                return;
+            }
+            const isManager = effectiveRole === "SuperAdmin";
+            const items = getWorkItemsForBrowserView();
+            const activeItems = items.filter(function(item) { return item.Status !== "已完成"; });
+            const claimableCount = items.filter(function(item) { return item.Status === "待認養"; }).length;
+            const completedCount = items.filter(function(item) { return item.Status === "已完成"; }).length;
+            const overdueCount = activeItems.filter(function(item) { return getWorkItemDueMeta(item).overdue; }).length;
+
+            const cards = items.length ? items.map(function(item) {
+                const statusMeta = getWorkItemStatusMeta(item.Status);
+                const priorityMeta = getWorkItemPriorityMeta(item.Priority);
+                const dueMeta = getWorkItemDueMeta(item);
+                const isOwn = String(item.Assigned_To_User_ID || "") === String(currentUser && currentUser.User_ID || "");
+                const actionMarkup = isManager
+                    ? `${item.Status === "已完成" ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="reopen" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'reopen')" class="rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[10px] font-bold text-[#6E6E73] transition hover:bg-[#F5F5F7]">重新開啟</button>` : item.Assigned_To_User_ID ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="complete" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'complete')" class="rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">標記完成</button>` : ""}<button type="button" onclick="openWorkItemModal('${escapeInlineJsString(item.Work_Item_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3 py-2 text-[10px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]">編輯分配</button>`
+                    : canClaimWorkItem(item)
+                    ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="claim" onclick="claimWorkItem('${escapeInlineJsString(item.Work_Item_ID)}')" class="rounded-xl bg-[#0066CC] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">認養工作</button>`
+                    : isOwn && item.Status === "待處理"
+                    ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="start" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'start')" class="rounded-xl bg-[#0066CC] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">開始處理</button>`
+                    : isOwn && item.Status === "進行中"
+                    ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="complete" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'complete')" class="rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">完成工作</button>`
+                    : "";
+                return `<article data-work-item-card-id="${escapeHtml(item.Work_Item_ID)}" class="rounded-[24px] border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:border-[#D9D9E3] hover:bg-white sm:p-5">
+                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2"><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${statusMeta.tone}">${statusMeta.label}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${priorityMeta.tone}">${priorityMeta.label}</span>${item.Stage_ID ? `<span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-[#86868B]">${escapeHtml(getWorkItemStageLabel(item))}</span>` : ""}</div>
+                            <h4 class="mt-3 text-base font-bold tracking-[-0.02em] text-[#1D1D1F]">${escapeHtml(item.Title || "未命名工作")}</h4>
+                            ${item.Description ? `<p class="mt-2 whitespace-pre-line text-xs leading-relaxed text-[#6E6E73]">${escapeHtml(item.Description)}</p>` : `<p class="mt-2 text-xs text-[#AEAEB2]">尚未補充工作說明</p>`}
+                            <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold ${dueMeta.tone}"><span class="inline-flex items-center gap-1.5"><i data-lucide="clock-3" class="h-3.5 w-3.5"></i>${escapeHtml(dueMeta.label)}</span><span class="inline-flex items-center gap-1.5 text-[#86868B]"><i data-lucide="user-round" class="h-3.5 w-3.5"></i>${escapeHtml(item.Assigned_To_Name || "開放認養")}</span></div>
+                        </div>
+                        <div class="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">${actionMarkup}</div>
+                    </div>
+                    <div class="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#ECECF1] pt-3 text-[10px] text-[#86868B]"><span>建立者：${escapeHtml(item.Created_By_Name || "形印組")}</span>${item.Completed_At ? `<span class="text-[#14833B]">完成於 ${escapeHtml(formatCompactDateTimeLabel(item.Completed_At))}</span>` : item.Updated_At ? `<span>最近更新 ${escapeHtml(formatCompactDateTimeLabel(item.Updated_At))}</span>` : ""}</div>
+                </article>`;
+            }).join("") : `<div class="rounded-[24px] border border-dashed border-[#D9D9E3] bg-[#FAFAFB] px-5 py-14 text-center"><span class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[#E4E4E8] bg-white text-[#0066CC]"><i data-lucide="list-checks" class="h-5 w-5"></i></span><h4 class="mt-3 text-sm font-bold text-[#1D1D1F]">目前還沒有工作事項</h4><p class="mt-1.5 text-xs leading-relaxed text-[#86868B]">${isManager ? "可以先建立一項工作，選擇開放認養或直接指定組員。" : "組長或指導教師建立工作後，會顯示在這裡。"}</p></div>`;
+
+            container.innerHTML = `<section class="rounded-[28px] border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
+                <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div><div class="inline-flex items-center gap-2 rounded-full border border-[#E5E5EA] bg-[#FBFBFD] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#1D1D1F]"><i data-lucide="list-checks" class="h-3.5 w-3.5 text-[#0066CC]"></i>形印組專用</div><h3 class="mt-3 text-2xl font-bold tracking-[-0.04em] text-[#1D1D1F]">工作事項</h3><p class="mt-1 max-w-2xl text-xs leading-relaxed text-[#86868B]">集中安排形印組的製作、校對與追蹤工作；未分配的事項可以由組員自行認養。</p></div>
+                    ${isManager ? `<button type="button" onclick="openWorkItemModal()" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2.5 text-xs font-bold text-white transition hover:opacity-90"><i data-lucide="plus" class="h-4 w-4"></i>新增工作事項</button>` : `<span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#EEF6FF] px-3 py-1.5 text-[10px] font-bold text-[#0066CC]"><i data-lucide="hand" class="h-3.5 w-3.5"></i>可認養開放工作</span>`}
+                </div>
+                <div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4"><div class="rounded-2xl bg-[#F7FAFF] p-3.5"><p class="text-[10px] font-semibold text-[#86868B]">全部工作</p><p class="mt-1 text-2xl font-bold text-[#0066CC]">${items.length}</p></div><div class="rounded-2xl bg-[#FFF8EF] p-3.5"><p class="text-[10px] font-semibold text-[#86868B]">待認養</p><p class="mt-1 text-2xl font-bold text-[#B86A00]">${claimableCount}</p></div><div class="rounded-2xl bg-[#FFF3F1] p-3.5"><p class="text-[10px] font-semibold text-[#86868B]">逾期追蹤</p><p class="mt-1 text-2xl font-bold text-[#C9342B]">${overdueCount}</p></div><div class="rounded-2xl bg-[#F0FAF3] p-3.5"><p class="text-[10px] font-semibold text-[#86868B]">已完成</p><p class="mt-1 text-2xl font-bold text-[#14833B]">${completedCount}</p></div></div>
+                <div class="mt-5 flex items-center justify-between gap-3"><h4 class="text-sm font-bold text-[#1D1D1F]">工作清單</h4><span class="text-[10px] text-[#86868B]">${isManager ? "可編輯與重新分配" : "可認養並更新自己的進度"}</span></div>
+                <div class="mt-3 space-y-3">${cards}</div>
+            </section>`;
+            renderLucideIcons();
+        }
+
+        function getRecycleBinEntityLabel(entityType) {
+            const labels = {
+                stage: "會審期數",
+                assignment: "繳交項目",
+                purchase: "發包品項",
+                "purchase-item": "發包品項",
+                "calendar-event": "工作事件",
+                "assignment-resource": "項目附件",
+                "work-item": "工作事項"
+            };
+            return labels[String(entityType || "")] || "系統資料";
+        }
+
+        function getRecycleBinCollectionSummary(entry) {
+            const collections = entry && entry.Snapshot_JSON && entry.Snapshot_JSON.collections && typeof entry.Snapshot_JSON.collections === "object"
+                ? entry.Snapshot_JSON.collections
+                : {};
+            const labels = {
+                Config_Stages: "會審期數",
+                Purchase_Items: "發包",
+                Assignments: "繳交項目",
+                Assignment_Resources: "附件",
+                Assignment_Submissions: "繳交",
+                Files: "檔案",
+                Notifications: "通知",
+                Discussion_Comments: "留言",
+                Design_Service_Orders: "代做案件",
+                Calendar_Events: "工作事件",
+                Work_Items: "工作事項"
+            };
+            return Object.keys(labels).map(function(key) {
+                const count = ensureArray(collections[key]).length;
+                return count > 0 ? labels[key] + " " + count + " 筆" : "";
+            }).filter(Boolean).join(" · ");
+        }
+
+        function getRecycleBinExpiryLabel(entry) {
+            const expiry = calendarDateFromText(entry && entry.Expires_At);
+            if (!expiry) return "保留期限未記錄";
+            const remaining = expiry.getTime() - Date.now();
+            if (remaining <= 0) return "已超過保留期限";
+            const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+            return "剩 " + days + " 天可復原";
+        }
+
+        async function restoreRecycleBinItem(recycleId) {
+            if (recycleRestoreInFlight) return;
+            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
+                showToast("回收桶需要保持 GAS 連線，請重新同步後再復原。", "warning");
+                return;
+            }
+            const entry = ensureArray(state.Recycle_Bin).find(function(item) {
+                return String(item && item.Recycle_ID || "") === String(recycleId || "");
+            });
+            if (!entry || String(entry.Status || "") !== "deleted") {
+                showToast("找不到可復原的回收桶資料。", "warning");
+                return;
+            }
+            recycleRestoreInFlight = true;
+            const buttons = Array.from(document.querySelectorAll('[data-recycle-restore-id="' + String(recycleId || "").replace(/"/g, "\\\"") + '"]'));
+            buttons.forEach(function(button) { button.disabled = true; button.textContent = "復原中…"; });
+            try {
+                const response = await requestGas("restoreRecycleBinItem", {
+                    recycleId: String(recycleId || ""),
+                    stateRevision: remoteStateRevision
+                });
+                if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "" })) {
+                    throw new Error("雲端沒有回傳最新回收桶資料。");
+                }
+                renderAll();
+                showToast("資料已復原，相關 Google Drive 檔案也會一併恢復。", "success");
+            } catch (error) {
+                showToast(error && error.message ? error.message : "復原資料失敗，請稍後再試。", "warning");
+            } finally {
+                recycleRestoreInFlight = false;
+                buttons.forEach(function(button) { button.disabled = false; button.textContent = "復原"; });
+            }
+        }
+
+        function renderRecycleBin(container, isExhibitionAdmin) {
+            if (!isExhibitionAdmin) {
+                container.innerHTML = `<div class="rounded-3xl border border-[#E8E8ED] bg-white p-8 text-center text-sm text-[#86868B]">回收桶僅供形印組工作台使用。</div>`;
+                return;
+            }
+            const entries = ensureArray(state.Recycle_Bin).filter(function(entry) {
+                return String(entry && entry.Status || "") === "deleted";
+            }).slice().sort(function(a, b) {
+                return String(b && b.Deleted_At || "").localeCompare(String(a && a.Deleted_At || ""));
+            });
+            container.innerHTML = `
+                <section class="rounded-[28px] border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <div class="inline-flex items-center gap-2 rounded-full border border-[#E5E5EA] bg-[#FBFBFD] px-3 py-1.5 text-[10px] font-bold tracking-[0.16em] text-[#1D1D1F] uppercase"><i data-lucide="rotate-ccw" class="h-3.5 w-3.5 text-[#0066CC]"></i>形印組專用</div>
+                            <h3 class="mt-3 text-2xl font-bold tracking-[-0.04em] text-[#1D1D1F]">回收桶</h3>
+                            <p class="mt-1 max-w-2xl text-xs leading-relaxed text-[#86868B]">刪除的會審期數、繳交項目、附件、通知與相關 Google Drive 檔案會保留 30 天，期間內可一鍵復原。</p>
+                        </div>
+                        <span class="inline-flex self-start items-center gap-1.5 rounded-full bg-[#F2F2F7] px-3 py-1.5 text-[10px] font-bold text-[#6E6E73]"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>${entries.length} 筆待復原</span>
+                    </div>
+                    <div class="mt-5 space-y-3">
+                        ${entries.length ? entries.map(function(entry) {
+                            const collectionSummary = getRecycleBinCollectionSummary(entry);
+                            const driveCount = ensureArray(entry.Drive_File_IDs).length;
+                            return `<article class="rounded-[22px] border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:border-[#D9D9E3] hover:bg-white">
+                                <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-[#F1F0FF] px-2.5 py-1 text-[10px] font-bold text-[#5E5CE6]">${escapeHtml(getRecycleBinEntityLabel(entry.Entity_Type))}</span><span class="rounded-full bg-[#FFF5E8] px-2.5 py-1 text-[10px] font-bold text-[#D06F00]">${escapeHtml(getRecycleBinExpiryLabel(entry))}</span></div>
+                                        <h4 class="mt-2 truncate text-sm font-bold text-[#1D1D1F]">${escapeHtml(entry.Title || "未命名資料")}</h4>
+                                        <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">刪除時間：${escapeHtml(formatCompactDateTimeLabel(entry.Deleted_At))}${entry.Deleted_By_Name ? " · " + escapeHtml(entry.Deleted_By_Name) : ""}</p>
+                                        ${collectionSummary ? `<p class="mt-2 text-[10px] leading-relaxed text-[#6E6E73]">${escapeHtml(collectionSummary)}${driveCount ? " · Drive 檔案 " + driveCount + " 個" : ""}</p>` : driveCount ? `<p class="mt-2 text-[10px] leading-relaxed text-[#6E6E73]">Drive 檔案 ${driveCount} 個</p>` : ''}
+                                    </div>
+                                    <button type="button" data-recycle-restore-id="${escapeHtml(entry.Recycle_ID)}" onclick="restoreRecycleBinItem('${escapeInlineJsString(entry.Recycle_ID)}')" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]"><i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>復原</button>
+                                </div>
+                            </article>`;
+                        }).join("") : `<div class="rounded-[24px] border border-dashed border-[#D9D9E3] bg-[#FAFAFB] px-5 py-12 text-center"><span class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[#E4E4E8] bg-white text-[#86868B]"><i data-lucide="trash-2" class="h-5 w-5"></i></span><h4 class="mt-3 text-sm font-bold text-[#1D1D1F]">回收桶目前是空的</h4><p class="mt-1.5 text-xs leading-relaxed text-[#86868B]">未來刪除的管理資料會暫存在這裡，避免誤刪後無法救回。</p></div>`}
+                    </div>
+                </section>
+            `;
+            renderLucideIcons();
+        }
+
         function renderActiveTabContent(activeStage, effectiveRole, effectiveTeamID) {
             const container = document.getElementById('main-view-container');
             if (!container) return;
@@ -12790,8 +13862,16 @@
 
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
 
+            if (activeTab === "work-items") {
+                renderWorkItemsBoard(container, effectiveRole);
+                return;
+            }
             if (activeTab === "calendar") {
                 renderShapePrintCalendar(container, activeStage, isExhibitionAdmin);
+                return;
+            }
+            if (activeTab === "recycle") {
+                renderRecycleBin(container, isExhibitionAdmin);
                 return;
             }
             if (activeTab === "overview") {
