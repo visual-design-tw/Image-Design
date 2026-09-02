@@ -20,6 +20,7 @@
 - `Work_Items`
 - `Password_Reset_Tokens`
 - `Auth_Sessions`
+- `Shape_Print_Invites`
 - `Activity_Logs`
 - `Meta`
 
@@ -35,6 +36,9 @@
 - `doPost(e)`
   - `action=setup`：建立工作表，可選 `seedDemo: true`
   - `action=login` / `registerLeader` / `registerMember` / `activatePending`
+  - `action=createShapePrintInvite` / `listShapePrintInvites` / `revokeShapePrintInvite`：由形印組長或形印指導教師管理形印組員的一人一組註冊連結
+  - `action=getShapePrintInvite` / `registerShapePrintMember`：驗證受邀連結並立即建立形印組員帳號
+  - `action=joinStudentTeam` / `createStudentTeam`：讓既有形印組員保留原身分，同時加入或建立畢製小組
   - `action=saveState`：以 `stateRevision` 防止舊畫面覆蓋其他人的新資料
 - `action=uploadFile`：接收瀏覽器直傳檔案，建立/續版繳交紀錄，並自動存到 `會審 / 小組` 資料夾
 - `action=uploadAssignmentAsset`：接收公告作業直傳檔案，並自動存到 `會審 / 小組 / 公告作業 / 作業標題` 資料夾
@@ -62,6 +66,8 @@
 - 形印組長與組員可看完整工作資料；小組帳號只能取得自身小組、被指派的繳交項目與自己的通知。
 - 工作行事曆事件只會回傳給形印組長與組員；一般小組帳號不會取得事件資料，也不能透過 API 建立、編輯或刪除事件。
 - 工作事項只會回傳給形印組長、形印指導教師與形印組員；建立與分配限管理者，認養與進度更新限形印組員本人。
+- 形印組員可透過一人一組、可設定期限且可撤銷的邀請連結註冊；帳號註冊後立即啟用，不需要等待審核。
+- 形印組員日後若要參與畢製，可用同一帳號加入既有小組或建立小組成為組長；系統以 `Student_Role` 保存畢製身分，不會覆蓋形印組權限。
 - 每一次 `saveState` 都必須帶回最後一次讀取到的 `stateRevision`。版本不一致時會回傳 `STATE_CONFLICT`，前端會重新載入雲端資料，而不會覆蓋他人的更新。
 
 ## 操作紀錄

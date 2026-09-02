@@ -8,6 +8,18 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 Lucide 圖標庫 -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- 將有狀態切換的 Lucide 圖示轉為流暢的 SVG 形變動畫 -->
+    <script type="module">
+        try {
+            const { defineMorphIcon } = await import("https://esm.sh/morphicons@1.7.1/element?bundle");
+            defineMorphIcon();
+            window.__morphiconsReady = true;
+            window.dispatchEvent(new CustomEvent("morphicons-ready"));
+        } catch (error) {
+            window.__morphiconsReady = false;
+            console.warn("Morphicons 載入失敗，將保留 Lucide 靜態圖示。", error);
+        }
+    </script>
     <!-- 引入 Anime.js 讓登入 / 彈窗 / 選單動效更細緻 -->
     <script src="https://cdn.jsdelivr.net/npm/animejs/dist/bundles/anime.umd.min.js"></script>
     <!-- 引入 Google Inter 字體提升排版呼吸感 -->
@@ -26,6 +38,21 @@
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             background-color: #F5F5F7;
             color: #1D1D1F;
+        }
+        morph-icon[data-morph-icon] {
+            display: inline-flex;
+            width: 1em;
+            height: 1em;
+            flex: 0 0 auto;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
+            color: inherit;
+            line-height: 1;
+        }
+        morph-icon[data-morph-icon] > svg,
+        morph-icon[data-morph-icon] > svg * {
+            vector-effect: non-scaling-stroke;
         }
         .assignment-file-picker {
             border: 1px solid #DCE8F8;
@@ -903,7 +930,7 @@
                     </div>
                 </div>
                 <button id="topbar-menu-toggle" type="button" onclick="toggleTopbarMenu()" class="topbar-menu-toggle" aria-label="開啟選單" aria-expanded="false">
-                    <i data-lucide="menu" class="w-4 h-4"></i>
+                    <morph-icon id="topbar-menu-morph-icon" data-morph-icon="topbar-menu" data-morph-icon-state="menu" class="w-4 h-4" aria-hidden="true"><i data-lucide="menu" class="w-4 h-4"></i></morph-icon>
                 </button>
             </div>
 
@@ -1001,7 +1028,7 @@
                     <div class="relative">
                         <input type="password" id="login-password" required autocomplete="current-password" class="auth-input w-full px-4 pr-12 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="輸入密碼">
                         <button id="btn-toggle-login-password" type="button" onclick="toggleLoginPasswordVisibility()" class="auth-password-toggle absolute inset-y-0 right-0 flex w-12 items-center justify-center" aria-label="顯示密碼" title="顯示密碼">
-                            <i id="login-password-eye-icon" data-lucide="eye" class="h-4 w-4"></i>
+                            <morph-icon id="login-password-eye-icon" data-morph-icon="password-visibility" data-morph-icon-state="eye" class="h-4 w-4" aria-hidden="true"><i data-lucide="eye" class="h-4 w-4"></i></morph-icon>
                         </button>
                     </div>
                 </div>
@@ -1022,14 +1049,16 @@
 
             <!-- 註冊表單群 -->
             <div id="form-register" class="space-y-6 hidden">
-                <div class="grid grid-cols-3 gap-1 p-1 bg-[#F5F5F7] rounded-full border border-[#E8E8ED]">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 bg-[#F5F5F7] rounded-[20px] border border-[#E8E8ED]">
                     <button onclick="toggleRegisterSubTab('reg-leader')" id="sub-tab-reg-leader" class="py-1.5 text-[11px] font-semibold rounded-full bg-white text-[#1D1D1F] shadow-sm">組長建組</button>
                     <button onclick="toggleRegisterSubTab('reg-code')" id="sub-tab-reg-code" class="py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">組員註冊</button>
                     <button onclick="toggleRegisterSubTab('reg-pending')" id="sub-tab-reg-pending" class="py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">信箱開通</button>
+                    <button onclick="toggleRegisterSubTab('reg-shape-print')" id="sub-tab-reg-shape-print" class="py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">形印組加入</button>
                 </div>
 
                 <!-- 組長建組 -->
                 <form id="form-sub-reg-leader" onsubmit="handleRegisterLeader(event)" class="space-y-4">
+                    <p class="text-[11px] text-[#86868B] bg-[#F5F5F7] p-3 rounded-xl border border-[#E8E8ED] leading-relaxed">已是形印組員？可直接填入原本的信箱與密碼建立畢製小組，形印組身分會一併保留。</p>
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">組別名稱</label>
                         <input type="text" id="reg-leader-team" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="如：01郭子綾、陳昱廷（楊炘彪）">
@@ -1054,6 +1083,7 @@
 
                 <!-- 組員邀請碼 -->
                 <form id="form-sub-reg-code" onsubmit="handleRegisterMember(event)" class="space-y-4 hidden">
+                    <p class="text-[11px] text-[#86868B] bg-[#F5F5F7] p-3 rounded-xl border border-[#E8E8ED] leading-relaxed">已是形印組員？請輸入原本的信箱與密碼，即可用同一帳號加入畢製小組。</p>
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">專屬小組邀請碼</label>
                         <input type="text" id="reg-member-code" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="輸入組長提供的小組邀請碼">
@@ -1096,6 +1126,29 @@
                     <button id="btn-register-pending-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
                         <span class="auth-submit-button__spinner" aria-hidden="true"></span>
                         <span id="btn-register-pending-label" class="auth-submit-button__label">確認設定並激活帳號</span>
+                    </button>
+                </form>
+
+                <!-- 形印組專屬邀請註冊 -->
+                <form id="form-sub-reg-shape-print" onsubmit="handleRegisterShapePrintMember(event)" class="space-y-4 hidden">
+                    <div id="reg-shape-invite-status" class="text-[11px] text-[#86868B] bg-[#F5F5F7] p-3 rounded-xl border border-[#E8E8ED] leading-relaxed">
+                        請透過形印組長或指導教師提供的一人一組邀請連結開啟此頁面。
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">姓名</label>
+                        <input type="text" id="reg-shape-name" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="請輸入姓名">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">受邀電子郵件信箱</label>
+                        <input type="email" id="reg-shape-email" required readonly class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] bg-[#FAFAFB] text-[#6E6E73] focus:outline-none transition text-sm" placeholder="請使用邀請連結指定的信箱">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">設定密碼</label>
+                        <input type="password" id="reg-shape-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="設定至少 8 碼的登入密碼">
+                    </div>
+                    <button id="btn-register-shape-print-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
+                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <span id="btn-register-shape-print-label" class="auth-submit-button__label">加入形印組並建立帳號</span>
                     </button>
                 </form>
                 <p id="register-submit-status" class="hidden -mt-2 text-center text-[11px] font-medium text-[#86868B]" role="status" aria-live="polite"></p>
@@ -1630,17 +1683,29 @@
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                         <label for="calendar-event-start" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">開始時間</label>
-                        <input id="calendar-event-start" type="datetime-local" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                        <div data-date-time-picker-root data-date-time-picker-native-for="calendar-event-start">
+                            <input id="calendar-event-start" data-date-time-picker-input type="hidden">
+                            <button type="button" onclick="toggleDateTimePicker('calendar-event-start')" data-date-time-picker-trigger aria-label="選擇開始時間" aria-haspopup="dialog" aria-expanded="false" class="flex min-h-[46px] w-full items-center justify-between gap-3 rounded-2xl border border-[#E5E5EA] bg-white px-3.5 py-3 text-left text-xs font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.02)] outline-none transition hover:border-[#D9D9E3] hover:bg-[#FBFBFD] focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]">
+                                <span data-date-time-picker-label>選擇日期與時間</span>
+                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F4F8FF] text-[#0066CC]"><i data-lucide="calendar-clock" class="h-3.5 w-3.5"></i></span>
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label for="calendar-event-end" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">結束時間</label>
-                        <input id="calendar-event-end" type="datetime-local" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                        <div data-date-time-picker-root data-date-time-picker-native-for="calendar-event-end">
+                            <input id="calendar-event-end" data-date-time-picker-input type="hidden">
+                            <button type="button" onclick="toggleDateTimePicker('calendar-event-end')" data-date-time-picker-trigger aria-label="選擇結束時間" aria-haspopup="dialog" aria-expanded="false" class="flex min-h-[46px] w-full items-center justify-between gap-3 rounded-2xl border border-[#E5E5EA] bg-white px-3.5 py-3 text-left text-xs font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.02)] outline-none transition hover:border-[#D9D9E3] hover:bg-[#FBFBFD] focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]">
+                                <span data-date-time-picker-label>選擇日期與時間</span>
+                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F4F8FF] text-[#0066CC]"><i data-lucide="calendar-clock" class="h-3.5 w-3.5"></i></span>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                         <label for="calendar-event-type" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">類型</label>
-                        <select id="calendar-event-type" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                        <select id="calendar-event-type" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
                             <option value="meeting">會議</option>
                             <option value="production">製作</option>
                             <option value="review">審核</option>
@@ -1650,7 +1715,7 @@
                     </div>
                     <div>
                         <label for="calendar-event-stage" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">關聯會期</label>
-                        <select id="calendar-event-stage" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"></select>
+                        <select id="calendar-event-stage" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"></select>
                     </div>
                 </div>
                 <label class="flex items-center gap-2.5 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3.5 py-3 text-xs font-semibold text-[#1D1D1F]">
@@ -1692,20 +1757,26 @@
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div class="sm:col-span-1">
                         <label for="work-item-due" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">到期時間</label>
-                        <input id="work-item-due" type="datetime-local" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]">
+                        <div data-date-time-picker-root data-date-time-picker-native-for="work-item-due">
+                            <input id="work-item-due" data-date-time-picker-input type="hidden">
+                            <button type="button" onclick="toggleDateTimePicker('work-item-due')" data-date-time-picker-trigger aria-label="選擇到期時間" aria-haspopup="dialog" aria-expanded="false" class="flex min-h-[46px] w-full items-center justify-between gap-3 rounded-2xl border border-[#E5E5EA] bg-white px-3.5 py-3 text-left text-xs font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.02)] outline-none transition hover:border-[#D9D9E3] hover:bg-[#FBFBFD] focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]">
+                                <span data-date-time-picker-label>選擇日期與時間</span>
+                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F4F8FF] text-[#0066CC]"><i data-lucide="calendar-clock" class="h-3.5 w-3.5"></i></span>
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label for="work-item-priority" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">優先程度</label>
-                        <select id="work-item-priority" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="高">高</option><option value="一般">一般</option><option value="低">低</option></select>
+                        <select id="work-item-priority" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="高">高</option><option value="一般">一般</option><option value="低">低</option></select>
                     </div>
                     <div>
                         <label for="work-item-stage" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">關聯會期</label>
-                        <select id="work-item-stage" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">不指定會期</option></select>
+                        <select id="work-item-stage" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">不指定會期</option></select>
                     </div>
                 </div>
                 <div>
                     <label for="work-item-assignee" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">負責方式</label>
-                    <select id="work-item-assignee" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">開放認養</option></select>
+                    <select id="work-item-assignee" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">開放認養</option></select>
                     <p class="mt-1.5 text-[10px] leading-relaxed text-[#86868B]">選擇組員後會直接分配；保留「開放認養」則由組員自行接下。</p>
                 </div>
                 <div>
@@ -1908,6 +1979,16 @@
         let loginSubmitInFlight = false;
         let registerSubmitInFlight = false;
         let activeRegisterSubTab = "reg-leader";
+        let shapePrintInviteToken = "";
+        let shapePrintInviteStatus = "idle";
+        let shapePrintInviteData = null;
+        let shapePrintInviteErrorMessage = "";
+        let shapePrintInvites = [];
+        let shapePrintInviteListStatus = "idle";
+        let shapePrintInviteListErrorMessage = "";
+        let shapePrintInviteLastCreated = null;
+        let shapePrintInviteCreateInFlight = false;
+        let studentTeamSetupInFlight = false;
         let logoutInFlight = false;
         let authSessionToken = "";
         let remoteStateRevision = 0;
@@ -1919,6 +2000,8 @@
         let activeSoftSelectId = "";
         let softSelectInteractionsBound = false;
         let nativeSoftSelectAutoId = 0;
+        let activeDateTimePickerId = "";
+        let dateTimePickerMonthViews = {};
         let largeUploadSessions = {};
         let pendingLargeAssignmentAssetUpload = null;
         let pendingAssignmentPostResourceFiles = [];
@@ -1947,7 +2030,7 @@
             { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "activity", name: "操作紀錄", icon: "scroll-text", roles: ["SuperAdmin", "Admin"] },
             { id: "recycle", name: "回收桶", icon: "trash-2", roles: ["SuperAdmin", "Admin"] },
-            { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Leader", "Member"] },
+            { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "stages", name: "會審設定", icon: "settings", roles: ["SuperAdmin"] }
         ];
         const BOOT_LOADER_MIN_MS = 950;
@@ -2107,6 +2190,13 @@
                     idleLabel: "確認設定並激活帳號",
                     loadingLabel: "正在開通帳號",
                     statusLabel: "正在開通帳號，請稍候。"
+                },
+                "shape-print": {
+                    buttonId: "btn-register-shape-print-submit",
+                    labelId: "btn-register-shape-print-label",
+                    idleLabel: "加入形印組並建立帳號",
+                    loadingLabel: "正在建立形印組帳號",
+                    statusLabel: "正在建立形印組帳號，請稍候。"
                 }
             };
             return copy[kind] || null;
@@ -2163,6 +2253,11 @@
             if (toggle) {
                 toggle.classList.toggle('is-open', shouldOpen);
                 toggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+                toggle.setAttribute('aria-label', shouldOpen ? '關閉選單' : '開啟選單');
+                setMorphIconState(
+                    toggle.querySelector('[data-morph-icon="topbar-menu"]'),
+                    shouldOpen ? 'close' : 'menu'
+                );
             }
             if (backdrop) {
                 backdrop.classList.toggle('is-open', shouldOpen);
@@ -2187,10 +2282,134 @@
             syncTopbarMenuState();
         }
 
+        const MORPH_ICON_CONFIG = {
+            "topbar-menu": {
+                menu: { lucideName: "Menu", fallbackName: "menu" },
+                close: { lucideName: "X", fallbackName: "x" }
+            },
+            "password-visibility": {
+                eye: { lucideName: "Eye", fallbackName: "eye" },
+                "eye-off": { lucideName: "EyeOff", fallbackName: "eye-off" }
+            },
+            "select-chevron": {
+                "chevron-down": { lucideName: "ChevronDown", fallbackName: "chevron-down" },
+                "chevron-up": { lucideName: "ChevronUp", fallbackName: "chevron-up" }
+            },
+            "work-item-status": {
+                circle: { lucideName: "Circle", fallbackName: "circle" },
+                check: { lucideName: "Check", fallbackName: "check" }
+            }
+        };
+        let morphIconHydrationQueued = false;
+
+        function getMorphIconDefinition(purpose, stateName) {
+            const states = MORPH_ICON_CONFIG[String(purpose || "")] || {};
+            return states[String(stateName || "")] || null;
+        }
+
+        function getMorphIconInput(purpose, stateName) {
+            const definition = getMorphIconDefinition(purpose, stateName);
+            if (!definition || typeof window === "undefined" || !window.lucide) {
+                return null;
+            }
+            const icons = window.lucide.icons || {};
+            return icons[definition.lucideName] || window.lucide[definition.lucideName] || null;
+        }
+
+        function isMorphIconElement(element) {
+            return Boolean(element) && String(element.tagName || "").toLowerCase() === "morph-icon";
+        }
+
+        function renderMorphIconMarkup(purpose, stateName, className) {
+            const definition = getMorphIconDefinition(purpose, stateName);
+            const fallbackName = definition ? definition.fallbackName : "circle";
+            const safeClassName = escapeHtml(String(className || ""));
+            const semanticAttribute = purpose === "select-chevron" ? " data-soft-select-icon" : "";
+            return `<morph-icon${semanticAttribute} data-morph-icon="${escapeHtml(String(purpose || ""))}" data-morph-icon-state="${escapeHtml(String(stateName || ""))}" class="${safeClassName}" aria-hidden="true"><i data-lucide="${escapeHtml(fallbackName)}" class="${safeClassName}"></i></morph-icon>`;
+        }
+
+        function updateMorphIconFallback(element, targetState) {
+            const definition = getMorphIconDefinition(element && element.dataset.morphIcon, targetState);
+            if (!element || !definition || element.dataset.morphFallbackState === targetState) return;
+
+            const fallback = document.createElement("i");
+            fallback.setAttribute("data-lucide", definition.fallbackName);
+            fallback.className = String(element.className || "");
+            const existingVisual = element.querySelector("svg, i[data-lucide]");
+            if (existingVisual) {
+                existingVisual.replaceWith(fallback);
+            } else {
+                element.appendChild(fallback);
+            }
+            element.dataset.morphFallbackState = targetState;
+
+            if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
+                lucide.createIcons({ root: element });
+            }
+        }
+
+        function setMorphIconState(element, nextState, options = {}) {
+            if (!isMorphIconElement(element)) return false;
+
+            const previousState = String(element.dataset.morphIconState || "");
+            const purpose = String(element.dataset.morphIcon || "");
+            const targetState = String(nextState || "");
+            const targetIcon = getMorphIconInput(purpose, targetState);
+            element.dataset.morphIconState = targetState;
+
+            if (!window.__morphiconsReady || !targetIcon) {
+                updateMorphIconFallback(element, targetState);
+                return false;
+            }
+
+            try {
+                element.reducedMotion = "user";
+                if (element.dataset.morphIconInitialized !== "true") {
+                    if (typeof element.set === "function") {
+                        element.set(targetIcon);
+                    } else {
+                        element.icon = targetIcon;
+                    }
+                    element.dataset.morphIconInitialized = "true";
+                    return true;
+                }
+
+                if (previousState !== targetState && typeof element.morphTo === "function") {
+                    element.morphTo(targetIcon, options.spring || "snappy");
+                }
+                return true;
+            } catch (error) {
+                console.warn("Morphicons 圖示轉場失敗，保留目前圖示。", error);
+                return false;
+            }
+        }
+
+        function hydrateMorphIcons(root) {
+            if (!window.__morphiconsReady) return;
+            const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+            scope.querySelectorAll("morph-icon[data-morph-icon]").forEach(function(element) {
+                setMorphIconState(element, element.dataset.morphIconState || "", { animate: false });
+            });
+        }
+
+        function scheduleMorphIconHydration() {
+            if (!window.__morphiconsReady || morphIconHydrationQueued) return;
+            morphIconHydrationQueued = true;
+            requestAnimationFrame(function() {
+                morphIconHydrationQueued = false;
+                hydrateMorphIcons();
+            });
+        }
+
+        window.addEventListener("morphicons-ready", function() {
+            scheduleMorphIconHydration();
+        });
+
         function renderLucideIcons() {
             if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
                 lucide.createIcons();
             }
+            scheduleMorphIconHydration();
         }
 
         function prefersReducedMotion() {
@@ -2900,6 +3119,7 @@
                 }
 
                 await initializePasswordResetFlowFromUrl();
+                await initializeShapePrintInviteFlowFromUrl();
                 renderAll();
                 restoreRememberedLogin();
                 setBootLoaderPhase("ready");
@@ -3202,7 +3422,8 @@
                 Name: String(user.Name || ""),
                 Team_ID: String(user.Team_ID || ""),
                 Role: String(user.Role || ""),
-                Status: String(user.Status || "")
+                Status: String(user.Status || ""),
+                Student_Role: String(user.Student_Role || "")
             };
         }
 
@@ -3315,9 +3536,31 @@
             }));
         }
 
+        function isShapePrintAccount(user) {
+            const role = String(user && user.Role || "");
+            return role === "SuperAdmin" || role === "Admin";
+        }
+
+        function getStudentRoleForAccount(user) {
+            const role = String(user && user.Role || "");
+            if (role === "Leader" || role === "Member") {
+                return role;
+            }
+            if (isShapePrintAccount(user) && String(user && user.Team_ID || "") !== "T00") {
+                return String(user && user.Student_Role || "") === "Leader" ? "Leader" : "Member";
+            }
+            return "";
+        }
+
+        function hasStudentWorkspace(user) {
+            return Boolean(getStudentRoleForAccount(user))
+                && Boolean(String(user && user.Team_ID || "").trim())
+                && String(user && user.Team_ID || "") !== "T00";
+        }
+
         function resolveWorkspaceForUser(user, preferredWorkspace) {
             if (!user) return "admin";
-            if (user.Role === "Admin" && user.Team_ID && user.Team_ID !== "T00") {
+            if (isShapePrintAccount(user) && hasStudentWorkspace(user)) {
                 return preferredWorkspace === "team" ? "team" : "admin";
             }
             if (user.Role === "Leader" || user.Role === "Member") {
@@ -3991,6 +4234,29 @@
             return generatedId;
         }
 
+        function restoreNativeSoftSelect(selectEl) {
+            if (!selectEl) return;
+            const selectId = String(selectEl.dataset.softNativeId || "");
+            const stateId = getNativeSoftSelectStateId(selectId);
+
+            if (activeSoftSelectId === stateId) {
+                activeSoftSelectId = "";
+            }
+
+            if (selectId) {
+                document.querySelectorAll("[data-soft-select-native-for]").forEach(function(proxy) {
+                    if (proxy.getAttribute("data-soft-select-native-for") === selectId) {
+                        proxy.remove();
+                    }
+                });
+            }
+
+            selectEl.classList.remove("hidden");
+            selectEl.removeAttribute("aria-hidden");
+            selectEl.removeAttribute("tabindex");
+            delete selectEl.dataset.softNativeId;
+        }
+
         function getNativeSoftSelectOptions(selectEl) {
             return Array.from(selectEl && selectEl.options ? selectEl.options : []).map(function(option) {
                 return {
@@ -4019,6 +4285,31 @@
             };
         }
 
+        function renderNativeSoftSelectOptionList(options, selectedValue, selectId, compact) {
+            const optionClass = compact
+                ? "flex w-full items-center justify-between gap-2 rounded-[12px] px-3 py-2 text-left text-[11px] font-semibold transition"
+                : "flex w-full items-center justify-between gap-3 rounded-[14px] px-3 py-2.5 text-left text-xs font-semibold transition";
+
+            return options.map(function(option) {
+                const selected = option.value === selectedValue;
+                const stateClasses = option.disabled
+                    ? "text-[#C7C7CC] cursor-not-allowed"
+                    : selected
+                        ? "bg-[#F2F7FF] text-[#0066CC]"
+                        : "text-[#1D1D1F] hover:bg-[#F5F5F7]";
+                return `
+                    <button
+                        type="button"
+                        ${option.disabled ? "disabled" : ""}
+                        onclick="${option.disabled ? "" : "selectNativeSoftOption('" + escapeInlineJsString(selectId) + "', '" + escapeInlineJsString(option.value) + "')"}"
+                        class="${optionClass} ${stateClasses}">
+                        <span class="truncate">${escapeHtml(option.label)}</span>
+                        ${selected ? '<i data-lucide="check" class="w-4 h-4 shrink-0"></i>' : ''}
+                    </button>
+                `;
+            }).join("");
+        }
+
         function renderNativeSoftSelectMarkup(selectEl, selectId) {
             const options = getNativeSoftSelectOptions(selectEl);
             const selectedOption = options.find(function(option) {
@@ -4034,44 +4325,32 @@
             const panelPlacementClass = presentation.fullWidth
                 ? "left-0 right-0"
                 : "left-0 min-w-full w-max max-w-[260px]";
-            const optionClass = presentation.compact
-                ? "flex w-full items-center justify-between gap-2 rounded-[12px] px-3 py-2 text-left text-[11px] font-semibold transition"
-                : "flex w-full items-center justify-between gap-3 rounded-[14px] px-3 py-2.5 text-left text-xs font-semibold transition";
-
-            return `
-                <div class="${rootClass}" data-soft-select-root="${escapeHtml(stateId)}" data-soft-select-native-for="${escapeHtml(selectId)}" data-soft-select-width-mode="${presentation.fullWidth ? "full" : "auto"}">
-                    <button type="button" onclick="toggleSoftSelect('${escapeInlineJsString(stateId)}')" data-soft-select-trigger class="${triggerClass}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}">
-                        <span class="truncate">${escapeHtml(selectedOption.label || "")}</span>
-                        <i data-lucide="chevron-down" data-soft-select-icon class="w-4 h-4 shrink-0 text-[#86868B] transition-transform ${isOpen ? "rotate-180 text-[#0066CC]" : ""}"></i>
-                    </button>
+            const usesPortal = selectEl.dataset.softSelectPortal === "true";
+            const localPanelMarkup = usesPortal ? "" : `
                     <div data-soft-select-panel class="${isOpen ? "" : "hidden "}absolute ${panelPlacementClass} top-[calc(100%+8px)] z-[80] overflow-hidden rounded-2xl border border-[#E5E5EA] bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur-xl">
                         <div class="max-h-72 overflow-y-auto">
-                            ${options.map(function(option) {
-                                const selected = option.value === selectedOption.value;
-                                const stateClasses = option.disabled
-                                    ? "text-[#C7C7CC] cursor-not-allowed"
-                                    : selected
-                                        ? "bg-[#F2F7FF] text-[#0066CC]"
-                                        : "text-[#1D1D1F] hover:bg-[#F5F5F7]";
-                                return `
-                                    <button
-                                        type="button"
-                                        ${option.disabled ? "disabled" : ""}
-                                        onclick="${option.disabled ? "" : "selectNativeSoftOption('" + escapeInlineJsString(selectId) + "', '" + escapeInlineJsString(option.value) + "')"}"
-                                        class="${optionClass} ${stateClasses}">
-                                        <span class="truncate">${escapeHtml(option.label)}</span>
-                                        ${selected ? '<i data-lucide="check" class="w-4 h-4 shrink-0"></i>' : ''}
-                                    </button>
-                                `;
-                            }).join("")}
+                            ${renderNativeSoftSelectOptionList(options, selectedOption.value, selectId, presentation.compact)}
                         </div>
                     </div>
+                `;
+
+            return `
+                <div class="${rootClass}" data-soft-select-root="${escapeHtml(stateId)}" data-soft-select-native-for="${escapeHtml(selectId)}" data-soft-select-width-mode="${presentation.fullWidth ? "full" : "auto"}" data-soft-select-portal="${usesPortal ? "true" : "false"}">
+                    <button type="button" onclick="toggleSoftSelect('${escapeInlineJsString(stateId)}')" data-soft-select-trigger class="${triggerClass}" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}">
+                        <span class="truncate">${escapeHtml(selectedOption.label || "")}</span>
+                        ${renderMorphIconMarkup("select-chevron", isOpen ? "chevron-up" : "chevron-down", "w-4 h-4 shrink-0 text-[#86868B] transition-colors " + (isOpen ? "text-[#0066CC]" : ""))}
+                    </button>
+                    ${localPanelMarkup}
                 </div>
             `;
         }
 
         function refreshNativeSoftSelect(selectEl) {
             if (!selectEl || selectEl.multiple) return;
+            if (selectEl.dataset.softSelectMode === "native") {
+                restoreNativeSoftSelect(selectEl);
+                return;
+            }
             const selectId = ensureNativeSoftSelectId(selectEl);
             const existing = document.querySelector('[data-soft-select-native-for="' + selectId + '"]');
             const markup = renderNativeSoftSelectMarkup(selectEl, selectId);
@@ -4118,6 +4397,111 @@
             selectEl.dispatchEvent(new Event("change", { bubbles: true }));
             selectEl.dispatchEvent(new Event("input", { bubbles: true }));
             syncSoftSelectUI();
+        }
+
+        function getNativeSoftSelectFromStateId(stateId) {
+            const prefix = "native-soft-select:";
+            const rawStateId = String(stateId || "");
+            if (!rawStateId.startsWith(prefix)) return null;
+            const selectId = rawStateId.slice(prefix.length);
+            if (!selectId) return null;
+            return document.querySelector('select[data-soft-native-id="' + selectId + '"]');
+        }
+
+        function ensureNativeSoftSelectPortal() {
+            let portal = document.getElementById("native-soft-select-portal");
+            if (portal) return portal;
+
+            portal = document.createElement("div");
+            portal.id = "native-soft-select-portal";
+            portal.dataset.softSelectPortalHost = "true";
+            portal.className = "pointer-events-none fixed inset-0 z-[160] hidden";
+            document.body.appendChild(portal);
+            return portal;
+        }
+
+        function hideNativeSoftSelectPortal() {
+            const portal = document.getElementById("native-soft-select-portal");
+            if (!portal) return;
+            portal.classList.add("hidden");
+            portal.innerHTML = "";
+        }
+
+        function positionNativeSoftSelectPortal() {
+            const portal = document.getElementById("native-soft-select-portal");
+            if (!portal || portal.classList.contains("hidden")) return;
+            const panel = portal.querySelector("[data-soft-select-portal-panel]");
+            const selectEl = getNativeSoftSelectFromStateId(activeSoftSelectId);
+            if (!panel || !selectEl) return;
+
+            const selectId = String(selectEl.dataset.softNativeId || "");
+            const root = document.querySelector('[data-soft-select-native-for="' + selectId + '"]');
+            const trigger = root && root.querySelector("[data-soft-select-trigger]");
+            if (!trigger) {
+                hideNativeSoftSelectPortal();
+                return;
+            }
+
+            const viewportPadding = 12;
+            const rect = trigger.getBoundingClientRect();
+            const presentation = getNativeSoftSelectPresentation(selectEl);
+            const maxWidth = Math.max(0, window.innerWidth - viewportPadding * 2);
+            const measuredWidth = panel.scrollWidth || rect.width;
+            const desiredWidth = presentation.fullWidth
+                ? rect.width
+                : Math.max(rect.width, Math.min(320, measuredWidth));
+            const width = Math.min(maxWidth, desiredWidth);
+            let left = rect.left;
+            if (left + width > window.innerWidth - viewportPadding) {
+                left = window.innerWidth - viewportPadding - width;
+            }
+
+            panel.style.width = Math.round(width) + "px";
+            panel.style.maxWidth = maxWidth + "px";
+            panel.style.left = Math.round(Math.max(viewportPadding, left)) + "px";
+
+            const panelHeight = panel.offsetHeight || 0;
+            const belowTop = rect.bottom + 8;
+            const belowSpace = window.innerHeight - belowTop - viewportPadding;
+            const aboveSpace = rect.top - 8 - viewportPadding;
+            const shouldOpenAbove = panelHeight > belowSpace && aboveSpace > belowSpace;
+            const top = shouldOpenAbove
+                ? Math.max(viewportPadding, rect.top - panelHeight - 8)
+                : Math.max(viewportPadding, belowTop);
+            panel.style.top = Math.round(top) + "px";
+        }
+
+        function syncNativeSoftSelectPortal() {
+            const selectEl = getNativeSoftSelectFromStateId(activeSoftSelectId);
+            if (!selectEl || selectEl.dataset.softSelectPortal !== "true") {
+                hideNativeSoftSelectPortal();
+                return;
+            }
+
+            const selectId = String(selectEl.dataset.softNativeId || "");
+            const root = document.querySelector('[data-soft-select-native-for="' + selectId + '"]');
+            const trigger = root && root.querySelector("[data-soft-select-trigger]");
+            if (!root || !trigger) {
+                hideNativeSoftSelectPortal();
+                return;
+            }
+
+            const options = getNativeSoftSelectOptions(selectEl);
+            const selectedOption = options.find(function(option) {
+                return option.selected;
+            }) || options[0] || { value: "" };
+            const presentation = getNativeSoftSelectPresentation(selectEl);
+            const portal = ensureNativeSoftSelectPortal();
+            portal.innerHTML = `
+                <div data-soft-select-portal-panel class="pointer-events-auto fixed overflow-hidden rounded-2xl border border-[#E5E5EA] bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+                    <div class="max-h-72 overflow-y-auto">
+                        ${renderNativeSoftSelectOptionList(options, selectedOption.value, selectId, presentation.compact)}
+                    </div>
+                </div>
+            `;
+            portal.classList.remove("hidden");
+            positionNativeSoftSelectPortal();
+            renderLucideIcons();
         }
 
         function positionSoftSelectPanels() {
@@ -4198,11 +4582,17 @@
                     trigger.classList.toggle("shadow-[0_0_0_3px_rgba(0,102,204,0.08)]", isOpen);
                 }
                 if (icon) {
-                    icon.classList.toggle("rotate-180", isOpen);
+                    if (isMorphIconElement(icon)) {
+                        icon.classList.remove("rotate-180");
+                        setMorphIconState(icon, isOpen ? "chevron-up" : "chevron-down");
+                    } else {
+                        icon.classList.toggle("rotate-180", isOpen);
+                    }
                     icon.classList.toggle("text-[#0066CC]", isOpen);
                 }
             });
             positionSoftSelectPanels();
+            syncNativeSoftSelectPortal();
         }
 
         function closeSoftSelects() {
@@ -4213,7 +4603,9 @@
 
         function toggleSoftSelect(selectId) {
             activeSoftSelectId = activeSoftSelectId === selectId ? "" : selectId;
+            closeDateTimePicker();
             syncSoftSelectUI();
+            renderLucideIcons();
         }
 
         function selectNotificationSoftFilter(key, value) {
@@ -4231,7 +4623,7 @@
                 <div class="relative" data-soft-select-root="${escapeHtml(selectId)}" data-soft-select-width-mode="full">
                     <button type="button" onclick="toggleSoftSelect('${escapeHtml(selectId)}')" data-soft-select-trigger class="flex w-full items-center justify-between gap-3 rounded-xl border border-[#E8E8ED] bg-white px-4 py-2.5 text-left text-xs font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition hover:border-[#D9D9E3] hover:bg-[#FBFBFD]" aria-haspopup="listbox" aria-expanded="${isOpen ? "true" : "false"}">
                         <span class="truncate">${escapeHtml(selectedOption.label || "")}</span>
-                        <i data-lucide="chevron-down" data-soft-select-icon class="w-4 h-4 shrink-0 text-[#86868B] transition-transform ${isOpen ? "rotate-180 text-[#0066CC]" : ""}"></i>
+                        ${renderMorphIconMarkup("select-chevron", isOpen ? "chevron-up" : "chevron-down", "w-4 h-4 shrink-0 text-[#86868B] transition-colors " + (isOpen ? "text-[#0066CC]" : ""))}
                     </button>
                     <div data-soft-select-panel class="${isOpen ? "" : "hidden "}absolute left-0 right-0 top-[calc(100%+8px)] z-[80] overflow-hidden rounded-2xl border border-[#E5E5EA] bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur-xl">
                         <div class="max-h-72 overflow-y-auto">
@@ -4250,21 +4642,387 @@
             `;
         }
 
+        const DATE_TIME_PICKER_WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+        function padDateTimePickerValue(value) {
+            return String(value).padStart(2, "0");
+        }
+
+        function parseDateTimePickerValue(value) {
+            const raw = String(value || "").trim().replace(" ", "T").slice(0, 16);
+            const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+            if (!match) return null;
+
+            const year = Number(match[1]);
+            const monthIndex = Number(match[2]) - 1;
+            const day = Number(match[3]);
+            const hour = Number(match[4]);
+            const minute = Number(match[5]);
+            const date = new Date(year, monthIndex, day, hour, minute);
+            if (date.getFullYear() !== year
+                || date.getMonth() !== monthIndex
+                || date.getDate() !== day
+                || date.getHours() !== hour
+                || date.getMinutes() !== minute) {
+                return null;
+            }
+
+            return { year: year, monthIndex: monthIndex, day: day, hour: hour, minute: minute };
+        }
+
+        function getDateTimePickerFallbackParts() {
+            const now = new Date();
+            now.setSeconds(0, 0);
+            return {
+                year: now.getFullYear(),
+                monthIndex: now.getMonth(),
+                day: now.getDate(),
+                hour: now.getHours(),
+                minute: now.getMinutes()
+            };
+        }
+
+        function buildDateTimePickerValue(year, monthIndex, day, hour, minute) {
+            const date = new Date(Number(year), Number(monthIndex), Number(day), Number(hour), Number(minute));
+            if (!Number.isFinite(date.getTime())) return "";
+            if (date.getFullYear() !== Number(year)
+                || date.getMonth() !== Number(monthIndex)
+                || date.getDate() !== Number(day)
+                || date.getHours() !== Number(hour)
+                || date.getMinutes() !== Number(minute)) {
+                return "";
+            }
+
+            return date.getFullYear()
+                + "-" + padDateTimePickerValue(date.getMonth() + 1)
+                + "-" + padDateTimePickerValue(date.getDate())
+                + "T" + padDateTimePickerValue(date.getHours())
+                + ":" + padDateTimePickerValue(date.getMinutes());
+        }
+
+        function formatDateTimePickerLabel(value) {
+            const parts = parseDateTimePickerValue(value);
+            if (!parts) return "選擇日期與時間";
+            return parts.year
+                + "/" + padDateTimePickerValue(parts.monthIndex + 1)
+                + "/" + padDateTimePickerValue(parts.day)
+                + " " + padDateTimePickerValue(parts.hour)
+                + ":" + padDateTimePickerValue(parts.minute);
+        }
+
+        function ensureDateTimePickerPortal() {
+            let portal = document.getElementById("date-time-picker-portal");
+            if (portal) return portal;
+
+            portal = document.createElement("div");
+            portal.id = "date-time-picker-portal";
+            portal.dataset.dateTimePickerPortalHost = "true";
+            portal.className = "pointer-events-none fixed inset-0 z-[161] hidden";
+            document.body.appendChild(portal);
+            return portal;
+        }
+
+        function hideDateTimePickerPortal() {
+            const portal = document.getElementById("date-time-picker-portal");
+            if (!portal) return;
+            portal.classList.add("hidden");
+            portal.innerHTML = "";
+        }
+
+        function syncDateTimePickerControls(root) {
+            const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+            scope.querySelectorAll("[data-date-time-picker-input]").forEach(function(input) {
+                const inputId = String(input.id || "");
+                if (!inputId) return;
+                const pickerRoot = document.querySelector('[data-date-time-picker-native-for="' + inputId + '"]');
+                const trigger = pickerRoot && pickerRoot.querySelector("[data-date-time-picker-trigger]");
+                const label = pickerRoot && pickerRoot.querySelector("[data-date-time-picker-label]");
+                const isOpen = activeDateTimePickerId === inputId;
+                if (label) label.textContent = formatDateTimePickerLabel(input.value);
+                if (trigger) {
+                    trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+                    trigger.classList.toggle("border-[#0066CC]", isOpen);
+                    trigger.classList.toggle("bg-[#FBFDFF]", isOpen);
+                    trigger.classList.toggle("shadow-[0_0_0_3px_rgba(0,102,204,0.08)]", isOpen);
+                }
+            });
+        }
+
+        function getDateTimePickerCalendarMarkup(inputId, view, selectedParts) {
+            const firstDay = new Date(view.year, view.monthIndex, 1).getDay();
+            const daysInMonth = new Date(view.year, view.monthIndex + 1, 0).getDate();
+            const cellCount = firstDay + daysInMonth <= 35 ? 35 : 42;
+            const today = new Date();
+            const inputIdLiteral = escapeInlineJsString(inputId);
+            const cells = [];
+
+            for (let index = 0; index < cellCount; index += 1) {
+                const cellDate = new Date(view.year, view.monthIndex, 1 - firstDay + index);
+                const isCurrentMonth = cellDate.getMonth() === view.monthIndex;
+                const isSelected = selectedParts
+                    && cellDate.getFullYear() === selectedParts.year
+                    && cellDate.getMonth() === selectedParts.monthIndex
+                    && cellDate.getDate() === selectedParts.day;
+                const isToday = cellDate.getFullYear() === today.getFullYear()
+                    && cellDate.getMonth() === today.getMonth()
+                    && cellDate.getDate() === today.getDate();
+                const stateClasses = isSelected
+                    ? "bg-[#0066CC] text-white shadow-[0_4px_10px_rgba(0,102,204,0.24)]"
+                    : isToday
+                        ? "border border-[#BFD6FA] bg-[#F4F8FF] text-[#0066CC]"
+                        : isCurrentMonth
+                            ? "text-[#1D1D1F] hover:bg-[#F5F5F7]"
+                            : "text-[#AEAEB2] hover:bg-[#FAFAFC]";
+                cells.push(`
+                    <button type="button" onclick="selectDateTimePickerDay('${inputIdLiteral}', ${cellDate.getFullYear()}, ${cellDate.getMonth()}, ${cellDate.getDate()})" class="flex h-8 w-8 items-center justify-center rounded-xl text-[11px] font-semibold transition ${stateClasses}">
+                        ${cellDate.getDate()}
+                    </button>
+                `);
+            }
+
+            return cells.join("");
+        }
+
+        function positionDateTimePickerPortal() {
+            const portal = document.getElementById("date-time-picker-portal");
+            if (!portal || portal.classList.contains("hidden")) return;
+            const panel = portal.querySelector("[data-date-time-picker-portal-panel]");
+            const inputId = String(activeDateTimePickerId || "");
+            const pickerRoot = inputId && document.querySelector('[data-date-time-picker-native-for="' + inputId + '"]');
+            const trigger = pickerRoot && pickerRoot.querySelector("[data-date-time-picker-trigger]");
+            if (!panel || !trigger) {
+                hideDateTimePickerPortal();
+                return;
+            }
+
+            const viewportPadding = 12;
+            const rect = trigger.getBoundingClientRect();
+            const maxWidth = Math.max(0, window.innerWidth - viewportPadding * 2);
+            const width = Math.min(maxWidth, Math.max(296, Math.min(360, maxWidth)));
+            let left = rect.left;
+            if (left + width > window.innerWidth - viewportPadding) {
+                left = window.innerWidth - viewportPadding - width;
+            }
+
+            panel.style.width = Math.round(width) + "px";
+            panel.style.maxWidth = maxWidth + "px";
+            panel.style.left = Math.round(Math.max(viewportPadding, left)) + "px";
+
+            const belowTop = rect.bottom + 8;
+            const belowSpace = window.innerHeight - belowTop - viewportPadding;
+            const aboveSpace = rect.top - 8 - viewportPadding;
+            panel.style.maxHeight = Math.max(0, window.innerHeight - viewportPadding * 2) + "px";
+            const fullPanelHeight = panel.scrollHeight || panel.offsetHeight || 0;
+            const shouldOpenAbove = fullPanelHeight > belowSpace && aboveSpace > belowSpace;
+            const availableSpace = shouldOpenAbove ? aboveSpace : belowSpace;
+            panel.style.maxHeight = Math.max(0, Math.floor(availableSpace)) + "px";
+            const panelHeight = Math.min(fullPanelHeight, Math.max(0, availableSpace));
+            const top = shouldOpenAbove
+                ? Math.max(viewportPadding, rect.top - panelHeight - 8)
+                : Math.max(viewportPadding, belowTop);
+            panel.style.top = Math.round(top) + "px";
+        }
+
+        function syncDateTimePickerPortal() {
+            const inputId = String(activeDateTimePickerId || "");
+            const input = inputId && document.getElementById(inputId);
+            const pickerRoot = inputId && document.querySelector('[data-date-time-picker-native-for="' + inputId + '"]');
+            const trigger = pickerRoot && pickerRoot.querySelector("[data-date-time-picker-trigger]");
+            if (!input || !pickerRoot || !trigger) {
+                hideDateTimePickerPortal();
+                return;
+            }
+
+            const selectedParts = parseDateTimePickerValue(input.value) || getDateTimePickerFallbackParts();
+            const view = dateTimePickerMonthViews[inputId] || {
+                year: selectedParts.year,
+                monthIndex: selectedParts.monthIndex
+            };
+            dateTimePickerMonthViews[inputId] = view;
+            const inputIdLiteral = escapeInlineJsString(inputId);
+            const portal = ensureDateTimePickerPortal();
+            portal.innerHTML = `
+                <section data-date-time-picker-portal-panel class="pointer-events-auto fixed overflow-y-auto rounded-[22px] border border-[#E5E5EA] bg-white/98 p-3.5 shadow-[0_18px_40px_rgba(15,23,42,0.16),0_2px_8px_rgba(15,23,42,0.08)] backdrop-blur-xl" aria-label="選擇日期與時間">
+                    <div class="flex items-center justify-between gap-3">
+                        <button type="button" onclick="changeDateTimePickerMonth('${inputIdLiteral}', -1)" class="flex h-8 w-8 items-center justify-center rounded-xl text-[#6E6E73] transition hover:bg-[#F5F5F7]" aria-label="上個月"><i data-lucide="chevron-left" class="h-4 w-4"></i></button>
+                        <div class="text-center"><p class="text-[10px] font-bold tracking-[0.14em] text-[#86868B]">選擇日期</p><p class="mt-0.5 text-sm font-bold text-[#1D1D1F]">${view.year} 年 ${view.monthIndex + 1} 月</p></div>
+                        <button type="button" onclick="changeDateTimePickerMonth('${inputIdLiteral}', 1)" class="flex h-8 w-8 items-center justify-center rounded-xl text-[#6E6E73] transition hover:bg-[#F5F5F7]" aria-label="下個月"><i data-lucide="chevron-right" class="h-4 w-4"></i></button>
+                    </div>
+                    <div class="mt-3 grid grid-cols-7 gap-1 text-center">
+                        ${DATE_TIME_PICKER_WEEKDAYS.map(function(day) { return '<span class="flex h-7 items-center justify-center text-[10px] font-bold text-[#86868B]">' + day + '</span>'; }).join("")}
+                        ${getDateTimePickerCalendarMarkup(inputId, view, selectedParts)}
+                    </div>
+                    <div class="mt-3.5 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-3">
+                        <div class="flex items-center justify-between gap-3"><span class="text-[11px] font-bold text-[#1D1D1F]">時間</span><span class="text-[10px] font-medium text-[#86868B]">24 小時制</span></div>
+                        <div class="mt-2.5 flex items-center gap-2">
+                            <input data-date-time-picker-hour type="text" inputmode="numeric" maxlength="2" value="${padDateTimePickerValue(selectedParts.hour)}" oninput="sanitizeDateTimePickerPart(this)" onblur="commitDateTimePickerTime('${inputIdLiteral}')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); commitDateTimePickerTime('${inputIdLiteral}'); }" class="w-12 rounded-xl border border-[#DDE3EC] bg-white px-2 py-2 text-center text-sm font-bold text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" aria-label="小時">
+                            <span class="text-sm font-bold text-[#6E6E73]">:</span>
+                            <input data-date-time-picker-minute type="text" inputmode="numeric" maxlength="2" value="${padDateTimePickerValue(selectedParts.minute)}" oninput="sanitizeDateTimePickerPart(this)" onblur="commitDateTimePickerTime('${inputIdLiteral}')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); commitDateTimePickerTime('${inputIdLiteral}'); }" class="w-12 rounded-xl border border-[#DDE3EC] bg-white px-2 py-2 text-center text-sm font-bold text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" aria-label="分鐘">
+                            <span class="ml-auto text-[10px] font-semibold text-[#0066CC]">${formatDateTimePickerLabel(input.value)}</span>
+                        </div>
+                        <div class="mt-2.5 grid grid-cols-4 gap-1.5">
+                            ${["09:00", "12:00", "18:00", "23:59"].map(function(time) {
+                                const isSelectedTime = time === padDateTimePickerValue(selectedParts.hour) + ":" + padDateTimePickerValue(selectedParts.minute);
+                                return '<button type="button" onclick="setDateTimePickerTime(\'' + inputIdLiteral + '\', \'' + time + '\')" class="rounded-lg px-1.5 py-1.5 text-[10px] font-bold transition ' + (isSelectedTime ? 'bg-[#EAF3FF] text-[#0066CC]' : 'bg-white text-[#6E6E73] hover:bg-[#F2F7FF] hover:text-[#0066CC]') + '">' + time + '</button>';
+                            }).join("")}
+                        </div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between gap-3 border-t border-[#ECECF1] pt-3">
+                        <button type="button" onclick="setDateTimePickerToday('${inputIdLiteral}')" class="rounded-xl px-3 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#F4F8FF]">今天</button>
+                        <button type="button" onclick="closeDateTimePicker()" class="rounded-xl bg-[#1D1D1F] px-3.5 py-2 text-[11px] font-bold text-white transition hover:opacity-90">完成</button>
+                    </div>
+                </section>
+            `;
+            portal.classList.remove("hidden");
+            positionDateTimePickerPortal();
+            renderLucideIcons();
+        }
+
+        function updateDateTimePickerValue(inputId, parts) {
+            const input = document.getElementById(String(inputId || ""));
+            if (!input || !parts) return;
+            const value = buildDateTimePickerValue(parts.year, parts.monthIndex, parts.day, parts.hour, parts.minute);
+            if (!value) return;
+            input.value = value;
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            syncDateTimePickerControls(document);
+        }
+
+        function toggleDateTimePicker(inputId) {
+            const normalizedId = String(inputId || "");
+            if (!normalizedId || !document.getElementById(normalizedId)) return;
+            if (activeDateTimePickerId === normalizedId) {
+                closeDateTimePicker();
+                return;
+            }
+
+            activeDateTimePickerId = normalizedId;
+            const parts = parseDateTimePickerValue(document.getElementById(normalizedId).value) || getDateTimePickerFallbackParts();
+            dateTimePickerMonthViews[normalizedId] = { year: parts.year, monthIndex: parts.monthIndex };
+            closeSoftSelects();
+            syncDateTimePickerControls(document);
+            syncDateTimePickerPortal();
+        }
+
+        function closeDateTimePicker() {
+            if (!activeDateTimePickerId) return;
+            activeDateTimePickerId = "";
+            hideDateTimePickerPortal();
+            syncDateTimePickerControls(document);
+        }
+
+        function changeDateTimePickerMonth(inputId, delta) {
+            const normalizedId = String(inputId || "");
+            const input = document.getElementById(normalizedId);
+            if (!input) return;
+            const current = dateTimePickerMonthViews[normalizedId]
+                || parseDateTimePickerValue(input.value)
+                || getDateTimePickerFallbackParts();
+            const next = new Date(current.year, current.monthIndex + Number(delta || 0), 1);
+            dateTimePickerMonthViews[normalizedId] = { year: next.getFullYear(), monthIndex: next.getMonth() };
+            syncDateTimePickerPortal();
+        }
+
+        function selectDateTimePickerDay(inputId, year, monthIndex, day) {
+            const input = document.getElementById(String(inputId || ""));
+            if (!input) return;
+            const current = parseDateTimePickerValue(input.value) || getDateTimePickerFallbackParts();
+            updateDateTimePickerValue(inputId, {
+                year: Number(year),
+                monthIndex: Number(monthIndex),
+                day: Number(day),
+                hour: current.hour,
+                minute: current.minute
+            });
+            dateTimePickerMonthViews[String(inputId || "")] = { year: Number(year), monthIndex: Number(monthIndex) };
+            syncDateTimePickerPortal();
+        }
+
+        function sanitizeDateTimePickerPart(input) {
+            if (!input) return;
+            input.value = String(input.value || "").replace(/\D/g, "").slice(0, 2);
+        }
+
+        function commitDateTimePickerTime(inputId) {
+            const portal = document.getElementById("date-time-picker-portal");
+            const hourInput = portal && portal.querySelector("[data-date-time-picker-hour]");
+            const minuteInput = portal && portal.querySelector("[data-date-time-picker-minute]");
+            const input = document.getElementById(String(inputId || ""));
+            if (!input || !hourInput || !minuteInput) return;
+
+            const current = parseDateTimePickerValue(input.value) || getDateTimePickerFallbackParts();
+            const hour = Number(hourInput.value);
+            const minute = Number(minuteInput.value);
+            updateDateTimePickerValue(inputId, {
+                year: current.year,
+                monthIndex: current.monthIndex,
+                day: current.day,
+                hour: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : current.hour,
+                minute: Number.isInteger(minute) && minute >= 0 && minute <= 59 ? minute : current.minute
+            });
+            syncDateTimePickerPortal();
+        }
+
+        function setDateTimePickerTime(inputId, timeText) {
+            const match = String(timeText || "").match(/^(\d{1,2}):(\d{2})$/);
+            const input = document.getElementById(String(inputId || ""));
+            if (!match || !input) return;
+            const hour = Number(match[1]);
+            const minute = Number(match[2]);
+            if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
+            const current = parseDateTimePickerValue(input.value) || getDateTimePickerFallbackParts();
+            updateDateTimePickerValue(inputId, {
+                year: current.year,
+                monthIndex: current.monthIndex,
+                day: current.day,
+                hour: hour,
+                minute: minute
+            });
+            syncDateTimePickerPortal();
+        }
+
+        function setDateTimePickerToday(inputId) {
+            const input = document.getElementById(String(inputId || ""));
+            if (!input) return;
+            const current = parseDateTimePickerValue(input.value) || getDateTimePickerFallbackParts();
+            const today = new Date();
+            updateDateTimePickerValue(inputId, {
+                year: today.getFullYear(),
+                monthIndex: today.getMonth(),
+                day: today.getDate(),
+                hour: current.hour,
+                minute: current.minute
+            });
+            dateTimePickerMonthViews[String(inputId || "")] = { year: today.getFullYear(), monthIndex: today.getMonth() };
+            syncDateTimePickerPortal();
+        }
+
         function setupSoftSelectInteractions() {
             if (softSelectInteractionsBound) return;
             document.addEventListener("click", function(event) {
-                if (event.target && event.target.closest("[data-soft-select-root]")) {
+                if (event.target && event.target.closest("[data-soft-select-root], [data-soft-select-portal-host], [data-date-time-picker-root], [data-date-time-picker-portal-host]")) {
                     return;
                 }
                 closeSoftSelects();
-            });
+                closeDateTimePicker();
+            }, true);
             document.addEventListener("keydown", function(event) {
                 if (event.key === "Escape") {
                     closeSoftSelects();
+                    closeDateTimePicker();
                 }
             });
-            window.addEventListener("resize", positionSoftSelectPanels);
-            document.addEventListener("scroll", positionSoftSelectPanels, true);
+            window.addEventListener("resize", function() {
+                positionSoftSelectPanels();
+                positionNativeSoftSelectPortal();
+                positionDateTimePickerPortal();
+            });
+            document.addEventListener("scroll", function() {
+                positionSoftSelectPanels();
+                positionNativeSoftSelectPortal();
+                positionDateTimePickerPortal();
+            }, true);
             softSelectInteractionsBound = true;
         }
 
@@ -5645,7 +6403,12 @@
             }
 
             state.Config_Stages = ensureArray(state.Config_Stages);
-            state.Users = ensureArray(state.Users);
+            state.Users = ensureArray(state.Users).map(function(user) {
+                if (!user || typeof user !== "object") return {};
+                const studentRole = String(user.Student_Role || "");
+                user.Student_Role = studentRole === "Leader" || studentRole === "Member" ? studentRole : "";
+                return user;
+            });
             state.Teams = ensureArray(state.Teams);
             state.Purchase_Items = ensureArray(state.Purchase_Items);
             state.Assignments = ensureArray(state.Assignments);
@@ -6734,7 +7497,7 @@
             return state.Users.filter(function(user) {
                 return user.Status === "Active"
                     && validTeamIds.has(user.Team_ID)
-                    && (user.Role === "Leader" || user.Role === "Member");
+                    && Boolean(getStudentRoleForAccount(user));
             }).map(function(user) {
                 return user.User_ID;
             });
@@ -9709,7 +10472,7 @@
                 activeTab = "overview";
                 
                 // 預設重置 Workspace
-                if (currentUser.Role === "Admin" && currentUser.Team_ID) {
+                if (isShapePrintAccount(currentUser) && hasStudentWorkspace(currentUser)) {
                     activeWorkspace = "admin";
                 } else if (currentUser.Role === "Leader" || currentUser.Role === "Member") {
                     activeWorkspace = "team";
@@ -9735,8 +10498,8 @@
             let effectiveRole = currentUser.Role;
             let effectiveTeamID = currentUser.Team_ID;
 
-            if (currentUser.Role === "Admin" && currentUser.Team_ID && currentUser.Team_ID !== "T00" && activeWorkspace === "team") {
-                effectiveRole = "Member";
+            if (isShapePrintAccount(currentUser) && hasStudentWorkspace(currentUser) && activeWorkspace === "team") {
+                effectiveRole = getStudentRoleForAccount(currentUser);
             }
 
             let roleDisplay = "畢業組員";
@@ -10257,6 +11020,106 @@
             }
         }
 
+        function getShapePrintInviteTokenFromUrl() {
+            try {
+                const url = new URL(window.location.href);
+                return String(url.searchParams.get("shapePrintInvite") || "").trim();
+            } catch (error) {
+                console.error("解析形印組邀請網址失敗", error);
+                return "";
+            }
+        }
+
+        function clearShapePrintInviteFromUrl() {
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.delete("shapePrintInvite");
+                const nextQuery = url.searchParams.toString();
+                const nextUrl = url.pathname + (nextQuery ? "?" + nextQuery : "") + (url.hash || "");
+                window.history.replaceState({}, document.title, nextUrl);
+            } catch (error) {
+                console.warn("清除形印組邀請網址失敗", error);
+            }
+        }
+
+        function renderShapePrintInviteForm() {
+            const status = document.getElementById("reg-shape-invite-status");
+            const nameInput = document.getElementById("reg-shape-name");
+            const emailInput = document.getElementById("reg-shape-email");
+            const passwordInput = document.getElementById("reg-shape-pwd");
+            const submitButton = document.getElementById("btn-register-shape-print-submit");
+            const isValid = shapePrintInviteStatus === "valid" && shapePrintInviteData && shapePrintInviteToken;
+
+            if (status) {
+                let message = "請透過形印組長或指導教師提供的一人一組邀請連結開啟此頁面。";
+                let className = "text-[11px] text-[#86868B] bg-[#F5F5F7] p-3 rounded-xl border border-[#E8E8ED] leading-relaxed";
+
+                if (shapePrintInviteStatus === "loading") {
+                    message = "正在確認這個形印組邀請連結，請稍候。";
+                } else if (isValid) {
+                    const inviteeLabel = shapePrintInviteData.inviteeEmail || shapePrintInviteData.inviteeEmailHint || "指定信箱";
+                    message = "你受邀加入形印籌備組。此帳號會立即啟用；未來仍可用同一帳號加入或建立畢製小組。受邀信箱：" + inviteeLabel;
+                    className = "text-[11px] text-[#0F6B34] bg-[#34C759]/10 p-3 rounded-xl border border-[#34C759]/20 leading-relaxed";
+                } else if (shapePrintInviteStatus === "invalid") {
+                    message = shapePrintInviteErrorMessage || "這個形印組邀請連結已失效、已使用或已過期。";
+                    className = "text-[11px] text-[#C1271A] bg-[#FF3B30]/10 p-3 rounded-xl border border-[#FF3B30]/20 leading-relaxed";
+                }
+
+                status.textContent = message;
+                status.className = className;
+            }
+
+            if (emailInput) {
+                emailInput.value = isValid ? String(shapePrintInviteData.inviteeEmail || "") : "";
+                emailInput.disabled = !isValid || registerSubmitInFlight;
+            }
+            if (nameInput) {
+                if (isValid && !nameInput.value.trim() && shapePrintInviteData.inviteeName) {
+                    nameInput.value = String(shapePrintInviteData.inviteeName);
+                }
+                nameInput.disabled = !isValid || registerSubmitInFlight;
+            }
+            if (passwordInput) {
+                passwordInput.disabled = !isValid || registerSubmitInFlight;
+            }
+            if (submitButton) {
+                submitButton.disabled = !isValid || registerSubmitInFlight;
+            }
+        }
+
+        async function initializeShapePrintInviteFlowFromUrl() {
+            const tokenFromUrl = getShapePrintInviteTokenFromUrl();
+            if (!tokenFromUrl || currentUser) {
+                return;
+            }
+
+            shapePrintInviteToken = tokenFromUrl;
+            shapePrintInviteStatus = "loading";
+            shapePrintInviteData = null;
+            shapePrintInviteErrorMessage = "";
+            authScreenMode = "register";
+            activeRegisterSubTab = "reg-shape-print";
+
+            if (!isRemoteSyncEnabled()) {
+                shapePrintInviteStatus = "invalid";
+                shapePrintInviteErrorMessage = "目前不是 GAS 雲端模式，無法確認形印組邀請連結。";
+                return;
+            }
+
+            try {
+                const response = await requestGas("getShapePrintInvite", { token: tokenFromUrl });
+                shapePrintInviteData = response && response.data ? response.data.invite : null;
+                if (!shapePrintInviteData) {
+                    throw new Error("邀請資料不完整。");
+                }
+                shapePrintInviteStatus = "valid";
+            } catch (error) {
+                console.error("驗證形印組邀請連結失敗", error);
+                shapePrintInviteStatus = "invalid";
+                shapePrintInviteErrorMessage = error.message || "這個形印組邀請連結已失效、已使用或已過期。";
+            }
+        }
+
         function setAuthScreenMode(mode) {
             const previousMode = authScreenMode;
             authScreenMode = mode;
@@ -10358,6 +11221,7 @@
 
             if (authScreenMode === "register") {
                 if (formRegister) formRegister.classList.remove('hidden');
+                renderShapePrintInviteForm();
             } else {
                 authScreenMode = "login";
                 if (formLogin) formLogin.classList.remove('hidden');
@@ -10624,9 +11488,8 @@
 
             const canSwitchWorkspace = Boolean(
                 currentUser &&
-                currentUser.Role === "Admin" &&
-                currentUser.Team_ID &&
-                currentUser.Team_ID !== "T00"
+                isShapePrintAccount(currentUser) &&
+                hasStudentWorkspace(currentUser)
             );
 
             if (!canSwitchWorkspace) {
@@ -10743,7 +11606,7 @@
         function toggleRegisterSubTab(subType) {
             if (registerSubmitInFlight) return;
 
-            const tabs = ['reg-leader', 'reg-code', 'reg-pending'];
+            const tabs = ['reg-leader', 'reg-code', 'reg-pending', 'reg-shape-print'];
             if (!tabs.includes(subType)) return;
             const shouldAnimate = activeRegisterSubTab !== subType;
             tabs.forEach(function(tab) {
@@ -10764,6 +11627,9 @@
                 }
             });
             activeRegisterSubTab = subType;
+            if (subType === "reg-shape-print") {
+                renderShapePrintInviteForm();
+            }
             if (shouldAnimate) {
                 requestAnimationFrame(function() {
                     animateAuthPanelTransition(document.getElementById('form-sub-' + subType), {
@@ -10873,8 +11739,12 @@
             toggleButton.setAttribute('aria-label', shouldShow ? '隱藏密碼' : '顯示密碼');
             toggleButton.setAttribute('title', shouldShow ? '隱藏密碼' : '顯示密碼');
             if (icon) {
-                icon.setAttribute('data-lucide', shouldShow ? 'eye-off' : 'eye');
-                renderLucideIcons();
+                if (isMorphIconElement(icon)) {
+                    setMorphIconState(icon, shouldShow ? 'eye-off' : 'eye');
+                } else {
+                    icon.setAttribute('data-lucide', shouldShow ? 'eye-off' : 'eye');
+                    renderLucideIcons();
+                }
             }
         }
 
@@ -11205,6 +12075,54 @@
                 showToast(error.message || "組員註冊失敗，請稍後再試。", "error");
             } finally {
                 setRegisterSubmitting("member", false);
+            }
+        }
+
+        async function handleRegisterShapePrintMember(e) {
+            e.preventDefault();
+            if (registerSubmitInFlight) return;
+
+            if (shapePrintInviteStatus !== "valid" || !shapePrintInviteToken || !shapePrintInviteData) {
+                showToast("請使用有效的形印組專屬邀請連結註冊。", "warning");
+                return;
+            }
+
+            const name = document.getElementById("reg-shape-name").value.trim();
+            const email = document.getElementById("reg-shape-email").value.trim();
+            const password = document.getElementById("reg-shape-pwd").value;
+            const minimumFeedback = waitForMs(460);
+
+            setRegisterSubmitting("shape-print", true);
+            try {
+                if (!isRemoteSyncEnabled()) {
+                    throw new Error("形印組專屬邀請需要連線 GAS 雲端後才能註冊。");
+                }
+
+                activeTab = "overview";
+                await Promise.all([
+                    submitRemoteAuth("registerShapePrintMember", {
+                        token: shapePrintInviteToken,
+                        name: name,
+                        email: email,
+                        password: password
+                    }, {
+                        renderImmediately: false
+                    }),
+                    minimumFeedback
+                ]);
+                shapePrintInviteStatus = "used";
+                shapePrintInviteData = null;
+                shapePrintInviteToken = "";
+                clearShapePrintInviteFromUrl();
+                renderAll();
+                showToast("帳號已建立，歡迎加入形印籌備組。", "success");
+            } catch (error) {
+                await minimumFeedback;
+                console.error("GAS 形印組註冊失敗", error);
+                showToast(error.message || "形印組帳號註冊失敗，請稍後再試。", "error");
+            } finally {
+                setRegisterSubmitting("shape-print", false);
+                renderShapePrintInviteForm();
             }
         }
 
@@ -11938,9 +12856,29 @@
             openStageDeleteModal(stageId);
         }
 
-        function handleSendDirectInvite(e) {
+        async function handleSendDirectInvite(e) {
             e.preventDefault();
             const targetEmail = document.getElementById('invite-direct-email').value.trim();
+
+            if (isRemoteSyncEnabled()) {
+                try {
+                    const response = await requestGas("inviteStudentMember", { email: targetEmail });
+                    if (!applyBackendStateResponse(response, {
+                        preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                        allowFallback: false
+                    })) {
+                        throw new Error("雲端沒有回傳最新的邀請資料。");
+                    }
+                    document.getElementById('invite-direct-email').value = '';
+                    renderAll();
+                    showToast("直邀邀請已建立，組員可在信箱開通頁完成註冊。", "success");
+                    return;
+                } catch (error) {
+                    console.error("建立組員直邀失敗", error);
+                    showToast(error.message || "建立組員直邀失敗，請稍後再試。", "error");
+                    return;
+                }
+            }
             
             const duplicated = state.Users.find(function(u) { return u.Email === targetEmail; });
             if (duplicated) {
@@ -11968,6 +12906,225 @@
             document.execCommand('copy');
             document.body.removeChild(tempInput);
             showToast("小組邀請碼【" + team.Invite_Code + "】已複製！", "info");
+        }
+
+        function canManageShapePrintInvites() {
+            return Boolean(currentUser) && String(currentUser.Role || "") === "SuperAdmin";
+        }
+
+        function getShapePrintInviteStatusMeta(status) {
+            const labels = {
+                active: { label: "可使用", className: "bg-[#E8F7ED] text-[#14833B]" },
+                used: { label: "已使用", className: "bg-[#EEF6FF] text-[#0066CC]" },
+                revoked: { label: "已撤銷", className: "bg-[#F2F2F7] text-[#86868B]" },
+                expired: { label: "已過期", className: "bg-[#FFF4E9] text-[#C65A00]" }
+            };
+            return labels[String(status || "")] || { label: "未知", className: "bg-[#F2F2F7] text-[#86868B]" };
+        }
+
+        async function loadShapePrintInvites(options = {}) {
+            if (!canManageShapePrintInvites() || !isRemoteSyncEnabled()) {
+                return;
+            }
+            if (shapePrintInviteListStatus === "loading" && !options.force) {
+                return;
+            }
+
+            shapePrintInviteListStatus = "loading";
+            shapePrintInviteListErrorMessage = "";
+            if (activeTab === "teams") renderAll();
+
+            try {
+                const response = await requestGas("listShapePrintInvites", {});
+                shapePrintInvites = ensureArray(response && response.data && response.data.invites);
+                shapePrintInviteListStatus = "ready";
+            } catch (error) {
+                console.error("載入形印組邀請失敗", error);
+                shapePrintInviteListStatus = "error";
+                shapePrintInviteListErrorMessage = error.message || "暫時無法載入形印組邀請。";
+            }
+
+            if (activeTab === "teams") renderAll();
+        }
+
+        function maybeLoadShapePrintInvites() {
+            if (canManageShapePrintInvites() && shapePrintInviteListStatus === "idle") {
+                loadShapePrintInvites();
+            }
+        }
+
+        async function copyShapePrintInviteLink(url) {
+            const value = String(url || "").trim();
+            if (!value) {
+                showToast("目前沒有可複製的邀請連結。", "warning");
+                return;
+            }
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const input = document.createElement("input");
+                    input.value = value;
+                    document.body.appendChild(input);
+                    input.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(input);
+                }
+                showToast("形印組專屬邀請連結已複製。", "success");
+            } catch (error) {
+                console.error("複製形印組邀請連結失敗", error);
+                showToast("無法自動複製，請直接選取下方連結。", "warning");
+            }
+        }
+
+        async function handleCreateShapePrintInvite(event) {
+            event.preventDefault();
+            if (shapePrintInviteCreateInFlight) return;
+            if (!canManageShapePrintInvites()) {
+                showToast("只有形印組長或形印指導教師可以建立專屬邀請。", "warning");
+                return;
+            }
+
+            const emailInput = document.getElementById("shape-print-invite-email");
+            const nameInput = document.getElementById("shape-print-invite-name");
+            const expiryInput = document.getElementById("shape-print-invite-expiry");
+            const submitButton = document.getElementById("shape-print-invite-create-button");
+            const email = String(emailInput && emailInput.value || "").trim();
+            const name = String(nameInput && nameInput.value || "").trim();
+            const expiresInDays = Number(expiryInput && expiryInput.value || 14);
+
+            shapePrintInviteCreateInFlight = true;
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = "建立中…";
+            }
+
+            try {
+                const response = await requestGas("createShapePrintInvite", {
+                    email: email,
+                    name: name,
+                    expiresInDays: expiresInDays
+                });
+                const data = response && response.data ? response.data : {};
+                const invite = data.invite || null;
+                shapePrintInviteLastCreated = invite && data.inviteUrl ? {
+                    invite: invite,
+                    inviteUrl: String(data.inviteUrl)
+                } : null;
+                if (invite) {
+                    shapePrintInvites = [invite].concat(shapePrintInvites.filter(function(item) {
+                        return String(item.inviteId || "") !== String(invite.inviteId || "");
+                    }));
+                    shapePrintInviteListStatus = "ready";
+                }
+                if (emailInput) emailInput.value = "";
+                if (nameInput) nameInput.value = "";
+                showToast("已建立一人一組的形印組邀請連結。", "success");
+                renderAll();
+            } catch (error) {
+                console.error("建立形印組邀請失敗", error);
+                showToast(error.message || "建立形印組邀請失敗，請稍後再試。", "error");
+            } finally {
+                shapePrintInviteCreateInFlight = false;
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = "建立專屬連結";
+                }
+            }
+        }
+
+        async function revokeShapePrintInvite(inviteId) {
+            if (!canManageShapePrintInvites()) {
+                showToast("只有形印組長或形印指導教師可以撤銷邀請。", "warning");
+                return;
+            }
+            try {
+                const response = await requestGas("revokeShapePrintInvite", { inviteId: inviteId });
+                const invite = response && response.data ? response.data.invite : null;
+                if (invite) {
+                    shapePrintInvites = shapePrintInvites.map(function(item) {
+                        return String(item.inviteId || "") === String(invite.inviteId || "") ? invite : item;
+                    });
+                }
+                showToast("形印組邀請連結已撤銷。", "success");
+                renderAll();
+            } catch (error) {
+                console.error("撤銷形印組邀請失敗", error);
+                showToast(error.message || "撤銷形印組邀請失敗，請稍後再試。", "error");
+            }
+        }
+
+        async function handleJoinStudentTeamFromShapePrint(event) {
+            event.preventDefault();
+            if (studentTeamSetupInFlight) return;
+            const inviteCodeInput = document.getElementById("shape-print-student-invite-code");
+            const inviteCode = String(inviteCodeInput && inviteCodeInput.value || "").trim();
+            if (!inviteCode) {
+                showToast("請輸入畢製小組邀請碼。", "warning");
+                return;
+            }
+            if (!isRemoteSyncEnabled()) {
+                showToast("加入畢製小組需要保持 GAS 雲端連線。", "warning");
+                return;
+            }
+
+            studentTeamSetupInFlight = true;
+            try {
+                const response = await requestGas("joinStudentTeam", { inviteCode: inviteCode });
+                if (!applyBackendStateResponse(response, {
+                    preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                    allowFallback: false
+                })) {
+                    throw new Error("雲端沒有回傳最新的小組資料。");
+                }
+                activeWorkspace = "team";
+                activeTab = "overview";
+                persistCurrentSession();
+                renderAll();
+                showToast("已加入畢製小組，形印組身分會一併保留。", "success");
+            } catch (error) {
+                console.error("加入畢製小組失敗", error);
+                showToast(error.message || "加入畢製小組失敗，請稍後再試。", "error");
+            } finally {
+                studentTeamSetupInFlight = false;
+            }
+        }
+
+        async function handleCreateStudentTeamFromShapePrint(event) {
+            event.preventDefault();
+            if (studentTeamSetupInFlight) return;
+            const teamNameInput = document.getElementById("shape-print-student-team-name");
+            const teamName = String(teamNameInput && teamNameInput.value || "").trim();
+            if (!teamName) {
+                showToast("請輸入畢製小組名稱。", "warning");
+                return;
+            }
+            if (!isRemoteSyncEnabled()) {
+                showToast("建立畢製小組需要保持 GAS 雲端連線。", "warning");
+                return;
+            }
+
+            studentTeamSetupInFlight = true;
+            try {
+                const response = await requestGas("createStudentTeam", { teamName: teamName });
+                if (!applyBackendStateResponse(response, {
+                    preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                    allowFallback: false
+                })) {
+                    throw new Error("雲端沒有回傳最新的小組資料。");
+                }
+                activeWorkspace = "team";
+                activeTab = "overview";
+                persistCurrentSession();
+                renderAll();
+                showToast("畢製小組已建立，你現在可在雙重身分間切換。", "success");
+            } catch (error) {
+                console.error("建立畢製小組失敗", error);
+                showToast(error.message || "建立畢製小組失敗，請稍後再試。", "error");
+            } finally {
+                studentTeamSetupInFlight = false;
+            }
         }
 
         function formatInviteCodeDisplayMarkup(inviteCode) {
@@ -12007,7 +13164,7 @@
             if (!foundFile) return;
 
             // 亮點功能：利益迴避機制檢查 (形印組員不可審查自己組別的檔案)
-            if (currentUser.Role === "Admin" && currentUser.Team_ID === foundFile.Team_ID) {
+            if (isShapePrintAccount(currentUser) && hasStudentWorkspace(currentUser) && currentUser.Team_ID === foundFile.Team_ID) {
                 showToast("利益衝突迴避：您隸屬此作品小組，不可審核自己組別的檔案！", "warning");
                 return;
             }
@@ -12176,6 +13333,9 @@
             const user = state.Users.find(function(u) { return u.User_ID === userId; });
             if (user) {
                 user.Role = newRole;
+                if (!isShapePrintAccount(user)) {
+                    user.Student_Role = "";
+                }
                 showToast("已將 " + user.Name + " 的權限變更為：" + newRole, "success");
                 saveState();
             }
@@ -12185,11 +13345,29 @@
             const user = state.Users.find(function(u) { return u.User_ID === userId; });
             if (user) {
                 user.Team_ID = newTeamId;
+                if (isShapePrintAccount(user)) {
+                    if (newTeamId === "T00") {
+                        user.Student_Role = "";
+                    } else if (user.Student_Role !== "Leader" && user.Student_Role !== "Member") {
+                        user.Student_Role = "Member";
+                    }
+                }
                 const team = state.Teams.find(function(t) { return t.Team_ID === newTeamId; });
                 const teamLabel = team ? team.Team_Name : "獨立成員";
                 showToast("已將 " + user.Name + " 分配至小組：" + teamLabel, "success");
                 saveState();
             }
+        }
+
+        function updateUserStudentRole(userId, newStudentRole) {
+            const user = state.Users.find(function(u) { return u.User_ID === userId; });
+            if (!user || !isShapePrintAccount(user) || String(user.Team_ID || "") === "T00") {
+                return;
+            }
+            user.Student_Role = newStudentRole === "Leader" ? "Leader" : "Member";
+            const roleLabel = user.Student_Role === "Leader" ? "畢製組長" : "畢製組員";
+            showToast("已將 " + user.Name + " 的畢製身分設定為：" + roleLabel, "success");
+            saveState();
         }
 
         function deleteUser(userId) {
@@ -12667,6 +13845,7 @@
             if (deleteButton) deleteButton.classList.toggle("hidden", !event);
             if (spacer) spacer.classList.toggle("hidden", !event);
             enhanceNativeSoftSelects(modal);
+            syncDateTimePickerControls(modal);
             animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.975, fromBlur: 12, duration: 360 });
             renderLucideIcons();
             window.setTimeout(function() { if (titleInput) titleInput.focus(); }, 180);
@@ -12676,6 +13855,7 @@
             if (calendarEventSaveInFlight && force !== true) return;
             activeCalendarEventId = "";
             calendarEventDeleteArmed = false;
+            closeDateTimePicker();
             const modal = document.getElementById("calendar-event-modal");
             if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
         }
@@ -13474,9 +14654,9 @@
                 if (dashboardSection) dashboardSection.classList.remove('hidden');
             }
 
-            // B. 雙重身份切換卡片偵測 (Admin 且身兼畢業組員時呈現)
+            // B. 雙重身份切換卡片偵測（形印帳號兼任畢製小組時呈現）
             const workspaceCard = document.getElementById('workspace-switcher-card');
-            if (currentUser.Role === "Admin" && currentUser.Team_ID && currentUser.Team_ID !== "T00") {
+            if (isShapePrintAccount(currentUser) && hasStudentWorkspace(currentUser)) {
                 if (workspaceCard) workspaceCard.classList.remove('hidden');
                 // 同時設定按鈕高亮
                 const btnAdmin = document.getElementById('workspace-btn-admin');
@@ -13786,6 +14966,28 @@
             });
         }
 
+        function setWorkItemActionButtonFeedback(button, label, morphState) {
+            if (!button) return;
+            const labelElement = button.querySelector("[data-work-item-action-label]");
+            if (labelElement) {
+                labelElement.textContent = label;
+            } else {
+                button.textContent = label;
+            }
+            if (morphState) {
+                setMorphIconState(button.querySelector('[data-morph-icon="work-item-status"]'), morphState);
+            }
+        }
+
+        function restoreWorkItemActionButtonFeedback(button) {
+            if (!button) return;
+            const labelElement = button.querySelector("[data-work-item-action-label]");
+            if (labelElement && labelElement.dataset.workItemIdleLabel) {
+                labelElement.textContent = labelElement.dataset.workItemIdleLabel;
+            }
+            setMorphIconState(button.querySelector('[data-morph-icon="work-item-status"]'), "circle");
+        }
+
         async function submitWorkItemAction(action, payload, successMessage) {
             if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
                 throw new Error("工作事項需要保持 GAS 雲端連線，請重新同步後再操作。");
@@ -13835,13 +15037,20 @@
             const actionButtons = buttons.filter(function(button) {
                 return String(button.getAttribute("data-work-item-action") || "") === progressAction;
             });
-            actionButtons.forEach(function(button) { button.textContent = labels[progressAction]; });
+            actionButtons.forEach(function(button) {
+                setWorkItemActionButtonFeedback(
+                    button,
+                    labels[progressAction],
+                    progressAction === "complete" ? "check" : null
+                );
+            });
             try {
                 await submitWorkItemAction("updateWorkItemProgress", {
                     workItemId: String(workItemId || ""),
                     progressAction: progressAction
                 }, successLabels[progressAction]);
             } catch (error) {
+                actionButtons.forEach(restoreWorkItemActionButtonFeedback);
                 showToast(error && error.message ? error.message : "更新工作進度失敗，請重新整理後再試。", "warning");
             } finally {
                 workItemActionInFlight = false;
@@ -13900,6 +15109,7 @@
             if (deleteButton) deleteButton.classList.toggle("hidden", !item);
             if (spacer) spacer.classList.toggle("hidden", !item);
             enhanceNativeSoftSelects(modal);
+            syncDateTimePickerControls(modal);
             animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.975, fromBlur: 12, duration: 360 });
             renderLucideIcons();
             window.setTimeout(function() { if (titleInput) titleInput.focus(); }, 180);
@@ -13909,6 +15119,7 @@
             if (workItemSaveInFlight && force !== true) return;
             activeWorkItemId = "";
             workItemDeleteArmed = false;
+            closeDateTimePicker();
             const modal = document.getElementById("work-item-modal");
             if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
         }
@@ -14012,13 +15223,13 @@
                 const dueMeta = getWorkItemDueMeta(item);
                 const isOwn = String(item.Assigned_To_User_ID || "") === String(currentUser && currentUser.User_ID || "");
                 const actionMarkup = isManager
-                    ? `${item.Status === "已完成" ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="reopen" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'reopen')" class="rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[10px] font-bold text-[#6E6E73] transition hover:bg-[#F5F5F7]">重新開啟</button>` : item.Assigned_To_User_ID ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="complete" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'complete')" class="rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">標記完成</button>` : ""}<button type="button" onclick="openWorkItemModal('${escapeInlineJsString(item.Work_Item_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3 py-2 text-[10px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]">編輯分配</button>`
+                    ? `${item.Status === "已完成" ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="reopen" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'reopen')" class="rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[10px] font-bold text-[#6E6E73] transition hover:bg-[#F5F5F7]">重新開啟</button>` : item.Assigned_To_User_ID ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="complete" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'complete')" class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">${renderMorphIconMarkup("work-item-status", "circle", "h-3.5 w-3.5")}<span data-work-item-action-label data-work-item-idle-label="標記完成">標記完成</span></button>` : ""}<button type="button" onclick="openWorkItemModal('${escapeInlineJsString(item.Work_Item_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3 py-2 text-[10px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]">編輯分配</button>`
                     : canClaimWorkItem(item)
                     ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="claim" onclick="claimWorkItem('${escapeInlineJsString(item.Work_Item_ID)}')" class="rounded-xl bg-[#0066CC] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">認養工作</button>`
                     : isOwn && item.Status === "待處理"
                     ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="start" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'start')" class="rounded-xl bg-[#0066CC] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">開始處理</button>`
                     : isOwn && item.Status === "進行中"
-                    ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="complete" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'complete')" class="rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">完成工作</button>`
+                    ? `<button type="button" data-work-item-action-id="${escapeHtml(item.Work_Item_ID)}" data-work-item-action="complete" onclick="updateWorkItemProgress('${escapeInlineJsString(item.Work_Item_ID)}', 'complete')" class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1D1D1F] px-3 py-2 text-[10px] font-bold text-white transition hover:opacity-90">${renderMorphIconMarkup("work-item-status", "circle", "h-3.5 w-3.5")}<span data-work-item-action-label data-work-item-idle-label="完成工作">完成工作</span></button>`
                     : "";
                 return `<article data-work-item-card-id="${escapeHtml(item.Work_Item_ID)}" class="rounded-[24px] border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:border-[#D9D9E3] hover:bg-white sm:p-5">
                     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -14980,6 +16191,9 @@
             else if (activeTab === "teams") {
                 const isLeader = effectiveRole === "Leader";
                 const isSuperAdmin = effectiveRole === "SuperAdmin";
+                const canSetUpStudentTeam = isShapePrintAccount(currentUser)
+                    && String(currentUser.Team_ID || "") === "T00";
+                maybeLoadShapePrintInvites();
                 let visibleUsers = [];
                 if (isExhibitionAdmin) {
                     visibleUsers = state.Users;
@@ -14987,8 +16201,50 @@
                     visibleUsers = state.Users.filter(function(u) { return u.Team_ID === effectiveTeamID; });
                 }
 
+                const shapePrintInviteListMarkup = shapePrintInviteListStatus === "loading"
+                    ? `<div class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-5 text-center text-[11px] font-semibold text-[#86868B]"><i data-lucide="loader-circle" class="mr-1 inline h-3.5 w-3.5 animate-spin"></i>正在載入邀請紀錄…</div>`
+                    : shapePrintInviteListStatus === "error"
+                        ? `<div class="rounded-2xl border border-[#FFE0BE] bg-[#FFFBF6] px-4 py-4 text-[11px] leading-relaxed text-[#C65A00]">${escapeHtml(shapePrintInviteListErrorMessage || "暫時無法載入邀請紀錄。")}<button type="button" onclick="loadShapePrintInvites({ force: true })" class="ml-2 font-bold text-[#0066CC] hover:underline">重新載入</button></div>`
+                        : shapePrintInvites.length === 0
+                            ? `<div class="rounded-2xl border border-dashed border-[#D9D9E3] bg-[#FAFAFB] px-4 py-5 text-center text-[11px] text-[#86868B]">尚未建立形印組專屬邀請。</div>`
+                            : `<div class="overflow-hidden rounded-2xl border border-[#E8E8ED] bg-white divide-y divide-[#EDEDF0]">${shapePrintInvites.slice(0, 8).map(function(invite) {
+                                const statusMeta = getShapePrintInviteStatusMeta(invite.status);
+                                const recipient = String(invite.inviteeName || invite.inviteeEmail || "未命名邀請");
+                                const canRevoke = String(invite.status || "") === "active";
+                                return `<div class="flex flex-col gap-2 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between"><div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="truncate text-xs font-bold text-[#1D1D1F]">${escapeHtml(recipient)}</span><span class="rounded-full px-2 py-0.5 text-[10px] font-bold ${statusMeta.className}">${statusMeta.label}</span></div><p class="mt-1 text-[10px] text-[#86868B]">建立 ${escapeHtml(formatCompactDateTimeLabel(invite.createdAt) || "-")} · 有效至 ${escapeHtml(formatCompactDateTimeLabel(invite.expiresAt) || "-")}</p></div>${canRevoke ? `<button type="button" onclick="revokeShapePrintInvite('${escapeInlineJsString(invite.inviteId)}')" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-[#FFD8D5] bg-[#FFF8F7] px-2.5 py-1.5 text-[10px] font-bold text-[#D84A41] transition hover:bg-[#FFF0EE]">撤銷</button>` : ''}</div>`;
+                            }).join('')}</div>`;
+
                 container.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        ${canManageShapePrintInvites() ? `
+                            <section class="md:col-span-2 rounded-3xl border border-[#DCE8F8] bg-[linear-gradient(135deg,#FFFFFF_0%,#F5F9FF_100%)] p-5 shadow-sm md:p-6">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div class="flex items-start gap-3">
+                                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-[#D7E8FF] bg-white text-[#0066CC] shadow-[0_6px_18px_rgba(0,102,204,0.08)]"><i data-lucide="user-round-plus" class="h-4.5 w-4.5"></i></div>
+                                        <div><h3 class="text-base font-bold text-[#1D1D1F]">形印組專屬邀請</h3><p class="mt-1 max-w-2xl text-xs leading-relaxed text-[#6E6E73]">每位組員各自取得一組連結；註冊後立即啟用。連結可設定期限並隨時撤銷。</p></div>
+                                    </div>
+                                    <span class="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#E8F7ED] px-3 py-1.5 text-[10px] font-bold text-[#14833B]"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i>免待啟用</span>
+                                </div>
+                                <form onsubmit="handleCreateShapePrintInvite(event)" class="mt-5 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,.8fr)_minmax(0,1.1fr)_150px_auto] md:items-end">
+                                    <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">姓名（選填）</span><input id="shape-print-invite-name" type="text" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="例如：王小美"></label>
+                                    <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">受邀信箱</span><input id="shape-print-invite-email" type="email" required class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="member@mail.tut.edu.tw"></label>
+                                    <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">連結期限</span><select id="shape-print-invite-expiry" data-soft-select-size="compact" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3 py-2.5 text-xs font-semibold text-[#1D1D1F] outline-none"><option value="7">7 天</option><option value="14" selected>14 天</option><option value="30">30 天</option></select></label>
+                                    <button id="shape-print-invite-create-button" type="submit" class="inline-flex min-h-[40px] items-center justify-center rounded-xl bg-[#1D1D1F] px-4 text-xs font-bold text-white transition hover:opacity-90">建立專屬連結</button>
+                                </form>
+                                ${shapePrintInviteLastCreated ? `<div class="mt-4 rounded-2xl border border-[#CFE5FF] bg-white p-3.5"><div class="flex flex-col gap-2 sm:flex-row sm:items-center"><div class="min-w-0 flex-1"><p class="text-[10px] font-bold text-[#0066CC]">剛建立的專屬連結</p><input readonly value="${escapeHtml(shapePrintInviteLastCreated.inviteUrl)}" onclick="this.select()" class="mt-1.5 w-full rounded-lg border border-[#E8E8ED] bg-[#FAFAFB] px-3 py-2 text-[10px] text-[#515156] outline-none"></div><button type="button" onclick="copyShapePrintInviteLink('${escapeInlineJsString(shapePrintInviteLastCreated.inviteUrl)}')" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#D7E8FF] bg-[#F3F8FF] px-3 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#E8F2FF]"><i data-lucide="copy" class="h-3.5 w-3.5"></i>複製</button></div></div>` : ''}
+                                <div class="mt-5"><div class="mb-2 flex items-center justify-between gap-3"><h4 class="text-xs font-bold text-[#1D1D1F]">最近邀請紀錄</h4><button type="button" onclick="loadShapePrintInvites({ force: true })" class="text-[10px] font-bold text-[#0066CC] hover:underline">重新載入</button></div>${shapePrintInviteListMarkup}</div>
+                            </section>
+                        ` : ''}
+
+                        ${canSetUpStudentTeam ? `
+                            <section class="md:col-span-2 rounded-3xl border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
+                                <div class="flex items-start gap-3"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-[#E6E0FF] bg-[#F7F5FF] text-[#6750C7]"><i data-lucide="waypoints" class="h-4.5 w-4.5"></i></div><div><h3 class="text-base font-bold text-[#1D1D1F]">日後需要畢製小組身分？</h3><p class="mt-1 max-w-2xl text-xs leading-relaxed text-[#6E6E73]">可直接用這個形印組帳號加入既有畢製小組，或建立自己的畢製小組。兩種身分會保留並可隨時切換。</p></div></div>
+                                <div class="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+                                    <form onsubmit="handleJoinStudentTeamFromShapePrint(event)" class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4"><h4 class="text-sm font-bold text-[#1D1D1F]">加入既有小組</h4><p class="mt-1 text-[11px] leading-relaxed text-[#86868B]">向該小組組長取得邀請碼後，直接加入成為畢製組員。</p><label class="mt-3 block"><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">小組邀請碼</span><input id="shape-print-student-invite-code" required class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="例如：SHW-1234"></label><button type="submit" class="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-[#D7E8FF] bg-white px-3.5 py-2.5 text-xs font-bold text-[#0066CC] transition hover:bg-[#F3F8FF]">用邀請碼加入</button></form>
+                                    <form onsubmit="handleCreateStudentTeamFromShapePrint(event)" class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4"><h4 class="text-sm font-bold text-[#1D1D1F]">建立自己的小組</h4><p class="mt-1 text-[11px] leading-relaxed text-[#86868B]">建立後會成為該畢製小組組長，並取得可提供給組員的邀請碼。</p><label class="mt-3 block"><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">組別名稱</span><input id="shape-print-student-team-name" required class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="如：01郭子綾、陳昱廷（楊炘彪）"></label><button type="submit" class="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-[#1D1D1F] px-3.5 py-2.5 text-xs font-bold text-white transition hover:opacity-90">建立並成為組長</button></form>
+                                </div>
+                            </section>
+                        ` : ''}
                         ${!isExhibitionAdmin ? `
                             <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm space-y-4">
                                 <div class="flex items-start gap-3">
@@ -15060,7 +16316,9 @@
                                         }
 
                                         let teamDisplayHtml = teamLabel;
-                                        let roleDisplayHtml = `<span class="inline-flex items-center text-[#86868B]">${getRoleLabel(u.Role)}</span>`;
+                                        const studentRole = getStudentRoleForAccount(u);
+                                        const studentRoleLabel = studentRole === "Leader" ? "畢製組長" : studentRole === "Member" ? "畢製組員" : "";
+                                        let roleDisplayHtml = `<span class="inline-flex flex-wrap items-center gap-1.5 text-[#86868B]"><span>${getRoleLabel(u.Role)}</span>${studentRoleLabel ? `<span class="rounded-full bg-[#F2F7FF] px-2 py-0.5 text-[9px] font-bold text-[#0066CC]">${studentRoleLabel}</span>` : ''}</span>`;
 
                                         if (isSuperAdmin) {
                                             teamDisplayHtml = `
@@ -15073,12 +16331,15 @@
                                             `;
 
                                             roleDisplayHtml = `
-                                                <select onchange="updateUserRole('${u.User_ID}', this.value)" data-soft-select-size="compact" data-soft-select-width="auto" class="px-2 py-1.5 rounded-lg border border-[#E8E8ED] bg-white text-xs font-semibold text-[#1D1D1F] focus:border-[#0066CC] outline-none">
-                                                    <option value="SuperAdmin" ${u.Role === "SuperAdmin" ? "selected" : ""}>形印組長</option>
-                                                    <option value="Admin" ${u.Role === "Admin" ? "selected" : ""}>形印組員</option>
-                                                    <option value="Leader" ${u.Role === "Leader" ? "selected" : ""}>畢業組長</option>
-                                                    <option value="Member" ${u.Role === "Member" ? "selected" : ""}>畢業組員</option>
-                                                </select>
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    <select onchange="updateUserRole('${u.User_ID}', this.value)" data-soft-select-size="compact" data-soft-select-width="auto" class="px-2 py-1.5 rounded-lg border border-[#E8E8ED] bg-white text-xs font-semibold text-[#1D1D1F] focus:border-[#0066CC] outline-none">
+                                                        <option value="SuperAdmin" ${u.Role === "SuperAdmin" ? "selected" : ""}>形印組長</option>
+                                                        <option value="Admin" ${u.Role === "Admin" ? "selected" : ""}>形印組員</option>
+                                                        <option value="Leader" ${u.Role === "Leader" ? "selected" : ""}>畢業組長</option>
+                                                        <option value="Member" ${u.Role === "Member" ? "selected" : ""}>畢業組員</option>
+                                                    </select>
+                                                    ${isShapePrintAccount(u) && String(u.Team_ID || "") !== "T00" ? `<select onchange="updateUserStudentRole('${u.User_ID}', this.value)" data-soft-select-size="compact" data-soft-select-width="auto" class="px-2 py-1.5 rounded-lg border border-[#D7E8FF] bg-[#F7FBFF] text-xs font-semibold text-[#0066CC] focus:border-[#0066CC] outline-none"><option value="Member" ${studentRole !== "Leader" ? "selected" : ""}>畢製組員</option><option value="Leader" ${studentRole === "Leader" ? "selected" : ""}>畢製組長</option></select>` : ''}
+                                                </div>
                                             `;
                                         }
 

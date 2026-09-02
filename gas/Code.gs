@@ -39,6 +39,9 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
+var SHAPE_PRINT_TEAM_ID = 'T00';
+var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
+var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
 
 var TABLE_SCHEMAS = {
   Config_Stages: {
@@ -49,7 +52,7 @@ var TABLE_SCHEMAS = {
     }
   },
   Users: {
-    headers: ['User_ID', 'Email', 'Password', 'Name', 'Team_ID', 'Role', 'Status'],
+    headers: ['User_ID', 'Email', 'Password', 'Name', 'Team_ID', 'Role', 'Status', 'Student_Role'],
     types: {}
   },
   Teams: {
@@ -321,6 +324,28 @@ var TABLE_SCHEMAS = {
       Expires_At_Millis: 'number'
     }
   },
+  Shape_Print_Invites: {
+    headers: [
+      'Invite_ID',
+      'Token_Hash',
+      'Invitee_Email',
+      'Invitee_Name',
+      'Created_By_User_ID',
+      'Created_By_Name',
+      'Created_At',
+      'Expires_At',
+      'Status',
+      'Consumed_At',
+      'Consumed_By_User_ID',
+      'Revoked_At',
+      'Created_At_Millis',
+      'Expires_At_Millis'
+    ],
+    types: {
+      Created_At_Millis: 'number',
+      Expires_At_Millis: 'number'
+    }
+  },
   Activity_Logs: {
     headers: [
       'Log_ID',
@@ -353,6 +378,12 @@ function doGet(e) {
 
     if (action === 'health') {
       return jsonResponse_(true, buildHealthPayload_());
+    }
+
+    if (action === 'getShapePrintInvite') {
+      return jsonResponse_(true, withLock_(function() {
+        return handleGetShapePrintInvite_(e && e.parameter ? e.parameter : {});
+      }));
     }
 
     if (action === 'bootstrap' || action === 'state' || action === 'init') {
@@ -418,9 +449,65 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'registerShapePrintMember') {
+      result = withLock_(function() {
+        return handleRegisterShapePrintMember_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'activatePending') {
       result = withLock_(function() {
         return handleActivatePending_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'getShapePrintInvite') {
+      result = withLock_(function() {
+        return handleGetShapePrintInvite_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'createShapePrintInvite') {
+      result = withLock_(function() {
+        return handleCreateShapePrintInvite_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'listShapePrintInvites') {
+      result = withLock_(function() {
+        return handleListShapePrintInvites_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'revokeShapePrintInvite') {
+      result = withLock_(function() {
+        return handleRevokeShapePrintInvite_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'joinStudentTeam') {
+      result = withLock_(function() {
+        return handleJoinStudentTeam_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'createStudentTeam') {
+      result = withLock_(function() {
+        return handleCreateStudentTeam_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'inviteStudentMember') {
+      result = withLock_(function() {
+        return handleInviteStudentMember_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -1862,6 +1949,33 @@ function resolveAuditActor_(state, userId) {
 
 function isShapePrintUser_(user) {
   return Boolean(user) && ['SuperAdmin', 'Admin'].indexOf(String(user.Role || '')) >= 0;
+}
+
+function getStudentRoleForUser_(user) {
+  if (!user) return '';
+
+  var accountRole = String(user.Role || '');
+  if (accountRole === 'Leader' || accountRole === 'Member') {
+    return accountRole;
+  }
+
+  if (isShapePrintUser_(user) && String(user.Team_ID || '') !== SHAPE_PRINT_TEAM_ID) {
+    return String(user.Student_Role || '') === 'Leader' ? 'Leader' : 'Member';
+  }
+
+  return '';
+}
+
+function hasStudentTeamForUser_(user) {
+  return Boolean(getStudentRoleForUser_(user))
+    && Boolean(String(user && user.Team_ID || '').trim())
+    && String(user.Team_ID || '') !== SHAPE_PRINT_TEAM_ID;
+}
+
+function canRegisterAsShapePrintDualRole_(user) {
+  return isShapePrintUser_(user)
+    && String(user && user.Status || '') === 'Active'
+    && String(user && user.Team_ID || '') === SHAPE_PRINT_TEAM_ID;
 }
 
 function buildAuditComparableRecord_(record, excludedFields) {
@@ -4042,6 +4156,153 @@ function persistPasswordResetTokens_(records) {
   writeTable_(spreadsheet, 'Password_Reset_Tokens', normalizedRecords);
 }
 
+function normalizeShapePrintInviteRecord_(record) {
+  var next = cloneObject_(record || {});
+  next.Invite_ID = String(next.Invite_ID || '');
+  next.Token_Hash = String(next.Token_Hash || '');
+  next.Invitee_Email = normalizeEmail_(next.Invitee_Email);
+  next.Invitee_Name = String(next.Invitee_Name || '').trim();
+  next.Created_By_User_ID = String(next.Created_By_User_ID || '');
+  next.Created_By_Name = String(next.Created_By_Name || '');
+  next.Created_At = String(next.Created_At || '');
+  next.Expires_At = String(next.Expires_At || '');
+  next.Status = String(next.Status || 'active').toLowerCase();
+  next.Consumed_At = String(next.Consumed_At || '');
+  next.Consumed_By_User_ID = String(next.Consumed_By_User_ID || '');
+  next.Revoked_At = String(next.Revoked_At || '');
+  next.Created_At_Millis = Number(next.Created_At_Millis || 0);
+  next.Expires_At_Millis = Number(next.Expires_At_Millis || 0);
+
+  if (!Number.isFinite(next.Created_At_Millis) || next.Created_At_Millis < 0) {
+    next.Created_At_Millis = 0;
+  }
+  if (!Number.isFinite(next.Expires_At_Millis) || next.Expires_At_Millis < 0) {
+    next.Expires_At_Millis = 0;
+  }
+
+  return next;
+}
+
+function loadShapePrintInvites_() {
+  setupSheets_();
+  var config = getConfig_();
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  return readTable_(spreadsheet, 'Shape_Print_Invites').map(function(record) {
+    return normalizeShapePrintInviteRecord_(record);
+  });
+}
+
+function persistShapePrintInvites_(records) {
+  setupSheets_();
+  var config = getConfig_();
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var normalizedRecords = ensureArray_(records).map(function(record) {
+    return normalizeShapePrintInviteRecord_(record);
+  }).sort(function(a, b) {
+    return Number(b.Created_At_Millis || 0) - Number(a.Created_At_Millis || 0);
+  });
+  writeTable_(spreadsheet, 'Shape_Print_Invites', normalizedRecords);
+}
+
+function cleanupShapePrintInvites_(records) {
+  var now = Date.now();
+  var changed = false;
+
+  ensureArray_(records).forEach(function(record) {
+    normalizeShapePrintInviteRecord_(record);
+    if (record.Status === 'active'
+      && Number(record.Expires_At_Millis || 0) > 0
+      && Number(record.Expires_At_Millis || 0) <= now) {
+      record.Status = 'expired';
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function getActiveShapePrintInvite_(records, rawToken) {
+  var tokenHash = hashShapePrintInviteToken_(rawToken);
+  return ensureArray_(records).find(function(record) {
+    return String(record.Token_Hash || '') === tokenHash
+      && String(record.Status || '') === 'active';
+  }) || null;
+}
+
+function hashShapePrintInviteToken_(token) {
+  var digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(token || ''),
+    Utilities.Charset.UTF_8
+  );
+  return Utilities.base64EncodeWebSafe(digest);
+}
+
+function generateShapePrintInviteToken_() {
+  var raw = [
+    Utilities.getUuid(),
+    Utilities.getUuid(),
+    String(new Date().getTime())
+  ].join('|');
+  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/g, '');
+}
+
+function buildShapePrintInviteUrl_(rawToken) {
+  var baseUrl = String(getConfig_().frontendBaseUrl || '').trim();
+  if (!baseUrl) {
+    throw new Error('尚未設定前端網址，暫時無法建立形印組邀請連結。');
+  }
+
+  var hashIndex = baseUrl.indexOf('#');
+  var hashPart = hashIndex >= 0 ? baseUrl.slice(hashIndex) : '';
+  var resolvedBaseUrl = hashIndex >= 0 ? baseUrl.slice(0, hashIndex) : baseUrl;
+  var separator = resolvedBaseUrl.indexOf('?') >= 0 ? '&' : '?';
+  return resolvedBaseUrl + separator + 'shapePrintInvite=' + encodeURIComponent(rawToken) + hashPart;
+}
+
+function maskInviteEmail_(email) {
+  var normalized = normalizeEmail_(email);
+  var parts = normalized.split('@');
+  if (parts.length !== 2) return normalized;
+  var local = parts[0];
+  var safeLocal = local.length <= 2
+    ? local.charAt(0) + '*'
+    : local.slice(0, 2) + '***';
+  return safeLocal + '@' + parts[1];
+}
+
+function buildShapePrintInviteSummary_(record, options) {
+  options = options || {};
+  var normalized = normalizeShapePrintInviteRecord_(record);
+  return {
+    inviteId: normalized.Invite_ID,
+    inviteeName: normalized.Invitee_Name,
+    inviteeEmail: options.includeEmail === true ? normalized.Invitee_Email : '',
+    inviteeEmailHint: maskInviteEmail_(normalized.Invitee_Email),
+    createdByName: normalized.Created_By_Name,
+    createdAt: normalized.Created_At,
+    expiresAt: normalized.Expires_At,
+    status: normalized.Status,
+    consumedAt: normalized.Consumed_At,
+    revokedAt: normalized.Revoked_At
+  };
+}
+
+function ensureShapePrintTeam_(state) {
+  var team = ensureArray_(state.Teams).find(function(item) {
+    return String(item.Team_ID || '') === SHAPE_PRINT_TEAM_ID;
+  }) || null;
+  if (team) return team;
+
+  team = {
+    Team_ID: SHAPE_PRINT_TEAM_ID,
+    Team_Name: '形印籌備組',
+    Invite_Code: 'ADMINONLY'
+  };
+  state.Teams.unshift(team);
+  return team;
+}
+
 function writeStateTables_(spreadsheet, state) {
   writeTable_(spreadsheet, 'Config_Stages', state.Config_Stages);
   writeTable_(spreadsheet, 'Users', state.Users);
@@ -4263,8 +4524,8 @@ function revokeAllSessionsForUser_(userId) {
 }
 
 function requireStudentUploadActor_(state, payload) {
-  var actor = requireSessionUser_(state, payload, ['Leader', 'Member']);
-  if (!actor.Team_ID || actor.Team_ID === 'T00') {
+  var actor = requireSessionUser_(state, payload);
+  if (!hasStudentTeamForUser_(actor)) {
     throw new Error('FORBIDDEN: 只有已加入正式小組的帳號可以上傳檔案。');
   }
   var requestedTeamId = String(payload && payload.teamId || '').trim();
@@ -4415,6 +4676,10 @@ function mergeSensitiveState_(nextState, existingState, options) {
       nextUser.Password = String(existingUser.Password);
     } else {
       nextUser.Password = '';
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(nextUser, 'Student_Role') && existingUser) {
+      nextUser.Student_Role = String(existingUser.Student_Role || '');
     }
 
     return nextUser;
@@ -4647,7 +4912,12 @@ function normalizeState_(state) {
   }
 
   state.Config_Stages = ensureArray_(state.Config_Stages);
-  state.Users = ensureArray_(state.Users);
+  state.Users = ensureArray_(state.Users).map(function(user) {
+    var nextUser = user && typeof user === 'object' ? user : {};
+    var studentRole = String(nextUser.Student_Role || '');
+    nextUser.Student_Role = studentRole === 'Leader' || studentRole === 'Member' ? studentRole : '';
+    return nextUser;
+  });
   state.Teams = ensureArray_(state.Teams);
   state.Purchase_Items = ensureArray_(state.Purchase_Items).map(function(item) {
     return hydratePurchaseItemRecord_(item);
@@ -6208,8 +6478,44 @@ function handleRegisterLeader_(payload) {
 
   validateRegistrationPayload_(teamName, name, email, password);
 
-  if (findUserByEmail_(state.Users, email)) {
-    throw new Error('該信箱已被註冊。');
+  var existingUser = findUserByEmail_(state.Users, email);
+  if (existingUser) {
+    if (!canRegisterAsShapePrintDualRole_(existingUser)) {
+      throw new Error('該信箱已被註冊。若要以既有形印組帳號建立畢製小組，請確認該帳號尚未加入其他正式小組。');
+    }
+    if (!verifyPassword_(password, existingUser.Password)) {
+      throw new Error('既有形印組帳號的密碼不正確。請使用原本的登入密碼。');
+    }
+
+    var dualRoleTeamId = generateSequentialId_('T', state.Teams, 'Team_ID');
+    var dualRoleInviteCode = generateInviteCode_(state.Teams);
+    var dualRoleTeam = {
+      Team_ID: dualRoleTeamId,
+      Team_Name: teamName,
+      Invite_Code: dualRoleInviteCode
+    };
+    existingUser.Team_ID = dualRoleTeamId;
+    existingUser.Student_Role = 'Leader';
+    existingUser.Name = name || existingUser.Name;
+    if (!isPasswordHash_(existingUser.Password)) {
+      existingUser.Password = hashPassword_(password);
+    }
+    state.Teams.push(dualRoleTeam);
+    persistState_(state);
+    state = loadState_();
+
+    var savedDualRoleUser = findUserByEmail_(state.Users, email);
+    appendActivityLogEntries_([
+      createActivityLogEntry_(savedDualRoleUser, '建立畢製小組', '已保留形印組身分並建立畢製小組「' + dualRoleTeam.Team_Name + '」。', 'team', dualRoleTeam.Team_ID, 'normal', {
+        source: 'registerLeader',
+        dualRole: true
+      })
+    ]);
+
+    return buildAuthenticatedClientResult_(state, savedDualRoleUser, {
+      team: dualRoleTeam,
+      retainedShapePrintRole: true
+    });
   }
 
   var teamId = generateSequentialId_('T', state.Teams, 'Team_ID');
@@ -6227,7 +6533,8 @@ function handleRegisterLeader_(payload) {
     Name: name,
     Team_ID: teamId,
     Role: 'Leader',
-    Status: 'Active'
+    Status: 'Active',
+    Student_Role: ''
   };
 
   state.Teams.push(newTeam);
@@ -6262,8 +6569,36 @@ function handleRegisterMember_(payload) {
     throw new Error('查無此邀請代碼。');
   }
 
-  if (findUserByEmail_(state.Users, email)) {
-    throw new Error('該信箱已被註冊。');
+  var existingUser = findUserByEmail_(state.Users, email);
+  if (existingUser) {
+    if (!canRegisterAsShapePrintDualRole_(existingUser)) {
+      throw new Error('該信箱已被註冊。若這是形印組帳號，請確認它尚未加入其他正式小組。');
+    }
+    if (!verifyPassword_(password, existingUser.Password)) {
+      throw new Error('既有形印組帳號的密碼不正確。請使用原本的登入密碼。');
+    }
+
+    existingUser.Team_ID = targetTeam.Team_ID;
+    existingUser.Student_Role = 'Member';
+    existingUser.Name = name || existingUser.Name;
+    if (!isPasswordHash_(existingUser.Password)) {
+      existingUser.Password = hashPassword_(password);
+    }
+    persistState_(state);
+    state = loadState_();
+
+    var savedDualRoleUser = findUserByEmail_(state.Users, email);
+    appendActivityLogEntries_([
+      createActivityLogEntry_(savedDualRoleUser, '加入畢製小組', '已保留形印組身分並加入「' + targetTeam.Team_Name + '」。', 'team', targetTeam.Team_ID, 'normal', {
+        source: 'registerMember',
+        dualRole: true
+      })
+    ]);
+
+    return buildAuthenticatedClientResult_(state, savedDualRoleUser, {
+      team: targetTeam,
+      retainedShapePrintRole: true
+    });
   }
 
   var userId = generateSequentialId_('U', state.Users, 'User_ID');
@@ -6274,7 +6609,8 @@ function handleRegisterMember_(payload) {
     Name: name,
     Team_ID: targetTeam.Team_ID,
     Role: 'Member',
-    Status: 'Active'
+    Status: 'Active',
+    Student_Role: ''
   };
 
   state.Users.push(newUser);
@@ -6289,6 +6625,320 @@ function handleRegisterMember_(payload) {
 
   return buildAuthenticatedClientResult_(state, findUserByEmail_(state.Users, email), {
     team: targetTeam
+  });
+}
+
+function handleGetShapePrintInvite_(payload) {
+  var rawToken = String(payload && (payload.token || payload.inviteToken) || '').trim();
+  if (!rawToken) {
+    throw new Error('缺少形印組邀請連結。');
+  }
+
+  var invites = loadShapePrintInvites_();
+  if (cleanupShapePrintInvites_(invites)) {
+    persistShapePrintInvites_(invites);
+  }
+  var invite = getActiveShapePrintInvite_(invites, rawToken);
+  if (!invite) {
+    throw new Error('這個形印組邀請連結已失效、已使用或已過期。');
+  }
+
+  var summary = buildShapePrintInviteSummary_(invite, { includeEmail: true });
+  summary.teamName = '形印籌備組';
+  summary.roleName = '形印組員';
+  return { invite: summary };
+}
+
+function handleCreateShapePrintInvite_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin']);
+  var inviteeEmail = normalizeEmail_(payload && payload.email);
+  var inviteeName = String(payload && payload.name || '').trim();
+  var requestedDays = Number(payload && payload.expiresInDays);
+  var expiresInDays = isNaN(requestedDays) || requestedDays <= 0
+    ? SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS
+    : Math.min(SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS, Math.max(1, Math.floor(requestedDays)));
+
+  if (!inviteeEmail) {
+    throw new Error('請輸入受邀形印組員的電子郵件。');
+  }
+  if (findUserByEmail_(state.Users, inviteeEmail)) {
+    throw new Error('此信箱已經有系統帳號，無法再建立形印組註冊邀請。');
+  }
+
+  var invites = loadShapePrintInvites_();
+  cleanupShapePrintInvites_(invites);
+  var now = new Date();
+  var didReplaceActiveInvite = false;
+  invites.forEach(function(record) {
+    if (String(record.Status || '') === 'active'
+      && normalizeEmail_(record.Invitee_Email) === inviteeEmail) {
+      record.Status = 'revoked';
+      record.Revoked_At = nowString_();
+      didReplaceActiveInvite = true;
+    }
+  });
+
+  var rawToken = generateShapePrintInviteToken_();
+  var expiresAt = new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000);
+  var invite = normalizeShapePrintInviteRecord_({
+    Invite_ID: generateSequentialId_('SPI', invites, 'Invite_ID'),
+    Token_Hash: hashShapePrintInviteToken_(rawToken),
+    Invitee_Email: inviteeEmail,
+    Invitee_Name: inviteeName,
+    Created_By_User_ID: String(actor.User_ID || ''),
+    Created_By_Name: String(actor.Name || ''),
+    Created_At: formatDateTime_(now),
+    Expires_At: formatDateTime_(expiresAt),
+    Status: 'active',
+    Created_At_Millis: now.getTime(),
+    Expires_At_Millis: expiresAt.getTime()
+  });
+  invites.unshift(invite);
+  persistShapePrintInvites_(invites);
+
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, '建立形印組邀請', '已為 ' + (inviteeName || inviteeEmail) + ' 建立一組形印組註冊連結。', 'shape-print-invite', invite.Invite_ID, 'normal', {
+      source: 'createShapePrintInvite',
+      inviteeEmail: inviteeEmail,
+      expiresInDays: expiresInDays,
+      replacedActiveInvite: didReplaceActiveInvite
+    })
+  ]);
+
+  return {
+    invite: buildShapePrintInviteSummary_(invite, { includeEmail: true }),
+    inviteUrl: buildShapePrintInviteUrl_(rawToken)
+  };
+}
+
+function handleListShapePrintInvites_(payload) {
+  var state = loadState_();
+  requireSessionUser_(state, payload, ['SuperAdmin']);
+  var invites = loadShapePrintInvites_();
+  if (cleanupShapePrintInvites_(invites)) {
+    persistShapePrintInvites_(invites);
+  }
+
+  return {
+    invites: invites.map(function(record) {
+      return buildShapePrintInviteSummary_(record, { includeEmail: true });
+    })
+  };
+}
+
+function handleRevokeShapePrintInvite_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin']);
+  var inviteId = String(payload && payload.inviteId || '').trim();
+  if (!inviteId) {
+    throw new Error('找不到要撤銷的形印組邀請。');
+  }
+
+  var invites = loadShapePrintInvites_();
+  cleanupShapePrintInvites_(invites);
+  var invite = invites.find(function(record) {
+    return String(record.Invite_ID || '') === inviteId;
+  }) || null;
+  if (!invite) {
+    throw new Error('找不到這個形印組邀請。');
+  }
+  if (String(invite.Status || '') !== 'active') {
+    throw new Error('這個形印組邀請目前無法撤銷。');
+  }
+
+  invite.Status = 'revoked';
+  invite.Revoked_At = nowString_();
+  persistShapePrintInvites_(invites);
+
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, '撤銷形印組邀請', '已撤銷 ' + (invite.Invitee_Name || invite.Invitee_Email) + ' 的形印組註冊連結。', 'shape-print-invite', invite.Invite_ID, 'normal', {
+      source: 'revokeShapePrintInvite'
+    })
+  ]);
+
+  return {
+    invite: buildShapePrintInviteSummary_(invite, { includeEmail: true })
+  };
+}
+
+function handleRegisterShapePrintMember_(payload) {
+  var rawToken = String(payload && (payload.token || payload.inviteToken) || '').trim();
+  var name = String(payload && payload.name || '').trim();
+  var email = normalizeEmail_(payload && payload.email);
+  var password = String(payload && (payload.password || payload.pwd) || '');
+
+  if (!rawToken) {
+    throw new Error('缺少形印組邀請連結。');
+  }
+  validateRegistrationPayload_('shape-print', name, email, password);
+
+  var invites = loadShapePrintInvites_();
+  if (cleanupShapePrintInvites_(invites)) {
+    persistShapePrintInvites_(invites);
+  }
+  var invite = getActiveShapePrintInvite_(invites, rawToken);
+  if (!invite) {
+    throw new Error('這個形印組邀請連結已失效、已使用或已過期。');
+  }
+  if (normalizeEmail_(invite.Invitee_Email) !== email) {
+    throw new Error('請使用受邀信箱完成形印組註冊。');
+  }
+
+  var state = loadState_();
+  if (findUserByEmail_(state.Users, email)) {
+    throw new Error('該信箱已被註冊。');
+  }
+
+  var shapePrintTeam = ensureShapePrintTeam_(state);
+  var newUser = {
+    User_ID: generateSequentialId_('U', state.Users, 'User_ID'),
+    Email: email,
+    Password: hashPassword_(password),
+    Name: name,
+    Team_ID: shapePrintTeam.Team_ID,
+    Role: 'Admin',
+    Status: 'Active',
+    Student_Role: ''
+  };
+  state.Users.push(newUser);
+  persistState_(state);
+  state = loadState_();
+
+  var savedUser = findUserByEmail_(state.Users, email);
+  invite.Status = 'used';
+  invite.Consumed_At = nowString_();
+  invite.Consumed_By_User_ID = String(savedUser.User_ID || '');
+  persistShapePrintInvites_(invites);
+
+  appendActivityLogEntries_([
+    createActivityLogEntry_(savedUser, '加入形印組', '已透過專屬邀請連結加入形印籌備組。', 'user', savedUser.User_ID, 'normal', {
+      source: 'registerShapePrintMember',
+      inviteId: invite.Invite_ID
+    })
+  ]);
+
+  return buildAuthenticatedClientResult_(state, savedUser, {
+    team: shapePrintTeam,
+    shapePrintInvite: buildShapePrintInviteSummary_(invite, { includeEmail: true })
+  });
+}
+
+function handleJoinStudentTeam_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  var inviteCode = String(payload && payload.inviteCode || '').trim();
+  if (!canRegisterAsShapePrintDualRole_(actor)) {
+    throw new Error('目前帳號已經綁定正式小組，無法再加入其他畢製小組。');
+  }
+
+  var targetTeam = ensureArray_(state.Teams).find(function(team) {
+    return String(team.Invite_Code || '').trim() === inviteCode
+      && String(team.Team_ID || '') !== SHAPE_PRINT_TEAM_ID;
+  }) || null;
+  if (!targetTeam) {
+    throw new Error('查無此畢製小組邀請碼。');
+  }
+
+  actor.Team_ID = targetTeam.Team_ID;
+  actor.Student_Role = 'Member';
+  persistState_(state);
+  state = loadState_();
+  var savedUser = ensureArray_(state.Users).find(function(user) {
+    return String(user.User_ID || '') === String(actor.User_ID || '');
+  });
+
+  appendActivityLogEntries_([
+    createActivityLogEntry_(savedUser, '加入畢製小組', '已保留形印組身分並加入「' + targetTeam.Team_Name + '」。', 'team', targetTeam.Team_ID, 'normal', {
+      source: 'joinStudentTeam',
+      dualRole: true
+    })
+  ]);
+
+  return buildClientStateResultForUser_(state, savedUser, {
+    team: targetTeam,
+    retainedShapePrintRole: true
+  });
+}
+
+function handleCreateStudentTeam_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  var teamName = String(payload && payload.teamName || '').trim();
+  if (!teamName) {
+    throw new Error('請輸入畢製小組名稱。');
+  }
+  if (!canRegisterAsShapePrintDualRole_(actor)) {
+    throw new Error('目前帳號已經綁定正式小組，無法再建立其他畢製小組。');
+  }
+
+  var newTeam = {
+    Team_ID: generateSequentialId_('T', state.Teams, 'Team_ID'),
+    Team_Name: teamName,
+    Invite_Code: generateInviteCode_(state.Teams)
+  };
+  state.Teams.push(newTeam);
+  actor.Team_ID = newTeam.Team_ID;
+  actor.Student_Role = 'Leader';
+  persistState_(state);
+  state = loadState_();
+  var savedUser = ensureArray_(state.Users).find(function(user) {
+    return String(user.User_ID || '') === String(actor.User_ID || '');
+  });
+
+  appendActivityLogEntries_([
+    createActivityLogEntry_(savedUser, '建立畢製小組', '已保留形印組身分並建立畢製小組「' + newTeam.Team_Name + '」。', 'team', newTeam.Team_ID, 'normal', {
+      source: 'createStudentTeam',
+      dualRole: true
+    })
+  ]);
+
+  return buildClientStateResultForUser_(state, savedUser, {
+    team: newTeam,
+    retainedShapePrintRole: true
+  });
+}
+
+function handleInviteStudentMember_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload);
+  var email = normalizeEmail_(payload && payload.email);
+  if (getStudentRoleForUser_(actor) !== 'Leader' || !hasStudentTeamForUser_(actor)) {
+    throw new Error('FORBIDDEN: 只有畢製小組組長可以直接邀請組員。');
+  }
+  if (!email) {
+    throw new Error('請輸入組員電子郵件。');
+  }
+  if (findUserByEmail_(state.Users, email)) {
+    throw new Error('此電子郵件已存在於系統中。');
+  }
+
+  var pendingUser = {
+    User_ID: generateSequentialId_('U', state.Users, 'User_ID'),
+    Email: email,
+    Password: '',
+    Name: '待開通成員',
+    Team_ID: String(actor.Team_ID || ''),
+    Role: 'Member',
+    Status: 'Pending',
+    Student_Role: ''
+  };
+  state.Users.push(pendingUser);
+  persistState_(state);
+  state = loadState_();
+
+  var savedPendingUser = findUserByEmail_(state.Users, email);
+  appendActivityLogEntries_([
+    createActivityLogEntry_(actor, '直接邀請組員', '已邀請 ' + email + ' 加入畢製小組。', 'user', savedPendingUser.User_ID, 'normal', {
+      source: 'inviteStudentMember',
+      teamId: actor.Team_ID
+    })
+  ]);
+
+  return buildClientStateResultForUser_(state, ensureArray_(state.Users).find(function(user) {
+    return String(user.User_ID || '') === String(actor.User_ID || '');
+  }) || actor, {
+    invitedUser: sanitizeUserRecord_(savedPendingUser)
   });
 }
 
@@ -7013,8 +7663,8 @@ function handleConfigureDesignService_(payload) {
 function handleRequestDesignService_(payload) {
   var state = loadState_();
   var previousState = cloneObject_(state);
-  var actor = requireSessionUser_(state, payload, ['Leader', 'Member', 'Admin']);
-  if (String(actor.Team_ID || '') === 'T00') {
+  var actor = requireSessionUser_(state, payload);
+  if (!hasStudentTeamForUser_(actor)) {
     throw new Error('只有正式小組可以申請形印代做。');
   }
   var settings = getDesignServiceSettings_(state);
