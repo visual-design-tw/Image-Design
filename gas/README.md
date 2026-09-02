@@ -28,8 +28,9 @@
 ## 後端做了什麼
 
 - `doGet(e)`
-  - `action=health`：檢查設定是否正常
-  - `action=bootstrap`：驗證 session 後，依角色回傳可查看的 `state`
+- `action=health`：檢查設定是否正常
+- `action=bootstrap`：驗證 session 後，依角色回傳可查看的 `state`
+- `action=heatmap`：驗證 session 後，回傳目前角色可查看的系統活動熱圖
   - `action=largeUploadPage`：開啟大檔穩定上傳頁
 - `doPost(e)`
   - `action=setup`：建立工作表，可選 `seedDemo: true`
@@ -52,6 +53,7 @@
 ## 登入與同步安全
 
 - 登入成功後，GAS 會簽發 12 小時有效的隨機 session token；試算表只保存 token 雜湊值，不保存原始 token。
+- 登入驗證只讀取帳號與 session 資料；完整工作台資料與活動熱圖會在前端進入工作台後背景載入，避免大型工作表拖慢登入。
 - 每個帳號最多保留 5 個有效 session；超出時最早的 session 會自動撤銷。
 - 密碼重設後，該帳號所有既有 session 都會立即失效。
 - 連續輸入錯誤密碼 5 次時，登入會暫時限制 10 分鐘。

@@ -1574,7 +1574,7 @@
     </div>
 
     <!-- 檔案預覽 Modal -->
-    <div id="file-preview-modal" class="fixed inset-0 z-[84] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFilePreviewModal()">
+    <div id="file-preview-modal" data-surface-layout="centered-modal" class="fixed inset-0 z-[84] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFilePreviewModal()">
         <div class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
             <div class="flex items-center justify-between gap-4 border-b border-[#E8E8ED] px-5 py-4">
                 <div class="min-w-0">
@@ -1590,7 +1590,7 @@
     </div>
 
     <!-- 版本比較 Modal -->
-    <div id="file-compare-modal" class="fixed inset-0 z-[85] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFileCompareModal()">
+    <div id="file-compare-modal" data-surface-layout="centered-modal" class="fixed inset-0 z-[85] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFileCompareModal()">
         <div class="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
             <div class="flex items-center justify-between gap-4 border-b border-[#E8E8ED] px-5 py-4">
                 <div class="min-w-0">
@@ -1606,7 +1606,7 @@
     </div>
 
     <!-- 頁尾資訊彈窗 -->
-    <div id="calendar-event-modal" class="fixed inset-0 z-[92] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeCalendarEventModal()">
+    <div id="calendar-event-modal" data-surface-layout="centered-modal" class="fixed inset-0 z-[92] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeCalendarEventModal()">
         <div class="max-h-[88vh] w-full max-w-[560px] overflow-y-auto rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.94)] shadow-[0_16px_40px_rgba(15,23,42,0.12),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
             <div class="flex items-start justify-between gap-4 px-5 pt-5 pb-4">
                 <div class="flex items-center gap-3">
@@ -1671,7 +1671,7 @@
         </div>
     </div>
 
-    <div id="work-item-modal" class="fixed inset-0 z-[93] hidden items-center justify-center bg-[rgba(15,23,42,0.18)] p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeWorkItemModal()">
+    <div id="work-item-modal" data-surface-layout="centered-modal" class="fixed inset-0 z-[93] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeWorkItemModal()">
         <div class="max-h-[90vh] w-full max-w-[620px] overflow-y-auto rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
             <div class="flex items-start justify-between gap-4 px-5 pb-4 pt-5">
                 <div class="flex items-center gap-3">
@@ -1826,6 +1826,11 @@
         // 熱量圖全域過濾器狀態與資料產生
         let activeHeatmapFilter = "daily";
         let heatmapDatasetCache = null;
+        let heatmapLoadInFlight = false;
+        let heatmapLoadGeneration = 0;
+        let workspaceHydrationInFlight = false;
+        let workspaceHydrationGeneration = 0;
+        let workspaceHydrationErrorMessage = "";
         const STORAGE_KEY = "shapeprint_state_v5_pro";
         const GAS_API_STORAGE_KEY = "shapeprint_gas_api_url";
         const SESSION_STORAGE_KEY = "shapeprint_auth_session_v1";
@@ -1875,6 +1880,8 @@
         let pendingUploadContext = null;
         let pendingStageDeleteContext = null;
         let stageDeleteInFlight = false;
+        let stageActivationInFlight = false;
+        let stageActivationTargetId = "";
         let pendingAssignmentDeleteContext = null;
         let assignmentDeleteInFlight = false;
         let pendingStageBudgetContext = null;
@@ -2272,10 +2279,21 @@
             }
         }
 
+        // Centered overlays need a flex layout after their hidden state is removed.
+        function setAnimatedSurfaceLayout(surface, isOpen) {
+            if (!surface || surface.dataset.surfaceLayout !== "centered-modal") return;
+            if (isOpen) {
+                surface.style.display = "flex";
+            } else {
+                surface.style.removeProperty("display");
+            }
+        }
+
         function animateSurfaceOpen(surface, panel, options = {}) {
             if (!surface) return;
             clearMotionHideTimer(surface);
             surface.classList.remove("hidden");
+            setAnimatedSurfaceLayout(surface, true);
 
             if (!panel) return;
             const engine = getAnimeEngine();
@@ -2333,13 +2351,18 @@
             const hiddenClass = options.hiddenClass || "hidden";
             const toBlur = Number.isFinite(options.toBlur) ? options.toBlur : 10;
 
-            if (!engine || !panel) {
+            function finishClosingSurface() {
                 if (typeof options.onComplete === "function") {
                     options.onComplete();
                 }
                 surface.classList.add(hiddenClass);
+                setAnimatedSurfaceLayout(surface, false);
                 clearAnimatedStyles(surface, ["opacity", "willChange"]);
                 clearAnimatedStyles(panel, ["opacity", "transform", "translate", "scale", "rotate", "filter", "willChange"]);
+            }
+
+            if (!engine || !panel) {
+                finishClosingSurface();
                 return;
             }
 
@@ -2364,12 +2387,7 @@
             engine.animate(panel, panelAnimation);
 
             surface._motionHideTimer = setTimeout(function() {
-                if (typeof options.onComplete === "function") {
-                    options.onComplete();
-                }
-                surface.classList.add(hiddenClass);
-                clearAnimatedStyles(surface, ["opacity", "willChange"]);
-                clearAnimatedStyles(panel, ["opacity", "transform", "translate", "scale", "rotate", "filter", "willChange"]);
+                finishClosingSurface();
                 surface._motionHideTimer = null;
             }, hideDelay);
         }
@@ -3073,14 +3091,28 @@
                     percent: 78,
                     metricNote: "背景同步中"
                 });
-                bootstrapRemoteState({
+                startWorkspaceHydration({
                     preferredUserId: storedSession.userId,
-                    preserveCachedState: true
+                    preserveCachedState: true,
+                    showLoading: false
                 });
                 return { fromCache: true };
             }
 
-            await bootstrapRemoteState({ skipRender: true });
+            if (hydrateStoredSessionProfile(storedSession)) {
+                gasConnectionStatus = "connecting";
+                startWorkspaceHydration({
+                    preferredUserId: storedSession.userId,
+                    showLoading: true,
+                    renderLoading: false
+                });
+                return { fromCache: true };
+            }
+
+            const bootstrapped = await bootstrapRemoteState({ skipRender: true });
+            if (bootstrapped && currentUser) {
+                scheduleHeatmapRefresh({ userId: currentUser.User_ID, silent: true });
+            }
             return { fromCache: false };
         }
 
@@ -3162,6 +3194,29 @@
             }
         }
 
+        function buildSessionProfile(user) {
+            if (!user || !user.User_ID) return null;
+            return {
+                User_ID: String(user.User_ID || ""),
+                Email: String(user.Email || ""),
+                Name: String(user.Name || ""),
+                Team_ID: String(user.Team_ID || ""),
+                Role: String(user.Role || ""),
+                Status: String(user.Status || "")
+            };
+        }
+
+        function hydrateStoredSessionProfile(storedSession) {
+            const profile = storedSession && storedSession.profile;
+            if (!profile || !profile.User_ID || !profile.Role) {
+                return false;
+            }
+
+            currentUser = buildSessionProfile(profile);
+            activeWorkspace = resolveWorkspaceForUser(currentUser, storedSession.workspace);
+            return true;
+        }
+
         function getRemoteStateCacheKey(userId) {
             const normalizedUserId = String(userId || "").trim();
             return normalizedUserId ? REMOTE_STATE_CACHE_PREFIX + normalizedUserId : "";
@@ -3235,6 +3290,12 @@
             localStorage.removeItem(SESSION_STORAGE_KEY);
             authSessionToken = "";
             remoteStateRevision = 0;
+            workspaceHydrationGeneration += 1;
+            workspaceHydrationInFlight = false;
+            workspaceHydrationErrorMessage = "";
+            heatmapLoadGeneration += 1;
+            heatmapLoadInFlight = false;
+            heatmapDatasetCache = null;
             activityLogs = [];
             activityLogStatus = "idle";
             activityLogErrorMessage = "";
@@ -3249,7 +3310,8 @@
             localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
                 userId: currentUser.User_ID,
                 workspace: activeWorkspace,
-                sessionToken: authSessionToken || ""
+                sessionToken: authSessionToken || "",
+                profile: buildSessionProfile(currentUser)
             }));
         }
 
@@ -3305,13 +3367,15 @@
             }
         }
 
-        function captureBackendHeatmapData(responseData) {
+        function captureBackendHeatmapData(responseData, options = {}) {
             if (responseData && responseData.heatmap) {
                 heatmapDatasetCache = responseData.heatmap;
                 return;
             }
 
-            heatmapDatasetCache = null;
+            if (!options.keepExistingHeatmap) {
+                heatmapDatasetCache = null;
+            }
         }
 
         function applyBackendStateResponse(response, options = {}) {
@@ -3320,7 +3384,7 @@
                 return false;
             }
 
-            captureBackendHeatmapData(responseData);
+            captureBackendHeatmapData(responseData, options);
             if (Number.isFinite(Number(responseData.stateRevision))) {
                 remoteStateRevision = Number(responseData.stateRevision);
             }
@@ -3338,7 +3402,7 @@
                     persistCurrentSession();
                     writeRemoteStateCache(currentUser.User_ID, responseData.state, {
                         stateRevision: remoteStateRevision,
-                        heatmap: responseData.heatmap
+                        heatmap: responseData.heatmap || (options.keepExistingHeatmap ? heatmapDatasetCache : null)
                     });
                 }
             }
@@ -3405,24 +3469,31 @@
                 || (storedSession && storedSession.userId ? storedSession.userId : "");
 
             try {
-                if (!options.preserveCachedState) {
+                if (!options.preserveCachedState && !options.suppressBootLoader) {
                     setBootLoaderPhase("remote");
                 }
-                const response = await requestGas("bootstrap", null, "GET");
+                const response = await requestGas("bootstrap", {
+                    includeHeatmap: options.includeHeatmap === true
+                });
                 if (!response || !response.data || !response.data.state) {
                     throw new Error("GAS bootstrap response is missing state.");
+                }
+                if (Number.isFinite(Number(options.workspaceHydrationId))
+                    && Number(options.workspaceHydrationId) !== workspaceHydrationGeneration) {
+                    return false;
                 }
                 applyBackendStateResponse(response, {
                     preferredUserId: preferredUserId,
                     allowFallback: false,
-                    skipRender: options.skipRender === true
+                    skipRender: options.skipRender === true,
+                    keepExistingHeatmap: options.preserveCachedState === true
                 });
                 if (!currentUser) {
                     throw new Error("AUTH_EXPIRED: 無法確認目前登入帳號。");
                 }
 
                 gasConnectionStatus = "remote";
-                if (!options.preserveCachedState) {
+                if (!options.preserveCachedState && !options.suppressBootLoader) {
                     setBootLoaderPhase("remote", {
                         title: "雲端資料已經接上",
                         message: "Google 試算表與前端狀態已對齊，接著只要確認登入與網址中的特殊流程。",
@@ -3442,12 +3513,12 @@
                     state = createUnauthenticatedState();
                     currentUser = null;
                     renderAll();
-                } else if (!options.preserveCachedState) {
+                } else if (!options.preserveCachedState && !options.keepIdentityOnError) {
                     state = createUnauthenticatedState();
                     currentUser = null;
                 }
 
-                if (!options.preserveCachedState) {
+                if (!options.preserveCachedState && !options.suppressBootLoader) {
                     setBootLoaderPhase("fallback");
                 }
                 renderConnectionStatusBadge();
@@ -3466,6 +3537,110 @@
                 }, 150);
                 return false;
             }
+        }
+
+        function scheduleHeatmapRefresh(options = {}) {
+            const delay = Math.max(0, Number(options.delay) || 140);
+            window.setTimeout(function() {
+                refreshHeatmapDataset(options);
+            }, delay);
+        }
+
+        async function refreshHeatmapDataset(options = {}) {
+            if (heatmapLoadInFlight || !isRemoteSyncEnabled() || !authSessionToken || !currentUser) {
+                return false;
+            }
+
+            const expectedUserId = String(options.userId || currentUser.User_ID || "");
+            if (!expectedUserId) return false;
+
+            const requestId = ++heatmapLoadGeneration;
+            heatmapLoadInFlight = true;
+            try {
+                const response = await requestGas("heatmap", {});
+                const nextHeatmap = response && response.data ? response.data.heatmap : null;
+                if (!nextHeatmap
+                    || requestId !== heatmapLoadGeneration
+                    || !currentUser
+                    || String(currentUser.User_ID || "") !== expectedUserId) {
+                    return false;
+                }
+
+                heatmapDatasetCache = nextHeatmap;
+                writeRemoteStateCache(currentUser.User_ID, state, {
+                    stateRevision: remoteStateRevision,
+                    heatmap: nextHeatmap
+                });
+                renderHeatmap();
+                return true;
+            } catch (error) {
+                if (!options.silent) {
+                    console.warn("活動熱圖背景同步失敗", error);
+                }
+                return false;
+            } finally {
+                if (requestId === heatmapLoadGeneration) {
+                    heatmapLoadInFlight = false;
+                }
+            }
+        }
+
+        async function startWorkspaceHydration(options = {}) {
+            if (!currentUser || !authSessionToken) {
+                return false;
+            }
+
+            const expectedUserId = String(options.preferredUserId || currentUser.User_ID || "");
+            if (!expectedUserId) return false;
+
+            const requestId = ++workspaceHydrationGeneration;
+            const showLoading = options.showLoading === true;
+            if (showLoading) {
+                workspaceHydrationInFlight = true;
+                workspaceHydrationErrorMessage = "";
+                gasConnectionStatus = "connecting";
+                if (options.renderLoading !== false) {
+                    renderAll();
+                }
+            }
+
+            const loaded = await bootstrapRemoteState({
+                preferredUserId: expectedUserId,
+                preserveCachedState: options.preserveCachedState === true,
+                includeHeatmap: false,
+                skipRender: true,
+                suppressBootLoader: true,
+                keepIdentityOnError: true,
+                workspaceHydrationId: requestId
+            });
+
+            if (requestId !== workspaceHydrationGeneration) {
+                return false;
+            }
+
+            if (showLoading) {
+                workspaceHydrationInFlight = false;
+            }
+
+            if (loaded && currentUser && String(currentUser.User_ID || "") === expectedUserId) {
+                workspaceHydrationErrorMessage = "";
+                renderAll();
+                scheduleHeatmapRefresh({ userId: expectedUserId, silent: true });
+                return true;
+            }
+
+            if (showLoading && currentUser) {
+                workspaceHydrationErrorMessage = "目前無法取得工作台資料，請重新嘗試。";
+                renderAll();
+            }
+            return false;
+        }
+
+        function retryWorkspaceHydration() {
+            startWorkspaceHydration({
+                preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
+                showLoading: true
+            });
         }
 
         function scheduleRemoteStateSync() {
@@ -3648,16 +3823,29 @@
             activityLogStatus = "idle";
             activityLogErrorMessage = "";
 
-            if (!nextState || !nextUser || !nextUser.User_ID || !authSessionToken) {
+            if (!nextUser || !nextUser.User_ID || !authSessionToken) {
                 throw new Error("GAS 驗證成功，但回傳資料不完整。");
             }
 
-            applyBackendStateResponse(response, {
-                preferredUserId: nextUser.User_ID,
-                allowFallback: false,
-                skipRender: true
-            });
-            finalizeAuthenticatedSession(nextUser.User_ID, resolveWorkspaceForUser(nextUser));
+            if (nextState) {
+                applyBackendStateResponse(response, {
+                    preferredUserId: nextUser.User_ID,
+                    allowFallback: false,
+                    skipRender: true
+                });
+                finalizeAuthenticatedSession(nextUser.User_ID, resolveWorkspaceForUser(nextUser));
+            } else if (action === "login") {
+                // Login now returns identity first; the complete workspace follows
+                // in the background so a large spreadsheet cannot block entry.
+                state = createUnauthenticatedState();
+                remoteStateRevision = 0;
+                heatmapDatasetCache = null;
+                currentUser = nextUser;
+                activeWorkspace = resolveWorkspaceForUser(nextUser);
+                persistCurrentSession();
+            } else {
+                throw new Error("GAS 驗證成功，但回傳資料不完整。");
+            }
             if (options.renderImmediately !== false) {
                 renderAll();
             }
@@ -10701,6 +10889,8 @@
             const rememberInput = document.getElementById('login-remember');
             const shouldRemember = Boolean(rememberInput && rememberInput.checked);
             const minimumFeedback = waitForMs(460);
+            let shouldHydrateWorkspace = false;
+            let authenticatedUserId = "";
 
             showBootLoader("auth", {
                 title: "正在登入系統",
@@ -10724,11 +10914,15 @@
                         }, {
                         renderImmediately: false
                     }),
-                    minimumFeedback
-                ]);
+                        minimumFeedback
+                    ]);
                     persistRememberedLogin(email, pass, shouldRemember);
+                    authenticatedUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
+                    workspaceHydrationInFlight = true;
+                    workspaceHydrationErrorMessage = "";
                     renderAll();
                     showToast("登入成功，歡迎回到系統！", "success");
+                    shouldHydrateWorkspace = Boolean(authenticatedUserId);
                     return;
                 }
 
@@ -10762,6 +10956,13 @@
             } finally {
                 setLoginSubmitting(false);
                 await hideBootLoader();
+                if (shouldHydrateWorkspace) {
+                    startWorkspaceHydration({
+                        preferredUserId: authenticatedUserId,
+                        showLoading: true,
+                        renderLoading: false
+                    });
+                }
             }
         }
 
@@ -11182,10 +11383,90 @@
             saveState();
         }
 
-        function makeStageActive(stageId) {
-            state.Config_Stages.forEach(function(s) { s.Is_Active = s.Stage_ID === stageId; });
-            showToast("活躍會審期數已變更", "success");
-            saveState();
+        async function makeStageActive(stageId) {
+            const targetStage = state.Config_Stages.find(function(stage) {
+                return String(stage.Stage_ID || "") === String(stageId || "");
+            });
+            if (!targetStage) {
+                showToast("找不到要切換的會審，請重新整理後再試。", "warning");
+                return;
+            }
+            if (targetStage.Is_Active) {
+                showToast("這一期已經是目前活躍會審。", "info");
+                return;
+            }
+            if (stageActivationInFlight) return;
+
+            if (!isRemoteSyncEnabled()) {
+                state.Config_Stages.forEach(function(stage) {
+                    stage.Is_Active = String(stage.Stage_ID || "") === String(stageId || "");
+                });
+                showToast("活躍會審期數已變更", "success");
+                saveState({ skipRemoteSync: true });
+                return;
+            }
+
+            if (!authSessionToken || gasConnectionStatus !== "remote") {
+                showToast(
+                    !authSessionToken
+                        ? "請重新登入後再切換會審，避免只更新目前裝置。"
+                        : "雲端尚未同步完成，請重新同步後再切換會審。",
+                    "warning"
+                );
+                return;
+            }
+
+            const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
+            stageActivationInFlight = true;
+            stageActivationTargetId = String(stageId || "");
+            remoteMutationInFlight = true;
+            cancelQueuedRemoteStateSync();
+            renderAll();
+
+            try {
+                const didPreviousSaveSettle = await waitForRemoteStateSaveToSettle();
+                if (!didPreviousSaveSettle) {
+                    throw new Error("前一筆雲端同步尚未完成，請稍後再試。");
+                }
+                const response = await requestGas("activateStage", {
+                    stageId: stageActivationTargetId,
+                    stateRevision: remoteStateRevision
+                });
+                if (!applyBackendStateResponse(response, {
+                    preferredUserId: preferredUserId,
+                    allowFallback: false
+                })) {
+                    throw new Error("雲端切換完成後沒有回傳最新資料。");
+                }
+                gasConnectionStatus = "remote";
+                showToast("目前活躍會審已切換為「" + targetStage.Stage_Name + "」。", "success");
+            } catch (error) {
+                const message = String(error && error.message || "");
+                if (/STATE_CONFLICT/.test(message)) {
+                    try {
+                        const latest = await requestGas("bootstrap", { includeHeatmap: false });
+                        applyBackendStateResponse(latest, {
+                            preferredUserId: preferredUserId,
+                            allowFallback: false
+                        });
+                        gasConnectionStatus = "remote";
+                        showToast("雲端資料剛更新，已重新載入最新版本；請再確認要切換的會審。", "warning");
+                    } catch (reloadError) {
+                        gasConnectionStatus = "fallback";
+                        showToast("切換衝突後無法重新載入雲端資料，請重新整理再試。", "error");
+                    }
+                } else {
+                    gasConnectionStatus = "fallback";
+                    showToast("無法切換活躍會審：" + (message || "請稍後再試。"), "error");
+                    console.error("GAS 活躍會審切換失敗", error);
+                }
+            } finally {
+                remoteMutationInFlight = false;
+                stageActivationInFlight = false;
+                stageActivationTargetId = "";
+                renderConnectionStatusBadge();
+                renderAll();
+            }
         }
 
         function editStageBudget(stageId) {
@@ -12617,7 +12898,13 @@
         }
 
         function getHeatmapDataset() {
-            return heatmapDatasetCache || buildHeatmapDatasetFromState(state);
+            if (heatmapDatasetCache) {
+                return heatmapDatasetCache;
+            }
+
+            // Local preview mode does not have a background API to calculate
+            // the matrix, so retain the browser-only fallback there.
+            return isRemoteSyncEnabled() ? null : buildHeatmapDatasetFromState(state);
         }
 
         function buildHeatmapDatasetFromState(sourceState) {
@@ -12999,6 +13286,31 @@
             if (xAxis) xAxis.innerHTML = '';
             if (yAxis) yAxis.innerHTML = '';
             const heatmapDataset = getHeatmapDataset();
+            if (!heatmapDataset) {
+                if (note) {
+                    note.textContent = "正在背景同步系統活動資料";
+                }
+                if (heatmapLayout) {
+                    heatmapLayout.style.minWidth = "0px";
+                    heatmapLayout.style.width = "100%";
+                }
+                if (heatmapBoard) {
+                    heatmapBoard.style.gridTemplateColumns = "minmax(0, 1fr)";
+                    heatmapBoard.style.width = "100%";
+                    heatmapBoard.style.maxWidth = "";
+                    heatmapBoard.style.margin = "";
+                }
+                grid.style.display = "flex";
+                grid.style.height = "132px";
+                grid.style.minHeight = "132px";
+                grid.style.aspectRatio = "";
+                grid.style.gridTemplateColumns = "";
+                grid.style.gridTemplateRows = "";
+                grid.innerHTML = '<div class="flex w-full items-center justify-center gap-3 rounded-2xl border border-dashed border-[#D9E6F7] bg-[#F8FBFF] text-xs font-semibold text-[#6E6E73]"><span class="h-2.5 w-2.5 animate-pulse rounded-full bg-[#0A7AFF]"></span>活動熱圖正在同步</div>';
+                return;
+            }
+
+            grid.style.display = "";
             const viewModel = buildHeatmapViewModel(heatmapDataset, activeHeatmapFilter);
             const cells = ensureArray(viewModel && viewModel.cells);
             const maxValue = cells.reduce(function(max, item) {
@@ -13855,10 +14167,48 @@
             renderLucideIcons();
         }
 
+        function renderWorkspaceHydrationState(container) {
+            container.innerHTML = `
+                <section class="rounded-[28px] border border-[#E2E9F4] bg-[linear-gradient(135deg,#FFFFFF_0%,#F6FAFF_100%)] px-6 py-14 text-center shadow-[0_18px_52px_rgba(26,90,170,0.08)] sm:px-10">
+                    <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D9E9FF] bg-white text-[#0066CC] shadow-[0_10px_24px_rgba(0,102,204,0.12)]">
+                        <i data-lucide="loader-circle" class="h-6 w-6 animate-spin"></i>
+                    </span>
+                    <h3 class="mt-5 text-xl font-bold tracking-[-0.03em] text-[#1D1D1F]">正在準備你的工作台</h3>
+                    <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-[#6E6E73]">帳號已驗證完成，會審資料、繳交紀錄與工作事項正在背景同步。</p>
+                    <div class="mx-auto mt-6 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-[#E8EEF8]">
+                        <span class="block h-full w-2/3 animate-pulse rounded-full bg-[#0A7AFF]"></span>
+                    </div>
+                </section>
+            `;
+        }
+
+        function renderWorkspaceHydrationErrorState(container) {
+            container.innerHTML = `
+                <section class="rounded-[28px] border border-[#FFE0BE] bg-[#FFFBF6] px-6 py-14 text-center sm:px-10">
+                    <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#FFE0BE] bg-white text-[#D06F00]">
+                        <i data-lucide="cloud-off" class="h-6 w-6"></i>
+                    </span>
+                    <h3 class="mt-5 text-xl font-bold tracking-[-0.03em] text-[#1D1D1F]">工作台資料尚未載入</h3>
+                    <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-[#6E6E73]">${escapeHtml(workspaceHydrationErrorMessage || "目前無法取得工作台資料，請重新嘗試。")}</p>
+                    <button type="button" onclick="retryWorkspaceHydration()" class="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#1D1D1F] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#363638]"><i data-lucide="refresh-cw" class="h-4 w-4"></i>重新載入</button>
+                </section>
+            `;
+        }
+
         function renderActiveTabContent(activeStage, effectiveRole, effectiveTeamID) {
             const container = document.getElementById('main-view-container');
             if (!container) return;
             container.innerHTML = '';
+
+            if (workspaceHydrationInFlight) {
+                renderWorkspaceHydrationState(container);
+                return;
+            }
+
+            if (workspaceHydrationErrorMessage) {
+                renderWorkspaceHydrationErrorState(container);
+                return;
+            }
 
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
 
@@ -14802,7 +15152,10 @@
                                 <tbody class="divide-y divide-[#E8E8ED]">
                                     ${state.Config_Stages.map(function(item) {
                                         let statusBadge = `<span class="inline-block text-[10px] font-bold text-[#86868B] bg-[#E8E8ED] px-2.5 py-0.5 rounded-full">歷史存檔</span>`;
-                                        let actionBtnHtml = `<button onclick="makeStageActive('${item.Stage_ID}')" class="text-[10px] text-[#0066CC] font-bold bg-[#0066CC] bg-opacity-5 hover:bg-opacity-10 px-2.5 py-1 rounded-lg transition-all">設為活躍會期</button>`;
+                                        const isSwitchingThisStage = stageActivationInFlight && stageActivationTargetId === item.Stage_ID;
+                                        let actionBtnHtml = stageActivationInFlight
+                                            ? `<span class="text-[10px] font-bold ${isSwitchingThisStage ? 'text-[#0066CC]' : 'text-[#86868B]'}">${isSwitchingThisStage ? '同步中…' : '請稍候'}</span>`
+                                            : `<button onclick="makeStageActive('${item.Stage_ID}')" class="text-[10px] text-[#0066CC] font-bold bg-[#0066CC] bg-opacity-5 hover:bg-opacity-10 px-2.5 py-1 rounded-lg transition-all">設為活躍會期</button>`;
                                         
                                         if (item.Is_Active) {
                                             statusBadge = `<span class="inline-block text-[10px] font-bold text-[#34C759] bg-[#34C759] bg-opacity-10 px-2.5 py-0.5 rounded-full">當前活躍</span>`;

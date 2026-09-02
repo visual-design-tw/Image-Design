@@ -359,6 +359,10 @@ function doGet(e) {
       return jsonResponse_(true, handleBootstrap_(e && e.parameter ? e.parameter : {}));
     }
 
+    if (action === 'heatmap') {
+      return jsonResponse_(true, handleHeatmap_(e && e.parameter ? e.parameter : {}));
+    }
+
     if (action === 'largeUploadPage') {
       try {
         return renderLargeUploadPage_(e);
@@ -385,6 +389,11 @@ function doPost(e) {
 
     if (action === 'bootstrap' || action === 'state') {
       result = handleBootstrap_(payload);
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'heatmap') {
+      result = handleHeatmap_(payload);
       return jsonResponse_(true, result);
     }
 
@@ -453,6 +462,13 @@ function doPost(e) {
     if (action === 'saveState') {
       result = withLock_(function() {
         return handleSaveState_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'activateStage') {
+      result = withLock_(function() {
+        return handleActivateStage_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -1964,7 +1980,20 @@ function handleBootstrap_(payload) {
   var sessionContext = requireSessionContext_(state, payload);
   return buildClientStateResultForUser_(state, sessionContext.user, {
     sessionExpiresAt: sessionContext.session.Expires_At
+  }, {
+    // The dashboard can render before the activity matrix arrives. This keeps
+    // normal workspace loading responsive when the workbook has many records.
+    includeHeatmap: !(payload && (payload.includeHeatmap === false || String(payload.includeHeatmap) === 'false'))
   });
+}
+
+function handleHeatmap_(payload) {
+  var state = loadState_();
+  var sessionContext = requireSessionContext_(state, payload);
+  return {
+    heatmap: buildHeatmapStats_(buildHeatmapSourceStateForUser_(state, sessionContext.user)),
+    stateRevision: getStateRevision_(state)
+  };
 }
 
 function assertExpectedStateRevision_(payload, state) {
@@ -2248,6 +2277,67 @@ function handleSaveState_(payload) {
       ? persistResult.assignmentEmailNotifications
       : []
   });
+}
+
+// Switch the active review stage in one server-side transaction. This avoids
+// relying on the browser's generic state save, which can be stale or rejected
+// for a role that is not allowed to replace the entire configuration table.
+function handleActivateStage_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var stageId = String(payload && payload.stageId || '').trim();
+  if (!stageId) {
+    throw new Error('activateStage requires `stageId`.');
+  }
+
+  var targetStage = ensureArray_(previousState.Config_Stages).find(function(stage) {
+    return String(stage && stage.Stage_ID || '') === stageId;
+  });
+  if (!targetStage) {
+    throw new Error('NOT_FOUND: 找不到要設為活躍的會審期數，資料可能已被其他使用者更新。');
+  }
+
+  var previousActiveStage = ensureArray_(previousState.Config_Stages).find(function(stage) {
+    return stage && stage.Is_Active === true;
+  }) || null;
+  if (targetStage.Is_Active === true && previousActiveStage && String(previousActiveStage.Stage_ID || '') === stageId) {
+    return buildClientStateResultForUser_(previousState, actor, { activeStage: targetStage });
+  }
+
+  var nextState = cloneObject_(previousState);
+  nextState.Config_Stages = ensureArray_(nextState.Config_Stages).map(function(stage) {
+    var nextStage = cloneObject_(stage);
+    nextStage.Is_Active = String(nextStage.Stage_ID || '') === stageId;
+    return nextStage;
+  });
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1
+  });
+
+  var savedState = loadState_();
+  var savedActiveStage = ensureArray_(savedState.Config_Stages).find(function(stage) {
+    return String(stage && stage.Stage_ID || '') === stageId;
+  }) || targetStage;
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '切換活躍會審',
+      '已將目前作用中的會審切換為「' + String(savedActiveStage.Stage_Name || stageId) + '」。',
+      'stage',
+      stageId,
+      'normal',
+      {
+        source: 'activateStage',
+        previousStageId: previousActiveStage ? String(previousActiveStage.Stage_ID || '') : '',
+        previousStageName: previousActiveStage ? String(previousActiveStage.Stage_Name || '') : ''
+      }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, { activeStage: savedActiveStage });
 }
 
 // Delete one purchase record from the latest server state so a stale browser
@@ -3996,7 +4086,6 @@ function sanitizeUserRecord_(user) {
 }
 
 function loadAuthSessions_() {
-  setupSheets_();
   var config = getConfig_();
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
   return readTable_(spreadsheet, 'Auth_Sessions').map(function(record) {
@@ -4005,7 +4094,6 @@ function loadAuthSessions_() {
 }
 
 function persistAuthSessions_(records) {
-  setupSheets_();
   var config = getConfig_();
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
   var normalized = ensureArray_(records).map(function(record) {
@@ -4014,6 +4102,31 @@ function persistAuthSessions_(records) {
     return record.Session_ID && record.Token_Hash;
   });
   writeTable_(spreadsheet, 'Auth_Sessions', normalized);
+}
+
+function loadLoginUser_(email) {
+  var config = getConfig_();
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  return findUserByEmail_(readTable_(spreadsheet, 'Users'), email);
+}
+
+function upgradeLegacyLoginPassword_(user, password) {
+  var config = getConfig_();
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var users = readTable_(spreadsheet, 'Users');
+  var storedUser = findUserByEmail_(users, user && user.Email);
+
+  if (!storedUser) {
+    throw new Error('無效的帳號或密碼。');
+  }
+
+  if (!isPasswordHash_(storedUser.Password)) {
+    storedUser.Password = hashPassword_(password);
+    writeTable_(spreadsheet, 'Users', users);
+    CacheService.getScriptCache().remove(getStateCacheKey_());
+  }
+
+  return storedUser;
 }
 
 function normalizeAuthSessionRecord_(record) {
@@ -4236,13 +4349,37 @@ function filterStateForUser_(state, user) {
   return safeState;
 }
 
-function buildClientStateResultForUser_(state, user, extraData) {
+function buildHeatmapSourceStateForUser_(state, user) {
+  var sourceState = {
+    Files: ensureArray_(state && state.Files),
+    Purchase_Items: ensureArray_(state && state.Purchase_Items),
+    Assignment_Submissions: ensureArray_(state && state.Assignment_Submissions)
+  };
+
+  if (isShapePrintUser_(user)) {
+    return sourceState;
+  }
+
+  var teamId = String(user && user.Team_ID || '');
+  sourceState.Files = sourceState.Files.filter(function(file) {
+    return String(file && file.Team_ID || '') === teamId;
+  });
+  sourceState.Assignment_Submissions = sourceState.Assignment_Submissions.filter(function(submission) {
+    return String(submission && submission.Team_ID || '') === teamId;
+  });
+  return sourceState;
+}
+
+function buildClientStateResultForUser_(state, user, extraData, options) {
+  options = options || {};
   var result = cloneObject_(extraData || {});
   var safeState = filterStateForUser_(state, user);
   result.state = safeState;
   result.currentUser = sanitizeUserRecord_(user);
   result.stateRevision = getStateRevision_(state);
-  result.heatmap = buildHeatmapStats_(safeState);
+  if (options.includeHeatmap !== false) {
+    result.heatmap = buildHeatmapStats_(buildHeatmapSourceStateForUser_(state, user));
+  }
   return result;
 }
 
@@ -5961,7 +6098,6 @@ function generateSequentialId_(prefix, collection, field) {
 }
 
 function handleLogin_(payload) {
-  var state = loadState_();
   var email = normalizeEmail_(payload.email);
   var password = String(payload.password || '');
 
@@ -5971,7 +6107,9 @@ function handleLogin_(payload) {
 
   assertLoginAttemptAllowed_(email);
 
-  var user = findUserByEmail_(state.Users, email);
+  // Login only needs the account and session tables. Loading every workspace
+  // table here made a valid sign-in wait for unrelated files and submissions.
+  var user = loadLoginUser_(email);
   if (!user) {
     throwLoginFailure_(email);
   }
@@ -5988,21 +6126,12 @@ function handleLogin_(payload) {
   clearFailedLoginAttempts_(email);
 
   if (!isPasswordHash_(user.Password)) {
-    user.Password = hashPassword_(password);
-    persistState_(state);
-    state = loadState_();
-    user = findUserByEmail_(state.Users, email);
+    user = upgradeLegacyLoginPassword_(user, password);
   }
 
-  if (isShapePrintUser_(user)) {
-    appendActivityLogEntries_([
-      createActivityLogEntry_(user, '登入系統', '已登入形印組工作台。', 'session', '', 'info', {
-        source: 'login'
-      })
-    ]);
-  }
-
-  return buildAuthenticatedClientResult_(state, user);
+  // Workspace data is fetched immediately after authentication, but outside
+  // the login critical path so the user can enter the dashboard right away.
+  return buildAuthenticatedIdentityResult_(user);
 }
 
 function getLoginAttemptCacheKey_(email) {
@@ -6053,12 +6182,21 @@ function throwLoginFailure_(email) {
   throw new Error('無效的帳號或密碼。');
 }
 
-function buildAuthenticatedClientResult_(state, user, extraData) {
+function buildAuthenticatedIdentityResult_(user) {
+  var session = issueSession_(user);
+  return {
+    sessionToken: session.token,
+    sessionExpiresAt: session.expiresAt,
+    currentUser: sanitizeUserRecord_(user)
+  };
+}
+
+function buildAuthenticatedClientResult_(state, user, extraData, options) {
   var session = issueSession_(user);
   var data = cloneObject_(extraData || {});
   data.sessionToken = session.token;
   data.sessionExpiresAt = session.expiresAt;
-  return buildClientStateResultForUser_(state, user, data);
+  return buildClientStateResultForUser_(state, user, data, options);
 }
 
 function handleRegisterLeader_(payload) {
