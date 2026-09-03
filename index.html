@@ -12,10 +12,11 @@
     <script type="module">
         try {
             const { defineMorphIcon } = await import("https://esm.sh/morphicons@1.7.1/element?bundle");
-            defineMorphIcon();
-            window.__morphiconsReady = true;
-            window.dispatchEvent(new CustomEvent("morphicons-ready"));
+            window.__defineMorphIcon = defineMorphIcon;
+            window.__morphiconsModuleReady = true;
+            window.dispatchEvent(new CustomEvent("morphicons-module-ready"));
         } catch (error) {
+            window.__morphiconsModuleReady = false;
             window.__morphiconsReady = false;
             console.warn("Morphicons 載入失敗，將保留 Lucide 靜態圖示。", error);
         }
@@ -41,8 +42,8 @@
         }
         morph-icon[data-morph-icon] {
             display: inline-flex;
-            width: 1em;
-            height: 1em;
+            width: var(--morph-icon-size, 1em);
+            height: var(--morph-icon-size, 1em);
             flex: 0 0 auto;
             align-items: center;
             justify-content: center;
@@ -50,9 +51,26 @@
             color: inherit;
             line-height: 1;
         }
+        morph-icon[data-morph-icon] > svg {
+            width: var(--morph-icon-size, 1rem) !important;
+            height: var(--morph-icon-size, 1rem) !important;
+            flex: 0 0 auto;
+        }
         morph-icon[data-morph-icon] > svg,
         morph-icon[data-morph-icon] > svg * {
             vector-effect: non-scaling-stroke;
+        }
+        morph-icon[data-morph-icon].morph-icon-is-spinning > svg {
+            animation: morph-icon-spin 840ms linear infinite;
+            transform-origin: 50% 50%;
+        }
+        @keyframes morph-icon-spin {
+            to { transform: rotate(360deg); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            morph-icon[data-morph-icon].morph-icon-is-spinning > svg {
+                animation: none;
+            }
         }
         .assignment-file-picker {
             border: 1px solid #DCE8F8;
@@ -930,7 +948,7 @@
                     </div>
                 </div>
                 <button id="topbar-menu-toggle" type="button" onclick="toggleTopbarMenu()" class="topbar-menu-toggle" aria-label="開啟選單" aria-expanded="false">
-                    <morph-icon id="topbar-menu-morph-icon" data-morph-icon="topbar-menu" data-morph-icon-state="menu" class="w-4 h-4" aria-hidden="true"><i data-lucide="menu" class="w-4 h-4"></i></morph-icon>
+                    <morph-icon id="topbar-menu-morph-icon" data-morph-icon="topbar-menu" data-morph-icon-state="menu" class="w-4 h-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="menu" class="w-4 h-4"></i></morph-icon>
                 </button>
             </div>
 
@@ -960,7 +978,8 @@
                         <i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i> 繳交專區
                     </button>
                     <button id="topbar-refresh-button" onclick="handleManualCloudRefresh()" class="topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#64D2FF] bg-[#64D2FF]/10 border border-[#64D2FF]/20 hover:bg-[#64D2FF]/15 transition">
-                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 重新同步
+                        <morph-icon id="topbar-refresh-morph-icon" data-morph-icon="cloud-refresh" data-morph-icon-state="idle" class="w-3.5 h-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></morph-icon>
+                        <span id="topbar-refresh-label" data-morph-action-label data-morph-idle-label="重新同步">重新同步</span>
                     </button>
                     <button onclick="handleLogout()" class="topbar-action-button topbar-mobile-only-action inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#FF8A80] bg-[#FF453A]/10 border border-[#FF453A]/15 hover:bg-[#FF453A]/15 transition">
                         <i data-lucide="log-out" class="w-3.5 h-3.5"></i> 登出系統
@@ -1028,7 +1047,7 @@
                     <div class="relative">
                         <input type="password" id="login-password" required autocomplete="current-password" class="auth-input w-full px-4 pr-12 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="輸入密碼">
                         <button id="btn-toggle-login-password" type="button" onclick="toggleLoginPasswordVisibility()" class="auth-password-toggle absolute inset-y-0 right-0 flex w-12 items-center justify-center" aria-label="顯示密碼" title="顯示密碼">
-                            <morph-icon id="login-password-eye-icon" data-morph-icon="password-visibility" data-morph-icon-state="eye" class="h-4 w-4" aria-hidden="true"><i data-lucide="eye" class="h-4 w-4"></i></morph-icon>
+                            <morph-icon id="login-password-eye-icon" data-morph-icon="password-visibility" data-morph-icon-state="eye" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="eye" class="h-4 w-4"></i></morph-icon>
                         </button>
                     </div>
                 </div>
@@ -1042,7 +1061,7 @@
                     </button>
                 </div>
                 <button id="btn-login-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                    <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                    <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="login" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="log-in" class="h-4 w-4"></i></morph-icon>
                     <span id="btn-login-label" class="auth-submit-button__label">登入</span>
                 </button>
             </form>
@@ -1076,7 +1095,7 @@
                         <input type="password" id="reg-leader-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="密碼最少為 8 碼">
                     </div>
                     <button id="btn-register-leader-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
                         <span id="btn-register-leader-label" class="auth-submit-button__label">建立新組別並註冊為組長</span>
                     </button>
                 </form>
@@ -1101,7 +1120,7 @@
                         <input type="password" id="reg-member-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="設定至少 8 碼的登入密碼">
                     </div>
                     <button id="btn-register-member-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
                         <span id="btn-register-member-label" class="auth-submit-button__label">加入該組並註冊</span>
                     </button>
                 </form>
@@ -1124,7 +1143,7 @@
                         <input type="password" id="reg-pending-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-sm" placeholder="設定至少 8 碼的首次登入密碼">
                     </div>
                     <button id="btn-register-pending-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
                         <span id="btn-register-pending-label" class="auth-submit-button__label">確認設定並激活帳號</span>
                     </button>
                 </form>
@@ -1147,7 +1166,7 @@
                         <input type="password" id="reg-shape-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="設定至少 8 碼的登入密碼">
                     </div>
                     <button id="btn-register-shape-print-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        <span class="auth-submit-button__spinner" aria-hidden="true"></span>
+                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
                         <span id="btn-register-shape-print-label" class="auth-submit-button__label">加入形印組並建立帳號</span>
                     </button>
                 </form>
@@ -1163,8 +1182,9 @@
                     <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">電子郵件信箱</label>
                     <input type="email" id="reset-request-email" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="example@test.com">
                 </div>
-                <button type="submit" class="w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                    寄送重設連結
+                <button type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
+                    <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="mail" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="mail" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="寄送重設連結">寄送重設連結</span>
                 </button>
                 <button type="button" onclick="returnToLoginFromReset()" class="w-full border border-[#E8E8ED] text-[#1D1D1F] py-3 rounded-xl font-semibold text-sm hover:bg-[#F5F5F7] transition">
                     返回登入
@@ -1185,8 +1205,9 @@
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">再次確認新密碼</label>
                         <input type="password" id="reset-password-confirm" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="再次輸入新密碼">
                     </div>
-                    <button id="btn-reset-password-submit" type="submit" class="w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                        更新密碼
+                    <button id="btn-reset-password-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
+                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="key" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="key-round" class="h-4 w-4"></i></morph-icon>
+                        <span data-morph-action-label data-morph-idle-label="更新密碼">更新密碼</span>
                     </button>
                 </div>
                 <button type="button" onclick="returnToLoginFromReset()" class="w-full border border-[#E8E8ED] text-[#1D1D1F] py-3 rounded-xl font-semibold text-sm hover:bg-[#F5F5F7] transition">
@@ -1505,8 +1526,14 @@
             </div>
             <div class="flex justify-end gap-2">
                 <button type="button" onclick="closeAssignmentReviewModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button>
-                <button type="button" id="assignment-review-reject-button" onclick="submitAssignmentReview('退回修正')" class="rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B]">退回修正</button>
-                <button type="button" id="assignment-review-approve-button" onclick="submitAssignmentReview('通過')" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white">通過</button>
+                <button type="button" id="assignment-review-reject-button" onclick="submitAssignmentReview('退回修正')" class="inline-flex items-center gap-1.5 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B]">
+                    <morph-icon data-morph-icon="review-decision" data-morph-icon-state="reject" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="undo-2" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="退回修正">退回修正</span>
+                </button>
+                <button type="button" id="assignment-review-approve-button" onclick="submitAssignmentReview('通過')" class="inline-flex items-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white">
+                    <morph-icon data-morph-icon="review-decision" data-morph-icon-state="approve" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="check" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="通過">通過</span>
+                </button>
             </div>
         </div>
     </div>
@@ -1728,10 +1755,16 @@
                 </div>
             </div>
             <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
-                <button id="calendar-event-delete" type="button" onclick="deleteCalendarEvent()" class="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">刪除事件</button>
+                <button id="calendar-event-delete" type="button" onclick="deleteCalendarEvent()" class="hidden inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">
+                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="刪除事件">刪除事件</span>
+                </button>
                 <span id="calendar-event-delete-spacer" class="flex-1"></span>
                 <button type="button" onclick="closeCalendarEventModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
-                <button id="calendar-event-save" type="button" onclick="saveCalendarEvent()" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">儲存事件</button>
+                <button id="calendar-event-save" type="button" onclick="saveCalendarEvent()" class="inline-flex items-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">
+                    <morph-icon data-morph-icon="calendar-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="calendar-check" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="儲存事件">儲存事件</span>
+                </button>
             </div>
         </div>
     </div>
@@ -1785,10 +1818,16 @@
                 </div>
             </div>
             <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
-                <button id="work-item-delete" type="button" onclick="deleteWorkItem()" class="hidden rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">刪除工作</button>
+                <button id="work-item-delete" type="button" onclick="deleteWorkItem()" class="hidden inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">
+                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="刪除工作">刪除工作</span>
+                </button>
                 <span id="work-item-delete-spacer" class="flex-1"></span>
                 <button type="button" onclick="closeWorkItemModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
-                <button id="work-item-save" type="button" onclick="saveWorkItem()" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">建立工作</button>
+                <button id="work-item-save" type="button" onclick="saveWorkItem()" class="inline-flex items-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">
+                    <morph-icon data-morph-icon="work-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="list-plus" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="建立工作">建立工作</span>
+                </button>
             </div>
         </div>
     </div>
@@ -1831,8 +1870,9 @@
                 <button type="button" onclick="closeStageDeleteModal()" class="min-h-[52px] px-4 text-[16px] font-normal text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none">
                     取消
                 </button>
-                <button type="button" id="stage-delete-modal-confirm" onclick="confirmStageDelete()" class="min-h-[52px] border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
-                    刪除
+                <button type="button" id="stage-delete-modal-confirm" onclick="confirmStageDelete()" class="inline-flex min-h-[52px] items-center justify-center gap-1.5 border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
+                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="刪除">刪除</span>
                 </button>
             </div>
         </div>
@@ -1853,8 +1893,9 @@
                 <button type="button" onclick="closeAssignmentDeleteModal()" class="min-h-[52px] px-4 text-[16px] font-normal text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none">
                     取消
                 </button>
-                <button type="button" id="assignment-delete-modal-confirm" onclick="confirmAssignmentDelete()" class="min-h-[52px] border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
-                    刪除
+                <button type="button" id="assignment-delete-modal-confirm" onclick="confirmAssignmentDelete()" class="inline-flex min-h-[52px] items-center justify-center gap-1.5 border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
+                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-action-label data-morph-idle-label="刪除">刪除</span>
                 </button>
             </div>
         </div>
@@ -1943,6 +1984,7 @@
             sortBy: "newest"
         };
         let selectedNotificationIds = [];
+        let notificationActionInFlight = false;
         let activeFileGroupKey = null;
         let activeFilePreviewContext = null;
         let activeFileCompareContext = null;
@@ -1970,6 +2012,8 @@
         let rememberedLoginRestored = false;
         let topbarMenuOpen = false;
         let lastTopbarMenuVisualState = false;
+        let topbarRefreshFeedbackTimer = null;
+        let topbarRefreshInFlight = false;
         let passwordResetToken = "";
         let passwordResetStatus = "idle";
         let passwordResetEmail = "";
@@ -2141,7 +2185,6 @@
             loginSubmitInFlight = Boolean(isSubmitting);
 
             const submitButton = document.getElementById('btn-login-submit');
-            const submitLabel = document.getElementById('btn-login-label');
             const emailInput = document.getElementById('login-email');
             const passwordInput = document.getElementById('login-password');
             const passwordToggle = document.getElementById('btn-toggle-login-password');
@@ -2154,11 +2197,14 @@
                 submitButton.disabled = loginSubmitInFlight;
                 submitButton.classList.toggle('is-loading', loginSubmitInFlight);
                 submitButton.setAttribute('aria-busy', loginSubmitInFlight ? 'true' : 'false');
+                setMorphActionButtonState(
+                    submitButton,
+                    "auth-submit",
+                    loginSubmitInFlight ? "loading" : "login",
+                    loginSubmitInFlight ? "登入中…" : "登入",
+                    { disabled: loginSubmitInFlight, busy: loginSubmitInFlight }
+                );
             }
-            if (submitLabel) {
-                submitLabel.textContent = loginSubmitInFlight ? "登入中" : "登入";
-            }
-
             animateLoginButtonState(loginSubmitInFlight);
 
             [emailInput, passwordInput, passwordToggle, rememberInput, forgotButton, loginTab, registerTab].forEach(function(element) {
@@ -2221,15 +2267,18 @@
             if (!copy) return;
 
             const button = document.getElementById(copy.buttonId);
-            const label = document.getElementById(copy.labelId);
             if (button) {
                 button.disabled = registerSubmitInFlight;
                 button.classList.toggle("is-loading", registerSubmitInFlight);
                 button.setAttribute("aria-busy", registerSubmitInFlight ? "true" : "false");
+                setMorphActionButtonState(
+                    button,
+                    "auth-submit",
+                    registerSubmitInFlight ? "loading" : "register",
+                    registerSubmitInFlight ? copy.loadingLabel + "…" : copy.idleLabel,
+                    { disabled: registerSubmitInFlight, busy: registerSubmitInFlight }
+                );
                 animateAuthSubmitButtonState(button, registerSubmitInFlight);
-            }
-            if (label) {
-                label.textContent = registerSubmitInFlight ? copy.loadingLabel : copy.idleLabel;
             }
             if (status) {
                 status.textContent = registerSubmitInFlight ? copy.statusLabel : "";
@@ -2291,16 +2340,86 @@
                 eye: { lucideName: "Eye", fallbackName: "eye" },
                 "eye-off": { lucideName: "EyeOff", fallbackName: "eye-off" }
             },
+            "auth-submit": {
+                login: { lucideName: "LogIn", fallbackName: "log-in" },
+                register: { lucideName: "UserPlus", fallbackName: "user-plus" },
+                mail: { lucideName: "Mail", fallbackName: "mail" },
+                key: { lucideName: "KeyRound", fallbackName: "key-round" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
             "select-chevron": {
                 "chevron-down": { lucideName: "ChevronDown", fallbackName: "chevron-down" },
                 "chevron-up": { lucideName: "ChevronUp", fallbackName: "chevron-up" }
             },
             "work-item-status": {
                 circle: { lucideName: "Circle", fallbackName: "circle" },
-                check: { lucideName: "Check", fallbackName: "check" }
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                check: { lucideName: "Check", fallbackName: "check" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "cloud-refresh": {
+                idle: { lucideName: "RefreshCw", fallbackName: "refresh-cw" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "Check", fallbackName: "check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "assignment-publish": {
+                idle: { lucideName: "Send", fallbackName: "send" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "assignment-submit": {
+                idle: { lucideName: "Check", fallbackName: "check" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "review-decision": {
+                reject: { lucideName: "Undo2", fallbackName: "undo-2" },
+                approve: { lucideName: "Check", fallbackName: "check" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "destructive-action": {
+                idle: { lucideName: "Trash2", fallbackName: "trash-2" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "Check", fallbackName: "check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "restore-action": {
+                idle: { lucideName: "RotateCcw", fallbackName: "rotate-ccw" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "Check", fallbackName: "check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "calendar-action": {
+                idle: { lucideName: "CalendarCheck", fallbackName: "calendar-check" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "work-action": {
+                idle: { lucideName: "ListPlus", fallbackName: "list-plus" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+            },
+            "notification-action": {
+                read: { lucideName: "CheckCheck", fallbackName: "check-check" },
+                clear: { lucideName: "Archive", fallbackName: "archive" },
+                clearAll: { lucideName: "Trash2", fallbackName: "trash-2" },
+                loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+                success: { lucideName: "Check", fallbackName: "check" },
+                error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
             }
         };
         let morphIconHydrationQueued = false;
+        let morphIconDefinitionQueued = false;
 
         function getMorphIconDefinition(purpose, stateName) {
             const states = MORPH_ICON_CONFIG[String(purpose || "")] || {};
@@ -2325,7 +2444,12 @@
             const fallbackName = definition ? definition.fallbackName : "circle";
             const safeClassName = escapeHtml(String(className || ""));
             const semanticAttribute = purpose === "select-chevron" ? " data-soft-select-icon" : "";
-            return `<morph-icon${semanticAttribute} data-morph-icon="${escapeHtml(String(purpose || ""))}" data-morph-icon-state="${escapeHtml(String(stateName || ""))}" class="${safeClassName}" aria-hidden="true"><i data-lucide="${escapeHtml(fallbackName)}" class="${safeClassName}"></i></morph-icon>`;
+            const iconSize = /(?:^|\s)(?:h|w)-3\.5(?:\s|$)/.test(String(className || "")) ? "0.875rem" : "1rem";
+            const needsFallback = typeof window === "undefined" || !window.__morphiconsReady;
+            const fallbackMarkup = needsFallback
+                ? `<i data-morph-icon-fallback="true" data-lucide="${escapeHtml(fallbackName)}" class="${safeClassName}"></i>`
+                : "";
+            return `<morph-icon${semanticAttribute} data-morph-icon="${escapeHtml(String(purpose || ""))}" data-morph-icon-state="${escapeHtml(String(stateName || ""))}" class="${safeClassName}" style="--morph-icon-size: ${iconSize}" aria-hidden="true">${fallbackMarkup}</morph-icon>`;
         }
 
         function updateMorphIconFallback(element, targetState) {
@@ -2333,9 +2457,13 @@
             if (!element || !definition || element.dataset.morphFallbackState === targetState) return;
 
             const fallback = document.createElement("i");
+            fallback.dataset.morphIconFallback = "true";
             fallback.setAttribute("data-lucide", definition.fallbackName);
             fallback.className = String(element.className || "");
-            const existingVisual = element.querySelector("svg, i[data-lucide]");
+            if (targetState === "loading") {
+                fallback.classList.add("animate-spin");
+            }
+            const existingVisual = element.querySelector("[data-morph-icon-fallback]");
             if (existingVisual) {
                 existingVisual.replaceWith(fallback);
             } else {
@@ -2356,6 +2484,10 @@
             const targetState = String(nextState || "");
             const targetIcon = getMorphIconInput(purpose, targetState);
             element.dataset.morphIconState = targetState;
+            element.classList.toggle(
+                "morph-icon-is-spinning",
+                options.spinning === true || (options.spinning !== false && targetState === "loading")
+            );
 
             if (!window.__morphiconsReady || !targetIcon) {
                 updateMorphIconFallback(element, targetState);
@@ -2384,6 +2516,31 @@
             }
         }
 
+        function setMorphActionButtonState(button, purpose, stateName, label, options = {}) {
+            if (!button) return false;
+
+            const icon = button.querySelector('morph-icon[data-morph-icon="' + purpose + '"]');
+            const labelElement = button.querySelector("[data-morph-action-label], .auth-submit-button__label");
+            const nextLabel = label === undefined && stateName === "idle" && labelElement
+                ? labelElement.dataset.morphIdleLabel
+                : label;
+
+            if (labelElement && nextLabel !== undefined) {
+                labelElement.textContent = String(nextLabel || "");
+            }
+            if (Object.prototype.hasOwnProperty.call(options, "disabled")) {
+                button.disabled = Boolean(options.disabled);
+            }
+            if (Object.prototype.hasOwnProperty.call(options, "busy")) {
+                button.setAttribute("aria-busy", options.busy ? "true" : "false");
+            }
+
+            return setMorphIconState(icon, stateName, {
+                spring: options.spring,
+                spinning: options.spinning
+            });
+        }
+
         function hydrateMorphIcons(root) {
             if (!window.__morphiconsReady) return;
             const scope = root && typeof root.querySelectorAll === "function" ? root : document;
@@ -2401,6 +2558,29 @@
             });
         }
 
+        function scheduleMorphIconDefinition() {
+            if (window.__morphiconsReady || !window.__morphiconsModuleReady || morphIconDefinitionQueued) return;
+            morphIconDefinitionQueued = true;
+            requestAnimationFrame(function() {
+                morphIconDefinitionQueued = false;
+                if (window.__morphiconsReady || !window.__morphiconsModuleReady || typeof window.__defineMorphIcon !== "function") {
+                    return;
+                }
+                try {
+                    window.__defineMorphIcon();
+                    window.__morphiconsReady = true;
+                    window.dispatchEvent(new CustomEvent("morphicons-ready"));
+                } catch (error) {
+                    window.__morphiconsReady = false;
+                    console.warn("Morphicons 初始化失敗，將保留 Lucide 靜態圖示。", error);
+                }
+            });
+        }
+
+        window.addEventListener("morphicons-module-ready", function() {
+            renderLucideIcons();
+        });
+
         window.addEventListener("morphicons-ready", function() {
             scheduleMorphIconHydration();
         });
@@ -2409,6 +2589,7 @@
             if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
                 lucide.createIcons();
             }
+            scheduleMorphIconDefinition();
             scheduleMorphIconHydration();
         }
 
@@ -7987,6 +8168,7 @@
         }
 
         function markSelectedNotificationsRead() {
+            if (notificationActionInFlight) return;
             const selectedIds = getSelectedNotificationIds();
             if (selectedIds.length === 0) {
                 showToast("請先選取要標示已讀的通知", "info");
@@ -7994,6 +8176,14 @@
             }
 
             if (isRemoteSyncEnabled()) {
+                notificationActionInFlight = true;
+                const actionButton = document.getElementById("notifications-mark-selected-button");
+                if (actionButton) {
+                    setMorphActionButtonState(actionButton, "notification-action", "loading", "處理中…", {
+                        disabled: true,
+                        busy: true
+                    });
+                }
                 submitRemoteNotificationsRead(selectedIds).then(function() {
                     queueNotificationCardMotion(selectedIds);
                     clearNotificationSelection();
@@ -8002,6 +8192,15 @@
                 }).catch(function(error) {
                     console.error("GAS 通知已讀同步失敗", error);
                     showToast("GAS 通知已讀同步失敗：" + error.message, "error");
+                }).finally(function() {
+                    notificationActionInFlight = false;
+                    const currentButton = document.getElementById("notifications-mark-selected-button");
+                    if (currentButton) {
+                        setMorphActionButtonState(currentButton, "notification-action", "read", "批次已讀", {
+                            disabled: false,
+                            busy: false
+                        });
+                    }
                 });
                 return;
             }
@@ -8148,6 +8347,7 @@
         }
 
         function markAllNotificationsRead() {
+            if (notificationActionInFlight) return;
             const userNotifications = getNotificationsForCurrentUser();
 
             if (userNotifications.length === 0) {
@@ -8156,6 +8356,14 @@
             }
 
             if (isRemoteSyncEnabled()) {
+                notificationActionInFlight = true;
+                const actionButton = document.getElementById("notifications-mark-all-read-button");
+                if (actionButton) {
+                    setMorphActionButtonState(actionButton, "notification-action", "loading", "處理中…", {
+                        disabled: true,
+                        busy: true
+                    });
+                }
                 submitRemoteNotificationsRead([], { all: true }).then(function() {
                     queueNotificationCardMotion(userNotifications.map(function(notification) {
                         return notification.Notification_ID;
@@ -8166,6 +8374,15 @@
                 }).catch(function(error) {
                     console.error("GAS 全部通知已讀同步失敗", error);
                     showToast("GAS 全部通知已讀同步失敗：" + error.message, "error");
+                }).finally(function() {
+                    notificationActionInFlight = false;
+                    const currentButton = document.getElementById("notifications-mark-all-read-button");
+                    if (currentButton) {
+                        setMorphActionButtonState(currentButton, "notification-action", "read", "全部已讀", {
+                            disabled: false,
+                            busy: false
+                        });
+                    }
                 });
                 return;
             }
@@ -8929,7 +9146,8 @@
                     <div class="flex shrink-0 justify-end gap-2 border-t border-[#F2F2F7] bg-white pt-4 text-xs">
                         <button type="button" onclick="closeAssignmentPostModal()" class="px-4 py-2 border border-[#E8E8ED] rounded-xl hover:bg-[#F5F5F7] font-semibold text-[#86868B] transition">取消</button>
                         <button type="submit" class="px-5 py-2 bg-[#0066CC] text-white rounded-xl hover:opacity-90 font-bold transition flex items-center gap-1.5 shadow-sm">
-                            <i data-lucide="send" class="w-4 h-4"></i> 發布項目
+                            ${renderMorphIconMarkup("assignment-publish", "idle", "w-4 h-4")}
+                            <span data-morph-action-label data-morph-idle-label="發布項目">發布項目</span>
                         </button>
                     </div>
                 </form>
@@ -9125,15 +9343,15 @@
             });
 
             const submitButton = event.currentTarget && event.currentTarget.querySelector('button[type="submit"]');
-            const originalSubmitButtonHtml = submitButton ? submitButton.innerHTML : "";
             let assignmentPublished = false;
             let uploadedResourceCount = 0;
 
             try {
                 if (submitButton) {
-                    submitButton.disabled = true;
-                    submitButton.innerHTML = '<i data-lucide="loader-circle" class="h-4 w-4 animate-spin"></i> 發布中';
-                    renderLucideIcons();
+                    setMorphActionButtonState(submitButton, "assignment-publish", "loading", "發布中…", {
+                        disabled: true,
+                        busy: true
+                    });
                 }
 
                 state.Assignments.unshift(assignment);
@@ -9230,9 +9448,10 @@
                 }
             } finally {
                 if (submitButton && document.body.contains(submitButton)) {
-                    submitButton.disabled = false;
-                    submitButton.innerHTML = originalSubmitButtonHtml;
-                    renderLucideIcons();
+                    setMorphActionButtonState(submitButton, "assignment-publish", "idle", undefined, {
+                        disabled: false,
+                        busy: false
+                    });
                 }
             }
         }
@@ -9624,8 +9843,13 @@
         function setAssignmentDeleteModalPending(isPending) {
             const button = document.getElementById("assignment-delete-modal-confirm");
             if (!button) return;
-            button.disabled = Boolean(isPending);
-            button.textContent = isPending ? "刪除中…" : "刪除";
+            setMorphActionButtonState(
+                button,
+                "destructive-action",
+                isPending ? "loading" : "idle",
+                isPending ? "刪除中…" : "刪除",
+                { disabled: isPending, busy: isPending }
+            );
         }
 
         async function confirmAssignmentDelete() {
@@ -9865,12 +10089,15 @@
 
             const approveButton = document.getElementById("assignment-review-approve-button");
             const rejectButton = document.getElementById("assignment-review-reject-button");
-            const originalApproveLabel = approveButton ? approveButton.textContent : "通過";
-            const originalRejectLabel = rejectButton ? rejectButton.textContent : "退回修正";
+            const decisionButton = decision === "通過" ? approveButton : rejectButton;
             if (approveButton) approveButton.disabled = true;
             if (rejectButton) rejectButton.disabled = true;
-            if (decision === "通過" && approveButton) approveButton.textContent = "處理中…";
-            if (decision === "退回修正" && rejectButton) rejectButton.textContent = "處理中…";
+            if (decisionButton) {
+                setMorphActionButtonState(decisionButton, "review-decision", "loading", "處理中…", {
+                    disabled: true,
+                    busy: true
+                });
+            }
 
             try {
                 if (isRemoteSyncEnabled()) {
@@ -9924,12 +10151,16 @@
                 showToast(error && error.message ? error.message : "繳交紀錄審核失敗。", "warning");
             } finally {
                 if (approveButton) {
-                    approveButton.disabled = false;
-                    approveButton.textContent = originalApproveLabel;
+                    setMorphActionButtonState(approveButton, "review-decision", "approve", undefined, {
+                        disabled: false,
+                        busy: false
+                    });
                 }
                 if (rejectButton) {
-                    rejectButton.disabled = false;
-                    rejectButton.textContent = originalRejectLabel;
+                    setMorphActionButtonState(rejectButton, "review-decision", "reject", undefined, {
+                        disabled: false,
+                        busy: false
+                    });
                 }
             }
         }
@@ -10164,7 +10395,8 @@
                             <div class="flex justify-end gap-2 pt-2 text-xs">
                                 <button type="button" onclick="closeAssignmentDetailModal()" class="px-4 py-2 border border-[#E8E8ED] rounded-xl hover:bg-[#F5F5F7] font-semibold text-[#86868B] transition">關閉</button>
                                 <button type="submit" id="assignment-submit-button" class="px-5 py-2 bg-[#0066CC] disabled:opacity-40 text-white rounded-xl hover:opacity-90 font-bold transition flex items-center gap-1.5 shadow-sm">
-                                    <i data-lucide="check" class="w-4 h-4"></i> 送出繳交
+                                    ${renderMorphIconMarkup("assignment-submit", "idle", "w-4 h-4")}
+                                    <span data-morph-action-label data-morph-idle-label="送出繳交">送出繳交</span>
                                 </button>
                             </div>
                         </form>
@@ -10255,7 +10487,6 @@
             const textContent = String((document.getElementById('assignment-submit-text') || {}).value || "").trim();
             const validation = getAssignmentSubmitFormValidation(assignment);
             const submitButton = document.getElementById('assignment-submit-button');
-            const originalSubmitButtonHtml = submitButton ? submitButton.innerHTML : "";
 
             if (!validation.allPassed) {
                 showToast(getFirstFailedRuleMessage(validation.items, "請先完成繳交資料。"), "warning");
@@ -10275,9 +10506,10 @@
 
             try {
                 if (submitButton) {
-                    submitButton.disabled = true;
-                    submitButton.innerHTML = `<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i> 送出中`;
-                    renderLucideIcons();
+                    setMorphActionButtonState(submitButton, "assignment-submit", "loading", "送出中…", {
+                        disabled: true,
+                        busy: true
+                    });
                 }
 
                 if (requiresFile && pendingLargeAsset) {
@@ -10368,7 +10600,10 @@
             } finally {
                 const activeSubmitButton = document.getElementById('assignment-submit-button');
                 if (activeSubmitButton) {
-                    activeSubmitButton.innerHTML = originalSubmitButtonHtml;
+                    setMorphActionButtonState(activeSubmitButton, "assignment-submit", "idle", undefined, {
+                        disabled: false,
+                        busy: false
+                    });
                 }
                 refreshAssignmentSubmitRuleValidation();
             }
@@ -11317,19 +11552,49 @@
             toggleWorkspace(target);
         }
 
+        function setTopbarRefreshFeedback(stateName, label) {
+            const button = document.getElementById("topbar-refresh-button");
+            if (!button) return;
+
+            if (topbarRefreshFeedbackTimer) {
+                clearTimeout(topbarRefreshFeedbackTimer);
+                topbarRefreshFeedbackTimer = null;
+            }
+
+            const isLoading = stateName === "loading";
+            setMorphActionButtonState(button, "cloud-refresh", stateName, label, {
+                disabled: isLoading,
+                busy: isLoading
+            });
+
+            if (!isLoading) {
+                topbarRefreshFeedbackTimer = setTimeout(function() {
+                    topbarRefreshFeedbackTimer = null;
+                    setMorphActionButtonState(button, "cloud-refresh", "idle", undefined, {
+                        disabled: false,
+                        busy: false
+                    });
+                }, stateName === "error" ? 1800 : 1300);
+            }
+        }
+
         async function handleManualCloudRefresh() {
             closeTopbarMenu();
             if (!isRemoteSyncEnabled()) {
                 showToast("目前是本機模式，沒有可重新同步的雲端資料。", "info");
                 return;
             }
+            if (topbarRefreshInFlight) return;
 
             const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
             const preferredWorkspace = activeWorkspace;
+            topbarRefreshInFlight = true;
+            setTopbarRefreshFeedback("loading", "同步中…");
 
             try {
                 gasConnectionStatus = "connecting";
                 renderAll();
+                setTopbarRefreshFeedback("loading", "同步中…");
 
                 const response = await requestGas("bootstrap", null, "GET");
                 if (!response || !response.data || !response.data.state) {
@@ -11348,10 +11613,14 @@
 
                 gasConnectionStatus = "remote";
                 renderAll();
+                topbarRefreshInFlight = false;
+                setTopbarRefreshFeedback("success", "同步完成");
                 showToast("已重新載入最新雲端資料。", "success");
             } catch (error) {
                 gasConnectionStatus = "fallback";
                 renderAll();
+                topbarRefreshInFlight = false;
+                setTopbarRefreshFeedback("error", "同步失敗");
                 console.error("手動同步失敗", error);
                 showToast(error.message || "重新同步失敗，請稍後再試。", "warning");
             }
@@ -11841,7 +12110,6 @@
             const emailInput = document.getElementById('reset-request-email');
             const submitButton = e.submitter || document.querySelector('#form-reset-request button[type="submit"]');
             const email = emailInput ? emailInput.value.trim() : "";
-            const originalLabel = submitButton ? submitButton.textContent : "";
 
             if (!email) {
                 showToast("請輸入有效的電子郵件。", "warning");
@@ -11855,8 +12123,10 @@
 
             try {
                 if (submitButton) {
-                    submitButton.disabled = true;
-                    submitButton.textContent = "寄送中...";
+                    setMorphActionButtonState(submitButton, "auth-submit", "loading", "寄送中…", {
+                        disabled: true,
+                        busy: true
+                    });
                 }
 
                 const response = await requestGas("requestPasswordReset", {
@@ -11877,8 +12147,10 @@
                 showToast(error.message || "寄送重設密碼信失敗，請稍後再試。", "error");
             } finally {
                 if (submitButton) {
-                    submitButton.disabled = false;
-                    submitButton.textContent = originalLabel || "寄送重設連結";
+                    setMorphActionButtonState(submitButton, "auth-submit", "mail", "寄送重設連結", {
+                        disabled: false,
+                        busy: false
+                    });
                 }
             }
         }
@@ -11890,7 +12162,6 @@
             const submitButton = document.getElementById('btn-reset-password-submit');
             const nextPassword = nextInput ? nextInput.value : "";
             const confirmPassword = confirmInput ? confirmInput.value : "";
-            const originalLabel = submitButton ? submitButton.textContent : "";
 
             if (!passwordResetToken || passwordResetStatus !== "valid") {
                 passwordResetStatus = "invalid";
@@ -11917,8 +12188,10 @@
 
             try {
                 if (submitButton) {
-                    submitButton.disabled = true;
-                    submitButton.textContent = "更新中...";
+                    setMorphActionButtonState(submitButton, "auth-submit", "loading", "更新中…", {
+                        disabled: true,
+                        busy: true
+                    });
                 }
 
                 const response = await requestGas("resetPassword", {
@@ -11945,8 +12218,10 @@
                 showToast(error.message || "更新密碼失敗，請稍後再試。", "error");
             } finally {
                 if (submitButton) {
-                    submitButton.disabled = passwordResetStatus !== "valid";
-                    submitButton.textContent = originalLabel || "更新密碼";
+                    setMorphActionButtonState(submitButton, "auth-submit", "key", "更新密碼", {
+                        disabled: passwordResetStatus !== "valid",
+                        busy: false
+                    });
                 }
             }
         }
@@ -12698,8 +12973,13 @@
         function setStageDeleteModalPending(isPending) {
             const button = document.getElementById("stage-delete-modal-confirm");
             if (!button) return;
-            button.disabled = Boolean(isPending);
-            button.textContent = isPending ? "刪除中…" : "刪除";
+            setMorphActionButtonState(
+                button,
+                "destructive-action",
+                isPending ? "loading" : "idle",
+                isPending ? "刪除中…" : "刪除",
+                { disabled: isPending, busy: isPending }
+            );
         }
 
         async function confirmStageDelete() {
@@ -13842,8 +14122,21 @@
             }
             if (allDayInput) allDayInput.checked = Boolean(event && event.allDay);
             if (descriptionInput) descriptionInput.value = event ? event.description : "";
-            if (deleteButton) deleteButton.classList.toggle("hidden", !event);
+            if (deleteButton) {
+                deleteButton.classList.toggle("hidden", !event);
+                setMorphActionButtonState(deleteButton, "destructive-action", "idle", "刪除事件", {
+                    disabled: false,
+                    busy: false
+                });
+            }
             if (spacer) spacer.classList.toggle("hidden", !event);
+            setMorphActionButtonState(
+                document.getElementById("calendar-event-save"),
+                "calendar-action",
+                "idle",
+                "儲存事件",
+                { disabled: false, busy: false }
+            );
             enhanceNativeSoftSelects(modal);
             syncDateTimePickerControls(modal);
             animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.975, fromBlur: 12, duration: 360 });
@@ -13888,7 +14181,12 @@
             const button = document.getElementById("calendar-event-save");
             const isEditing = Boolean(activeCalendarEventId);
             calendarEventSaveInFlight = true;
-            if (button) { button.disabled = true; button.textContent = "儲存中…"; }
+            if (button) {
+                setMorphActionButtonState(button, "calendar-action", "loading", "儲存中…", {
+                    disabled: true,
+                    busy: true
+                });
+            }
             try {
                 const action = isEditing ? "updateCalendarEvent" : "createCalendarEvent";
                 if (activeCalendarEventId) payload.eventId = activeCalendarEventId;
@@ -13905,7 +14203,12 @@
                 showToast(error && error.message ? error.message : "儲存工作事件失敗。", "warning");
             } finally {
                 calendarEventSaveInFlight = false;
-                if (button) { button.disabled = false; button.textContent = "儲存事件"; }
+                if (button) {
+                    setMorphActionButtonState(button, "calendar-action", "idle", "儲存事件", {
+                        disabled: false,
+                        busy: false
+                    });
+                }
             }
         }
 
@@ -13914,11 +14217,21 @@
             const button = document.getElementById("calendar-event-delete");
             if (!calendarEventDeleteArmed) {
                 calendarEventDeleteArmed = true;
-                if (button) button.textContent = "再按一次確認刪除";
+                if (button) {
+                    setMorphActionButtonState(button, "destructive-action", "idle", "再按一次確認刪除", {
+                        disabled: false,
+                        busy: false
+                    });
+                }
                 window.setTimeout(function() {
                     if (!calendarEventSaveInFlight) {
                         calendarEventDeleteArmed = false;
-                        if (button) button.textContent = "刪除事件";
+                        if (button) {
+                            setMorphActionButtonState(button, "destructive-action", "idle", "刪除事件", {
+                                disabled: false,
+                                busy: false
+                            });
+                        }
                     }
                 }, 2600);
                 return;
@@ -13929,7 +14242,12 @@
             }
             const eventId = activeCalendarEventId;
             calendarEventSaveInFlight = true;
-            if (button) { button.disabled = true; button.textContent = "刪除中…"; }
+            if (button) {
+                setMorphActionButtonState(button, "destructive-action", "loading", "刪除中…", {
+                    disabled: true,
+                    busy: true
+                });
+            }
             try {
                 const response = await requestGas("deleteCalendarEvent", { eventId: eventId, stateRevision: remoteStateRevision });
                 if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "" })) {
@@ -13943,7 +14261,12 @@
             } finally {
                 calendarEventSaveInFlight = false;
                 calendarEventDeleteArmed = false;
-                if (button) { button.disabled = false; button.textContent = "刪除事件"; }
+                if (button) {
+                    setMorphActionButtonState(button, "destructive-action", "idle", "刪除事件", {
+                        disabled: false,
+                        busy: false
+                    });
+                }
             }
         }
 
@@ -15041,7 +15364,7 @@
                 setWorkItemActionButtonFeedback(
                     button,
                     labels[progressAction],
-                    progressAction === "complete" ? "check" : null
+                    progressAction === "complete" ? "loading" : null
                 );
             });
             try {
@@ -15105,7 +15428,18 @@
                 assigneeInput.value = item ? String(item.Assigned_To_User_ID || "") : "";
             }
             if (descriptionInput) descriptionInput.value = item ? String(item.Description || "") : "";
-            if (saveButton) saveButton.textContent = item ? "儲存變更" : "建立工作";
+            if (saveButton) {
+                setMorphActionButtonState(saveButton, "work-action", "idle", item ? "儲存變更" : "建立工作", {
+                    disabled: false,
+                    busy: false
+                });
+            }
+            if (deleteButton) {
+                setMorphActionButtonState(deleteButton, "destructive-action", "idle", "刪除工作", {
+                    disabled: false,
+                    busy: false
+                });
+            }
             if (deleteButton) deleteButton.classList.toggle("hidden", !item);
             if (spacer) spacer.classList.toggle("hidden", !item);
             enhanceNativeSoftSelects(modal);
@@ -15149,7 +15483,12 @@
             const button = document.getElementById("work-item-save");
             const isEditing = Boolean(activeWorkItemId);
             workItemSaveInFlight = true;
-            if (button) { button.disabled = true; button.textContent = isEditing ? "儲存中…" : "建立中…"; }
+            if (button) {
+                setMorphActionButtonState(button, "work-action", "loading", isEditing ? "儲存中…" : "建立中…", {
+                    disabled: true,
+                    busy: true
+                });
+            }
             try {
                 if (isEditing) payload.workItemId = activeWorkItemId;
                 const response = await requestGas(isEditing ? "updateWorkItem" : "createWorkItem", Object.assign({}, payload, { stateRevision: remoteStateRevision }));
@@ -15163,7 +15502,12 @@
                 showToast(error && error.message ? error.message : "儲存工作事項失敗，請稍後再試。", "warning");
             } finally {
                 workItemSaveInFlight = false;
-                if (button) { button.disabled = false; button.textContent = isEditing ? "儲存變更" : "建立工作"; }
+                if (button) {
+                    setMorphActionButtonState(button, "work-action", "idle", isEditing ? "儲存變更" : "建立工作", {
+                        disabled: false,
+                        busy: false
+                    });
+                }
             }
         }
 
@@ -15172,11 +15516,21 @@
             const button = document.getElementById("work-item-delete");
             if (!workItemDeleteArmed) {
                 workItemDeleteArmed = true;
-                if (button) button.textContent = "再按一次確認刪除";
+                if (button) {
+                    setMorphActionButtonState(button, "destructive-action", "idle", "再按一次確認刪除", {
+                        disabled: false,
+                        busy: false
+                    });
+                }
                 window.setTimeout(function() {
                     if (!workItemSaveInFlight) {
                         workItemDeleteArmed = false;
-                        if (button) button.textContent = "刪除工作";
+                        if (button) {
+                            setMorphActionButtonState(button, "destructive-action", "idle", "刪除工作", {
+                                disabled: false,
+                                busy: false
+                            });
+                        }
                     }
                 }, 2600);
                 return;
@@ -15187,7 +15541,12 @@
             }
             const workItemId = activeWorkItemId;
             workItemSaveInFlight = true;
-            if (button) { button.disabled = true; button.textContent = "刪除中…"; }
+            if (button) {
+                setMorphActionButtonState(button, "destructive-action", "loading", "刪除中…", {
+                    disabled: true,
+                    busy: true
+                });
+            }
             try {
                 const response = await requestGas("deleteWorkItem", { workItemId: workItemId, stateRevision: remoteStateRevision });
                 if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "", allowFallback: false })) {
@@ -15201,7 +15560,12 @@
             } finally {
                 workItemSaveInFlight = false;
                 workItemDeleteArmed = false;
-                if (button) { button.disabled = false; button.textContent = "刪除工作"; }
+                if (button) {
+                    setMorphActionButtonState(button, "destructive-action", "idle", "刪除工作", {
+                        disabled: false,
+                        busy: false
+                    });
+                }
             }
         }
 
@@ -15317,7 +15681,12 @@
             }
             recycleRestoreInFlight = true;
             const buttons = Array.from(document.querySelectorAll('[data-recycle-restore-id="' + String(recycleId || "").replace(/"/g, "\\\"") + '"]'));
-            buttons.forEach(function(button) { button.disabled = true; button.textContent = "復原中…"; });
+            buttons.forEach(function(button) {
+                setMorphActionButtonState(button, "restore-action", "loading", "復原中…", {
+                    disabled: true,
+                    busy: true
+                });
+            });
             try {
                 const response = await requestGas("restoreRecycleBinItem", {
                     recycleId: String(recycleId || ""),
@@ -15332,7 +15701,12 @@
                 showToast(error && error.message ? error.message : "復原資料失敗，請稍後再試。", "warning");
             } finally {
                 recycleRestoreInFlight = false;
-                buttons.forEach(function(button) { button.disabled = false; button.textContent = "復原"; });
+                buttons.forEach(function(button) {
+                    setMorphActionButtonState(button, "restore-action", "idle", "復原", {
+                        disabled: false,
+                        busy: false
+                    });
+                });
             }
         }
 
@@ -15368,7 +15742,7 @@
                                         <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">刪除時間：${escapeHtml(formatCompactDateTimeLabel(entry.Deleted_At))}${entry.Deleted_By_Name ? " · " + escapeHtml(entry.Deleted_By_Name) : ""}</p>
                                         ${collectionSummary ? `<p class="mt-2 text-[10px] leading-relaxed text-[#6E6E73]">${escapeHtml(collectionSummary)}${driveCount ? " · Drive 檔案 " + driveCount + " 個" : ""}</p>` : driveCount ? `<p class="mt-2 text-[10px] leading-relaxed text-[#6E6E73]">Drive 檔案 ${driveCount} 個</p>` : ''}
                                     </div>
-                                    <button type="button" data-recycle-restore-id="${escapeHtml(entry.Recycle_ID)}" onclick="restoreRecycleBinItem('${escapeInlineJsString(entry.Recycle_ID)}')" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]"><i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>復原</button>
+                                    <button type="button" data-recycle-restore-id="${escapeHtml(entry.Recycle_ID)}" onclick="restoreRecycleBinItem('${escapeInlineJsString(entry.Recycle_ID)}')" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-[#F7FAFF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#EDF5FF]"><morph-icon data-morph-icon="restore-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i></morph-icon><span data-morph-action-label data-morph-idle-label="復原">復原</span></button>
                                 </div>
                             </article>`;
                         }).join("") : `<div class="rounded-[24px] border border-dashed border-[#D9D9E3] bg-[#FAFAFB] px-5 py-12 text-center"><span class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[#E4E4E8] bg-white text-[#86868B]"><i data-lucide="trash-2" class="h-5 w-5"></i></span><h4 class="mt-3 text-sm font-bold text-[#1D1D1F]">回收桶目前是空的</h4><p class="mt-1.5 text-xs leading-relaxed text-[#86868B]">未來刪除的管理資料會暫存在這裡，避免誤刪後無法救回。</p></div>`}
@@ -15665,17 +16039,21 @@
                                     <p class="text-xs text-[#86868B] mt-0.5 leading-relaxed">檢視繳交項目通知、繳交提醒、邀請與系統提醒，只顯示目前登入帳號的通知。</p>
                                 </div>
                                 <div class="inline-flex max-w-full flex-wrap items-center justify-end gap-[3px] rounded-[18px] border border-[#E8E8ED] bg-[#F5F5F7] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.82)] self-start xl:self-auto xl:shrink-0">
-                                    <button onclick="markAllNotificationsRead()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#0066CC] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#D9D9E3] hover:bg-white">
-                                        <i data-lucide="check-check" class="w-3.5 h-3.5"></i> 全部已讀
+                                    <button id="notifications-mark-all-read-button" onclick="markAllNotificationsRead()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#0066CC] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#D9D9E3] hover:bg-white">
+                                        ${renderMorphIconMarkup("notification-action", "read", "w-3.5 h-3.5")}
+                                        <span data-morph-action-label data-morph-idle-label="全部已讀">全部已讀</span>
                                     </button>
-                                    <button onclick="clearReadNotifications()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#D9D9E3] hover:bg-white">
-                                        <i data-lucide="archive" class="w-3.5 h-3.5"></i> 清除已讀
+                                    <button id="notifications-clear-read-button" onclick="clearReadNotifications()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#D9D9E3] hover:bg-white">
+                                        ${renderMorphIconMarkup("notification-action", "clear", "w-3.5 h-3.5")}
+                                        <span data-morph-action-label data-morph-idle-label="清除已讀">清除已讀</span>
                                     </button>
-                                    <button onclick="clearAllNotifications()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#FF3B30] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#FFD7D2] hover:bg-[#FFF8F7]">
-                                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 清空全部
+                                    <button id="notifications-clear-all-button" onclick="clearAllNotifications()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#FF3B30] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#FFD7D2] hover:bg-[#FFF8F7]">
+                                        ${renderMorphIconMarkup("notification-action", "clearAll", "w-3.5 h-3.5")}
+                                        <span data-morph-action-label data-morph-idle-label="清空全部">清空全部</span>
                                     </button>
                                     <button onclick="resetNotificationBrowserFilters()" class="inline-flex min-h-[32px] items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border border-transparent bg-white/92 px-3 py-1 text-[10px] font-semibold text-[#1D1D1F] shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-[#D9D9E3] hover:bg-white">
-                                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 清除篩選
+                                        ${renderMorphIconMarkup("restore-action", "idle", "w-3.5 h-3.5")}
+                                        <span>清除篩選</span>
                                     </button>
                                 </div>
                             </div>
@@ -15745,11 +16123,13 @@
                         <div class="mt-5 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#F5F5F7] border border-[#E8E8ED] rounded-2xl p-4">
                             <p class="text-xs font-semibold text-[#1D1D1F]">已選取 ${selectedCount} 則通知</p>
                             <div class="flex flex-wrap items-center gap-2">
-                                <button onclick="markSelectedNotificationsRead()" class="px-3 py-2 bg-[#0066CC] hover:opacity-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5">
-                                    <i data-lucide="check-check" class="w-4 h-4"></i> 批次已讀
+                                <button id="notifications-mark-selected-button" onclick="markSelectedNotificationsRead()" class="px-3 py-2 bg-[#0066CC] hover:opacity-95 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5">
+                                    ${renderMorphIconMarkup("notification-action", "read", "w-4 h-4")}
+                                    <span data-morph-action-label data-morph-idle-label="批次已讀">批次已讀</span>
                                 </button>
-                                <button onclick="clearSelectedNotifications()" class="px-3 py-2 border border-[#E8E8ED] hover:bg-white text-xs font-bold text-[#1D1D1F] rounded-xl transition flex items-center gap-1.5">
-                                    <i data-lucide="trash-2" class="w-4 h-4"></i> 清除所選
+                                <button id="notifications-clear-selected-button" onclick="clearSelectedNotifications()" class="px-3 py-2 border border-[#E8E8ED] hover:bg-white text-xs font-bold text-[#1D1D1F] rounded-xl transition flex items-center gap-1.5">
+                                    ${renderMorphIconMarkup("destructive-action", "idle", "w-4 h-4")}
+                                    <span data-morph-action-label data-morph-idle-label="清除所選">清除所選</span>
                                 </button>
                             </div>
                         </div>

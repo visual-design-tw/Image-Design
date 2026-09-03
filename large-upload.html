@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <title>穩定上傳</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script type="module">
+      try {
+        const { defineMorphIcon } = await import("https://esm.sh/morphicons@1.7.1/element?bundle");
+        window.__largeUploadDefineMorphIcon = defineMorphIcon;
+        window.__largeUploadMorphiconsModuleReady = true;
+        window.dispatchEvent(new CustomEvent("large-upload-morphicons-module-ready"));
+      } catch (error) {
+        window.__largeUploadMorphiconsModuleReady = false;
+        console.warn("Morphicons 載入失敗，將保留 Lucide 靜態圖示。", error);
+      }
+    </script>
     <style>
       :root {
         color-scheme: light;
@@ -73,6 +85,35 @@
         background: var(--accent);
         box-shadow: 0 0 0 6px rgba(10, 132, 255, 0.12);
         animation: status-pulse 1.8s ease-in-out infinite;
+      }
+
+      morph-icon[data-morph-icon] {
+        display: inline-flex;
+        width: var(--morph-icon-size, 1em);
+        height: var(--morph-icon-size, 1em);
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+        color: inherit;
+        line-height: 1;
+      }
+
+      morph-icon[data-morph-icon] > svg {
+        width: var(--morph-icon-size, 1rem) !important;
+        height: var(--morph-icon-size, 1rem) !important;
+        flex: 0 0 auto;
+      }
+
+      morph-icon[data-morph-icon].morph-icon-is-spinning > svg {
+        animation: morph-icon-spin 840ms linear infinite;
+        transform-origin: 50% 50%;
+      }
+
+      @keyframes morph-icon-spin { to { transform: rotate(360deg); } }
+
+      @media (prefers-reduced-motion: reduce) {
+        morph-icon[data-morph-icon].morph-icon-is-spinning > svg { animation: none; }
       }
 
       @keyframes status-pulse {
@@ -295,7 +336,7 @@
       button:hover { transform: translateY(-1px); }
       button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
       .btn-secondary { flex: 0 0 auto; background: rgba(29, 29, 31, 0.06); color: var(--text); }
-      .btn-primary { flex: 1; background: var(--accent); color: #fff; box-shadow: 0 12px 24px rgba(10, 132, 255, 0.18); }
+      .btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1; background: var(--accent); color: #fff; box-shadow: 0 12px 24px rgba(10, 132, 255, 0.18); }
       .footnote { margin-top: 16px; font-size: 12px; }
 
       .error-state { color: var(--error); }
@@ -323,7 +364,7 @@
       <p class="subtitle" id="page-subtitle">正在確認上傳工作階段。</p>
 
       <div class="loading-state" id="loading-state" role="status" aria-live="polite">
-        <span class="loading-orbit" aria-hidden="true"></span>
+        <morph-icon id="upload-loading-icon" data-morph-icon="large-upload" data-morph-icon-state="loading" class="h-7 w-7" style="--morph-icon-size: 1.75rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="loader-circle" class="h-7 w-7"></i></morph-icon>
         <span class="loading-copy">
           <strong class="loading-label">正在讀取上傳設定</strong>
           <span class="loading-detail">連線至雲端服務<span class="loading-dots" aria-hidden="true"></span></span>
@@ -366,7 +407,10 @@
 
         <div class="actions">
           <button type="button" class="btn-secondary" id="cancel-button">取消</button>
-          <button type="submit" id="submit-button" class="btn-primary" disabled>開始上傳</button>
+          <button type="submit" id="submit-button" class="btn-primary" disabled>
+            <morph-icon id="upload-submit-icon" data-morph-icon="large-upload" data-morph-icon-state="ready" class="h-4 w-4" style="--morph-icon-size: 1rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="upload" class="h-4 w-4"></i></morph-icon>
+            <span id="submit-label">開始上傳</span>
+          </button>
         </div>
       </form>
 
@@ -401,6 +445,93 @@
         const progressValue = document.getElementById("progress-value");
         const progressBar = document.getElementById("progress-bar");
         const submitButton = document.getElementById("submit-button");
+        const loadingIcon = document.getElementById("upload-loading-icon");
+        const submitIcon = document.getElementById("upload-submit-icon");
+        const submitLabel = document.getElementById("submit-label");
+        const UPLOAD_MORPH_ICON_CONFIG = {
+          ready: { lucideName: "Upload", fallbackName: "upload" },
+          loading: { lucideName: "LoaderCircle", fallbackName: "loader-circle" },
+          success: { lucideName: "CheckCheck", fallbackName: "check-check" },
+          error: { lucideName: "AlertCircle", fallbackName: "alert-circle" }
+        };
+        let uploadMorphiconsReady = false;
+
+        function getUploadMorphIconInput(stateName) {
+          const definition = UPLOAD_MORPH_ICON_CONFIG[String(stateName || "")];
+          if (!definition || !window.lucide) return null;
+          const icons = window.lucide.icons || {};
+          return icons[definition.lucideName] || window.lucide[definition.lucideName] || null;
+        }
+
+        function renderUploadLucideIcons(root) {
+          if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
+            lucide.createIcons({ root: root || document });
+          }
+        }
+
+        function updateUploadMorphIconFallback(element, stateName) {
+          const definition = UPLOAD_MORPH_ICON_CONFIG[String(stateName || "")];
+          if (!element || !definition || element.dataset.morphFallbackState === stateName) return;
+          const fallback = document.createElement("i");
+          fallback.dataset.morphIconFallback = "true";
+          fallback.setAttribute("data-lucide", definition.fallbackName);
+          fallback.className = String(element.className || "");
+          const existing = element.querySelector("[data-morph-icon-fallback]");
+          if (existing) existing.replaceWith(fallback);
+          else element.appendChild(fallback);
+          element.dataset.morphFallbackState = stateName;
+          renderUploadLucideIcons(element);
+        }
+
+        function setUploadMorphIconState(element, stateName) {
+          if (!element) return;
+          const previousState = String(element.dataset.morphIconState || "");
+          const targetState = String(stateName || "");
+          const targetIcon = getUploadMorphIconInput(targetState);
+          element.dataset.morphIconState = targetState;
+          element.classList.toggle("morph-icon-is-spinning", targetState === "loading");
+
+          if (!uploadMorphiconsReady || !targetIcon) {
+            updateUploadMorphIconFallback(element, targetState);
+            return;
+          }
+
+          try {
+            element.reducedMotion = "user";
+            if (element.dataset.morphIconInitialized !== "true") {
+              if (typeof element.set === "function") element.set(targetIcon);
+              else element.icon = targetIcon;
+              element.dataset.morphIconInitialized = "true";
+            } else if (previousState !== targetState && typeof element.morphTo === "function") {
+              element.morphTo(targetIcon, "snappy");
+            }
+          } catch (error) {
+            console.warn("Morphicons 初始化失敗，將保留 Lucide 靜態圖示。", error);
+          }
+        }
+
+        function initializeUploadMorphicons() {
+          renderUploadLucideIcons();
+          if (!uploadMorphiconsReady
+            && window.__largeUploadMorphiconsModuleReady
+            && typeof window.__largeUploadDefineMorphIcon === "function") {
+            try {
+              window.__largeUploadDefineMorphIcon();
+              uploadMorphiconsReady = true;
+            } catch (error) {
+              console.warn("Morphicons 初始化失敗，將保留 Lucide 靜態圖示。", error);
+            }
+          }
+          setUploadMorphIconState(loadingIcon, loadingIcon && loadingIcon.dataset.morphIconState || "loading");
+          setUploadMorphIconState(submitIcon, submitIcon && submitIcon.dataset.morphIconState || "ready");
+        }
+
+        function setUploadSubmitState(stateName, label, disabled) {
+          setUploadMorphIconState(submitIcon, stateName);
+          if (submitLabel && label !== undefined) submitLabel.textContent = label;
+          if (submitButton && disabled !== undefined) submitButton.disabled = Boolean(disabled);
+          if (panel) panel.setAttribute("aria-busy", stateName === "loading" ? "true" : "false");
+        }
 
         function formatFileSize(bytes) {
           const size = Number(bytes || 0);
@@ -419,6 +550,7 @@
         function setPageError(message) {
           pageError.textContent = message || "無法開啟上傳頁。";
           pageError.classList.remove("hidden");
+          setUploadMorphIconState(loadingIcon, "error");
           loadingState.classList.add("hidden");
           panel.classList.remove("is-loading");
           form.classList.add("hidden");
@@ -486,19 +618,19 @@
             fileSelection.textContent = "尚未選擇檔案。";
             setStatus("", "");
             transferProgress.classList.add("hidden");
-            submitButton.disabled = true;
+            setUploadSubmitState("ready", "開始上傳", true);
             return;
           }
 
           fileSelection.textContent = "目前選擇：" + file.name + " ・ " + formatFileSize(file.size);
           if (Number(file.size || 0) > Number(model.maxResumableMb || 2048) * 1024 * 1024) {
             setStatus("這份檔案已超過目前分段上傳上限，請壓縮或分檔。", "error");
-            submitButton.disabled = true;
+            setUploadSubmitState("error", "重新選擇", true);
             return;
           }
 
           setStatus("檔案已準備完成，送出後會以穩定分段方式傳送。", "success");
-          submitButton.disabled = false;
+          setUploadSubmitState("ready", "開始上傳", false);
         }
 
         function setTransferProgress(percent, label) {
@@ -663,8 +795,8 @@
           }
 
           isUploading = true;
-          submitButton.disabled = true;
-          submitButton.textContent = size <= Number(model.maxDirectMb || 18) * 1024 * 1024 ? "上傳中..." : "分段上傳中...";
+          const uploadLabel = size <= Number(model.maxDirectMb || 18) * 1024 * 1024 ? "上傳中…" : "分段上傳中…";
+          setUploadSubmitState("loading", uploadLabel, true);
           try {
             const result = size <= Number(model.maxDirectMb || 18) * 1024 * 1024
               ? await handleDirectSubmit(file)
@@ -676,12 +808,11 @@
               assignmentId: model.assignmentId,
               sourceFileName: file.name
             }));
-            submitButton.textContent = "已完成";
+            setUploadSubmitState("success", "已完成", true);
             window.setTimeout(closeWindow, 900);
           } catch (error) {
             setStatus(error && error.message ? error.message : "上傳失敗，請稍後再試。", "error");
-            submitButton.disabled = false;
-            submitButton.textContent = "重新上傳";
+            setUploadSubmitState("error", "重新上傳", false);
             isUploading = false;
           }
         }
@@ -700,8 +831,11 @@
           panel.classList.remove("is-loading");
           form.classList.remove("hidden");
           panel.setAttribute("aria-busy", "false");
+          setUploadSubmitState("ready", "開始上傳", true);
         }
 
+        window.addEventListener("large-upload-morphicons-module-ready", initializeUploadMorphicons);
+        initializeUploadMorphicons();
         fileInput.addEventListener("change", updateSelectionState);
         form.addEventListener("submit", handleSubmit);
         document.getElementById("cancel-button").addEventListener("click", closeWindow);
