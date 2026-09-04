@@ -1970,7 +1970,7 @@
         };
         let assignmentBrowserState = {
             query: "",
-            stage: "active",
+            stage: "all",
             status: "all",
             submissionMode: "all",
             team: "all",
@@ -2463,12 +2463,10 @@
             if (targetState === "loading") {
                 fallback.classList.add("animate-spin");
             }
-            const existingVisual = element.querySelector("[data-morph-icon-fallback]");
-            if (existingVisual) {
-                existingVisual.replaceWith(fallback);
-            } else {
-                element.appendChild(fallback);
-            }
+            Array.from(element.children).forEach(function(child) {
+                child.remove();
+            });
+            element.appendChild(fallback);
             element.dataset.morphFallbackState = targetState;
 
             if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
@@ -7526,10 +7524,12 @@
 
             let assignments = baseAssignments;
 
-            if (stageFilterValue === "active" && activeStage) {
-                assignments = assignments.filter(function(assignment) {
-                    return assignment.Stage_ID === activeStage.Stage_ID;
-                });
+            if (stageFilterValue === "active") {
+                if (activeStage) {
+                    assignments = assignments.filter(function(assignment) {
+                        return assignment.Stage_ID === activeStage.Stage_ID;
+                    });
+                }
             } else if (stageFilterValue !== "all") {
                 assignments = assignments.filter(function(assignment) {
                     return assignment.Stage_ID === stageFilterValue;
@@ -8967,7 +8967,7 @@
         function resetAssignmentBrowserFilters() {
             assignmentBrowserState = {
                 query: "",
-                stage: "active",
+                stage: "all",
                 status: "all",
                 submissionMode: "all",
                 team: "all",
