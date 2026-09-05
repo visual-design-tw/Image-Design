@@ -560,6 +560,9 @@
 
         async function requestGas(action, payload, method) {
           const requestPayload = Object.assign({}, payload || {});
+          const controller = new AbortController();
+          let timeout;
+          const operation = async function() {
           if (method === "GET") {
             const url = new URL(gasEndpoint);
             url.searchParams.set("action", action);
@@ -569,17 +572,27 @@
                 url.searchParams.set(key, String(value));
               }
             });
-            const response = await fetch(url.toString(), { method: "GET", redirect: "follow" });
+            const response = await fetch(url.toString(), { method: "GET", redirect: "follow", signal: controller.signal });
             return parseGasResponse(response);
           }
 
           const response = await fetch(gasEndpoint, {
             method: "POST",
+            signal: controller.signal,
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(Object.assign({ action: action }, requestPayload)),
             redirect: "follow"
           });
           return parseGasResponse(response);
+          };
+          try {
+            return await Promise.race([operation(), new Promise(function(resolve, reject) {
+              timeout = setTimeout(function() {
+                reject(new Error('連線等候較久，尚未確認此段上傳結果。系統會重試同一段，請保留此頁。'));
+                controller.abort();
+              }, 120000);
+            })]);
+          } finally { clearTimeout(timeout); }
         }
 
         async function parseGasResponse(response) {

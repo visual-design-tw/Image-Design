@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-09-05T03:13:53.118Z",
+  "scope": "Isolated local mocks only; no live GAS mutations",
+  "summary": {
+    "total": 28,
+    "passed": 28,
+    "failed": 0
+  },
+  "sources": {
+    "index.html": "ffb34a830b9fe494548802ef3c28e553db03a07f29102c6eb125a4e8c66310c3",
+    "large-upload.html": "2aaf197d23708e6b63579e6e5efe9468b94dd3631a0d6ba3c8499bf935c18bfa",
+    "gas/Code.gs": "4685a40742761f5bec3b9a009d7f6400f22b990b654c1a72136e200992dbebc0",
+    "gas/LargeUpload.html": "a7e75047970ea9c7451ad1dbdd15020037864e35ba5cb6b4128d47a3bce82d15",
+    "gas/appsscript.json": "66e0207a707bf854dbd7db5479e19b1051ace0b87d26808fbfb9fce077153941"
+  },
+  "results": [
+    {
+      "name": "all classic page scripts and Apps Script parse successfully",
+      "passed": true
+    },
+    {
+      "name": "IDs stay unique after deletion and between clients",
+      "passed": true
+    },
+    {
+      "name": "legacy cross-team submission ID collision is not dropped",
+      "passed": true
+    },
+    {
+      "name": "same request retried creates one submission and one set of notifications",
+      "passed": true
+    },
+    {
+      "name": "comment collisions do not duplicate existing comments from other authors",
+      "passed": true
+    },
+    {
+      "name": "dual role can submit own team through dedicated and compatible save paths",
+      "passed": true
+    },
+    {
+      "name": "submission rejects another team, missing text and unassigned targets",
+      "passed": true
+    },
+    {
+      "name": "restore collision stops every collection without partial changes",
+      "passed": true
+    },
+    {
+      "name": "nonconflicting restore preserves relationships",
+      "passed": true
+    },
+    {
+      "name": "ordinary students still receive no internal calendar or work data",
+      "passed": true
+    },
+    {
+      "name": "all main desktop views render without errors",
+      "passed": true
+    },
+    {
+      "name": "untrusted names render only as text and unsafe URLs are blocked",
+      "passed": true
+    },
+    {
+      "name": "remember email never stores a password and removes legacy credentials",
+      "passed": true
+    },
+    {
+      "name": "failed submission retains text and modal; retry uses same request and confirms once",
+      "passed": true
+    },
+    {
+      "name": "queued edits and their callers wait for the latest save",
+      "passed": true
+    },
+    {
+      "name": "uploaded attachment and text are restored from the tab draft",
+      "passed": true
+    },
+    {
+      "name": "failed publish keeps form and reuses the same draft ID",
+      "passed": true
+    },
+    {
+      "name": "confirmed earlier submission unlocks a changed draft without dropping its text",
+      "passed": true
+    },
+    {
+      "name": "blocked browser storage does not turn cloud confirmation into failure",
+      "passed": true
+    },
+    {
+      "name": "large upload completion keeps a draft and ignores stale account messages",
+      "passed": true
+    },
+    {
+      "name": "state conflict does not silently discard local changes",
+      "passed": true
+    },
+    {
+      "name": "time fields preserve focus and Done closes with the selected value",
+      "passed": true
+    },
+    {
+      "name": "invalid time gets a clear message instead of silently changing it",
+      "passed": true
+    },
+    {
+      "name": "mobile modal stays within viewport and scrolls to its action buttons",
+      "passed": true
+    },
+    {
+      "name": "late save does not reopen a logged-out account",
+      "passed": true
+    },
+    {
+      "name": "stale bootstrap error does not clear a newer login",
+      "passed": true
+    },
+    {
+      "name": "stalled login times out, releases button and keeps entered values",
+      "passed": true
+    },
+    {
+      "name": "no uncaught browser runtime errors",
+      "passed": true
+    }
+  ]
+}

@@ -1,5 +1,29 @@
 # GAS Backend
 
+## 2026.09.05-health.2 上線前必做
+
+目前程式已修改並在本機隔離測試；不代表正式 Web App 已部署。
+
+1. 先備份正式試算表與 Script Properties，並在另一份試算表、Drive 資料夾及測試 Web App 驗收。不要對正式環境執行 seedDemoData_。
+2. 新版使用 Google Sheets REST API 的 batchUpdate，必須確認 Apps Script 所屬 Google Cloud 專案已啟用 **Google Sheets API**。既有 appsscript.json 已有 spreadsheets 與 script.external_request scopes；由部署帳號完成所需授權。不要退回「先清空再寫入」作為失敗備援。
+3. 將新版 Code.gs 與 HTML 同步至測試環境，在 Apps Script 編輯器執行私有函式 migrateHealthRelease_。它先唯讀驗證 Sheets API，再補齊 Asset_Receipt 欄位、建立附件簽章密鑰、清除狀態快取並遷移既有提醒／清理觸發器。原本沒有提醒觸發器不會擅自啟用；需要時另外使用 enableAssignmentReminderAutomation_。
+4. 維護函式名稱現在結尾均為底線。舊 runScheduledAssignmentReminders、runDeferredDriveTrashQueue 觸發器不能直接沿用；遷移後分別使用 runScheduledAssignmentReminders_、runDeferredDriveTrashQueue_。不要保留無授權的舊公開轉接函式。
+5. 確認小檔與分段上傳都回傳 assetReceipt，繳交提交 Asset_Receipt。憑證綁定帳號、小組、項目、Drive 檔案與檔名，有效 48 小時；重送已確認的 requestId 不重複建立紀錄。ASSET_RECEIPT_SECRET 不可刪除或任意更換，否則舊附件會失去自動清理驗證。
+6. 以至少兩個帳號測試儲存衝突、斷線重試、退件提醒、部分附件復原。確認前後端版本皆為 2026.09.05-health.2，再協調正式前後端一起更新，請使用者重新整理。舊分頁的未繳交附件可能需重新選檔，文字草稿應保留。
+
+安全相容處理：
+
+- 沒有憑證的舊繳交附件仍可查看，刪除項目時保留原檔，不自動送入 Drive 垃圾桶；不是把舊附件一律當作合法附件。新附件刪除／復原亦檢查回收桶紀錄與系統根資料夾。
+- 部分復原會標記 restore_pending，已恢復的資料列不重複加入，只重試未成功的附件。此待處理紀錄不會因一般回收桶 30 天清理被移除。若檔案已永久刪除或移出系統資料夾，管理者須另行確認。
+- 新提醒與公告逐收件人保存嘗試結果，單一提醒週期最多 3 次，不重寄已確認成功者。退件或更改截止時間會開啟新提醒週期。
+- 舊提醒若全部成功，不因新版鍵值重寄；全部失敗可重試。舊紀錄若只有部分成功總數、沒有個別結果，保留 needsReview／unknown_legacy，由管理者核對，不盲目重寄。
+- MailApp 和 Sheets 無跨服務交易。寄信實際完成但執行中斷、或確認紀錄寫入失敗時，仍可能再次寄送；本版本不宣稱 Email exactly-once。
+- API 批次提交前失敗不清空原資料；傳輸中斷無法確定提交結果時先失效快取，要求重新確認。直接人工編輯試算表不受應用程式鎖保護，不可與正式站同時改寫同一批資料。
+
+批次提交的原子性與範圍清理規則依據 Google 官方文件：
+[batchUpdate](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate)、
+[UpdateCellsRequest](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request#UpdateCellsRequest)。
+
 這一份是給目前 [index.html](</Users/james/Documents/Image Design/index.html>) 對接用的 Google Apps Script 後端。
 
 ## 會建立的工作表
@@ -117,16 +141,16 @@
 4. 在 Apps Script 執行：
 
 ```javascript
-saveScriptConfig('你的 Spreadsheet ID', '你的 Drive Root Folder ID', {
+saveScriptConfig_('你的 Spreadsheet ID', '你的 Drive Root Folder ID', {
   frontendBaseUrl: '你的前端網址',
   mailSenderName: '畢展形印組管理系統',
   mailReplyTo: '你的回覆信箱@example.com',
   mailFromAlias: '',
   passwordResetExpiryMinutes: 30
 });
-setupSheets();
-authorizeMailScope();
-enableAssignmentReminderAutomation();
+initializeDataSheets_();
+authorizeMailScope_();
+enableAssignmentReminderAutomation_();
 ```
 
 `frontendBaseUrl` 請填你實際開啟這個前端頁面的網址，例如：
@@ -139,7 +163,7 @@ enableAssignmentReminderAutomation();
 5. 如果你要先用現在前端的假資料測試，再執行：
 
 ```javascript
-seedDemoData();
+seedDemoData_();
 ```
 
 6. 部署成 Web App。
@@ -152,19 +176,19 @@ seedDemoData();
    你可以在 Apps Script 執行：
 
 ```javascript
-listAssignmentReminderTriggers();
+listAssignmentReminderTriggers_();
 ```
 
 若要重裝 trigger，可執行：
 
 ```javascript
-installAssignmentReminderTrigger();
+installAssignmentReminderTrigger_();
 ```
 
 若要暫停背景催交：
 
 ```javascript
-disableAssignmentReminderAutomation();
+disableAssignmentReminderAutomation_();
 ```
 
 ## 請求範例

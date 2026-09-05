@@ -22,14 +22,14 @@ var RESUMABLE_UPLOAD_CACHE_PREFIX = 'ShapePrintResumableUpload:';
 var STATE_CACHE_PREFIX = 'ShapePrintState:v1:';
 var STATE_CACHE_TTL_SECONDS = 60;
 var STATE_CACHE_MAX_BYTES = 90 * 1024;
-var ASSIGNMENT_REMINDER_TRIGGER_HANDLER = 'runScheduledAssignmentReminders';
+var ASSIGNMENT_REMINDER_TRIGGER_HANDLER = 'runScheduledAssignmentReminders_';
 var ASSIGNMENT_REMINDER_LOG_META_KEY = 'AssignmentReminderLog';
 var ASSIGNMENT_REMINDER_SETTINGS_META_KEY = 'AssignmentReminderSettings';
 var ASSIGNMENT_REMINDER_DEFAULT_OFFSETS_HOURS = [72, 24, 6];
 var RECYCLE_BIN_RETENTION_DAYS = 30;
 var RECYCLE_BIN_MAX_SNAPSHOT_CHARACTERS = 45000;
 var DEFERRED_DRIVE_TRASH_QUEUE_PROPERTY = 'DEFERRED_DRIVE_TRASH_QUEUE_V1';
-var DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER = 'runDeferredDriveTrashQueue';
+var DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER = 'runDeferredDriveTrashQueue_';
 var DEFERRED_DRIVE_TRASH_MAX_ITEMS_PER_RUN = 20;
 var DEFERRED_DRIVE_TRASH_MAX_ATTEMPTS = 6;
 var DEFERRED_DRIVE_TRASH_RETRY_DELAY_MILLIS = 5 * 60 * 1000;
@@ -39,6 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
+var APP_RELEASE = '2026.09.05-health.2';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -133,7 +134,9 @@ var TABLE_SCHEMAS = {
         'Drive_Folder_ID',
         'Reviewed_By_User_ID',
         'Reviewed_At',
-        'Review_Note'
+        'Review_Note',
+        'Request_ID',
+        'Asset_Receipt'
       ],
       types: {
         Submission_No: 'number'
@@ -549,6 +552,13 @@ function doPost(e) {
     if (action === 'saveState') {
       result = withLock_(function() {
         return handleSaveState_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'submitAssignment') {
+      result = withLock_(function() {
+        return handleSubmitAssignment_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -1063,10 +1073,11 @@ function uploadResumableLargeUploadChunk(payload) {
   if (!session) {
     throw new Error('大檔上傳工作階段已過期，請重新開始上傳。');
   }
+  verifyResumableUploadSession_(session, payload);
+  requireSessionUser_(loadState_(), payload);
   if (session.status === 'completed' && session.completedResult) {
     return session.completedResult;
   }
-  verifyResumableUploadSession_(session, payload);
 
   var totalSize = Number(payload.totalSize || 0);
   var chunkStart = Number(payload.chunkStart);
@@ -1161,7 +1172,7 @@ function uploadResumableLargeUploadChunk(payload) {
       return handleLargeDesignServiceFormUpload_(finalizePayload, driveResult);
     });
   } catch (finalizeError) {
-    trashDriveFiles_([driveResult.fileId]);
+    trashNewUploadAfterFailure_(driveResult);
     throw finalizeError;
   }
 
@@ -1458,7 +1469,7 @@ function pickOptionalConfigValue_(options, key, fallback) {
   return String(fallback || '').trim();
 }
 
-function saveScriptConfig(spreadsheetId, driveRootFolderId, options) {
+function saveScriptConfig_(spreadsheetId, driveRootFolderId, options) {
   if (!spreadsheetId || !driveRootFolderId) {
     throw new Error('Both spreadsheetId and driveRootFolderId are required.');
   }
@@ -1481,13 +1492,13 @@ function saveScriptConfig(spreadsheetId, driveRootFolderId, options) {
     )
   };
 
-  props.setProperties(nextProps, true);
+  props.setProperties(nextProps, false);
 
   return buildHealthPayload_();
 }
 
-function configureImageDesignDefaults() {
-  return saveScriptConfig('1OSkWSzpcgJqGaGIjC-CzeApZoeyBHMpfen29whTvGKY', '1UV356WstvdKJKzURrqYcbiJcsW4Wdx8Q', {
+function configureImageDesignDefaults_() {
+  return saveScriptConfig_('1OSkWSzpcgJqGaGIjC-CzeApZoeyBHMpfen29whTvGKY', '1UV356WstvdKJKzURrqYcbiJcsW4Wdx8Q', {
     frontendBaseUrl: 'https://visual-design-tw.github.io/Image-Design/',
     mailSenderName: '畢展形印組管理系統',
     passwordResetExpiryMinutes: 30,
@@ -1495,7 +1506,7 @@ function configureImageDesignDefaults() {
   });
 }
 
-function primeImageDesignProperties() {
+function primeImageDesignProperties_() {
   var props = PropertiesService.getScriptProperties();
   props.setProperties({
     SPREADSHEET_ID: '1OSkWSzpcgJqGaGIjC-CzeApZoeyBHMpfen29whTvGKY',
@@ -1506,7 +1517,7 @@ function primeImageDesignProperties() {
     MAIL_REPLY_TO: '',
     MAIL_FROM_ALIAS: '',
     PASSWORD_RESET_EXPIRY_MINUTES: '30'
-  }, true);
+  }, false);
 
   return {
     ok: true,
@@ -1515,7 +1526,7 @@ function primeImageDesignProperties() {
   };
 }
 
-function authorizeMailScope() {
+function authorizeMailScope_() {
   return {
     remainingDailyQuota: MailApp.getRemainingDailyQuota()
   };
@@ -1524,7 +1535,7 @@ function authorizeMailScope() {
 // Run once from the Apps Script editor after adding resumable Drive uploads.
 // The request intentionally verifies the external-request scope before the
 // web app tries to create a Drive upload session for an anonymous visitor.
-function authorizeLargeUploadScope() {
+function authorizeLargeUploadScope_() {
   var response = UrlFetchApp.fetch(
     'https://www.googleapis.com/drive/v3/about?fields=user',
     {
@@ -1546,7 +1557,7 @@ function authorizeLargeUploadScope() {
   };
 }
 
-function configureAssignmentReminderSettings(options) {
+function configureAssignmentReminderSettings_(options) {
   return withLock_(function() {
     var state = loadState_();
     var nextSettings = normalizeAssignmentReminderSettings_(options);
@@ -1559,14 +1570,14 @@ function configureAssignmentReminderSettings(options) {
   });
 }
 
-function enableAssignmentReminderAutomation(options) {
-  var result = configureAssignmentReminderSettings(Object.assign({
+function enableAssignmentReminderAutomation_(options) {
+  var result = configureAssignmentReminderSettings_(Object.assign({
     enabled: true,
     offsetsHours: ASSIGNMENT_REMINDER_DEFAULT_OFFSETS_HOURS,
     sendEmail: true,
     sendSiteNotifications: true
   }, options || {}));
-  var triggerInfo = installAssignmentReminderTrigger();
+  var triggerInfo = installAssignmentReminderTrigger_();
   return {
     ok: true,
     settings: result.settings,
@@ -1574,11 +1585,11 @@ function enableAssignmentReminderAutomation(options) {
   };
 }
 
-function disableAssignmentReminderAutomation() {
-  var result = configureAssignmentReminderSettings({
+function disableAssignmentReminderAutomation_() {
+  var result = configureAssignmentReminderSettings_({
     enabled: false
   });
-  var triggerInfo = removeAssignmentReminderTriggers();
+  var triggerInfo = removeAssignmentReminderTriggers_();
   return {
     ok: true,
     settings: result.settings,
@@ -1586,8 +1597,8 @@ function disableAssignmentReminderAutomation() {
   };
 }
 
-function installAssignmentReminderTrigger() {
-  removeAssignmentReminderTriggers();
+function installAssignmentReminderTrigger_() {
+  removeAssignmentReminderTriggers_();
   var trigger = ScriptApp.newTrigger(ASSIGNMENT_REMINDER_TRIGGER_HANDLER)
     .timeBased()
     .everyHours(1)
@@ -1596,14 +1607,14 @@ function installAssignmentReminderTrigger() {
   return {
     ok: true,
     createdTriggerId: trigger.getUniqueId(),
-    triggers: listAssignmentReminderTriggers()
+    triggers: listAssignmentReminderTriggers_()
   };
 }
 
-function removeAssignmentReminderTriggers() {
+function removeAssignmentReminderTriggers_() {
   var deleted = [];
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    if (String(trigger.getHandlerFunction() || '') !== ASSIGNMENT_REMINDER_TRIGGER_HANDLER) {
+    if ([ASSIGNMENT_REMINDER_TRIGGER_HANDLER, 'runScheduledAssignmentReminders'].indexOf(String(trigger.getHandlerFunction() || '')) < 0) {
       return;
     }
     deleted.push(trigger.getUniqueId());
@@ -1613,11 +1624,11 @@ function removeAssignmentReminderTriggers() {
   return {
     ok: true,
     deletedTriggerIds: deleted,
-    triggers: listAssignmentReminderTriggers()
+    triggers: listAssignmentReminderTriggers_()
   };
 }
 
-function listAssignmentReminderTriggers() {
+function listAssignmentReminderTriggers_() {
   return ScriptApp.getProjectTriggers().filter(function(trigger) {
     return String(trigger.getHandlerFunction() || '') === ASSIGNMENT_REMINDER_TRIGGER_HANDLER;
   }).map(function(trigger) {
@@ -1630,7 +1641,7 @@ function listAssignmentReminderTriggers() {
   });
 }
 
-function runScheduledAssignmentReminders() {
+function runScheduledAssignmentReminders_() {
   return withLock_(function() {
     // Drive cleanup is deliberately processed before reminder work, but never
     // inside a user-facing delete request. A slow Drive API call must not make
@@ -1656,11 +1667,35 @@ function runScheduledAssignmentReminders() {
   });
 }
 
-function setupSheets() {
+function initializeDataSheets_() {
   return setupSheets_();
 }
 
-function seedDemoData() {
+function migrateHealthRelease_() {
+  return withLock_(function() {
+    var config = getConfig_();
+    var response = UrlFetchApp.fetch('https://sheets.googleapis.com/v4/spreadsheets/'
+      + encodeURIComponent(config.spreadsheetId) + '?fields=spreadsheetId', {
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+      });
+    if (response.getResponseCode() !== 200) {
+      throw new Error('請先啟用此 Apps Script 所屬 Cloud 專案的 Google Sheets API，並確認部署帳號有試算表編輯權限。尚未遷移觸發器。');
+    }
+    var hadReminderTrigger = ScriptApp.getProjectTriggers().some(function(trigger) {
+      return [ASSIGNMENT_REMINDER_TRIGGER_HANDLER, 'runScheduledAssignmentReminders'].indexOf(trigger.getHandlerFunction()) >= 0;
+    });
+    setupSheets_();
+    getAssetReceiptSecret_();
+    CacheService.getScriptCache().remove(getStateCacheKey_());
+    if (hadReminderTrigger) installAssignmentReminderTrigger_();
+    removeDeferredDriveTrashTriggers_();
+    var pendingCleanup = loadDeferredDriveTrashQueue_().length;
+    if (pendingCleanup) scheduleDeferredDriveTrashRetry_();
+    return { release: APP_RELEASE, sheetsApiReady: true, remindersMigrated: hadReminderTrigger, pendingCleanup: pendingCleanup };
+  });
+}
+
+function seedDemoData_() {
   return withLock_(function() {
     persistState_(buildDemoState_());
     return loadState_();
@@ -1709,6 +1744,7 @@ function buildHealthPayload_() {
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
   return {
     ok: true,
+    release: APP_RELEASE,
     spreadsheetId: config.spreadsheetId,
     spreadsheetName: spreadsheet.getName(),
     driveRootFolderId: config.driveRootFolderId,
@@ -1718,7 +1754,7 @@ function buildHealthPayload_() {
     mailReplyTo: config.mailReplyTo,
     mailFromAliasConfigured: Boolean(config.mailFromAlias),
     passwordResetExpiryMinutes: config.passwordResetExpiryMinutes,
-    assignmentReminderTriggerCount: listAssignmentReminderTriggers().length,
+    assignmentReminderTriggerCount: listAssignmentReminderTriggers_().length,
     serverTime: nowString_()
   };
 }
@@ -1737,11 +1773,11 @@ function getConfig_() {
   );
 
   if (!spreadsheetId || spreadsheetId === APP_DEFAULTS.spreadsheetId) {
-    throw new Error('Missing SPREADSHEET_ID. Run saveScriptConfig(...) or set Script Properties first.');
+    throw new Error('Missing SPREADSHEET_ID. Run saveScriptConfig_(...) or set Script Properties first.');
   }
 
   if (!driveRootFolderId || driveRootFolderId === APP_DEFAULTS.driveRootFolderId) {
-    throw new Error('Missing DRIVE_ROOT_FOLDER_ID. Run saveScriptConfig(...) or set Script Properties first.');
+    throw new Error('Missing DRIVE_ROOT_FOLDER_ID. Run saveScriptConfig_(...) or set Script Properties first.');
   }
 
   if (isNaN(passwordResetExpiryMinutes) || passwordResetExpiryMinutes <= 0) {
@@ -1845,9 +1881,7 @@ function loadState_() {
       return rawNotificationFingerprints[index] !== buildNotificationNormalizationFingerprint_(notification);
     });
   var didBackfillPurchaseDates = backfillPurchaseItemDates_(state);
-  if (didNormalizeNotifications || didBackfillPurchaseDates) {
-    writeStateTables_(spreadsheet, state);
-  }
+  // Read normalization is persisted only by a later locked write.
 
   cacheState_(state);
   return state;
@@ -1869,11 +1903,23 @@ function persistState_(inputState, options) {
   state.Meta.State_Revision = typeof options.nextRevision === 'number'
     ? options.nextRevision
     : getStateRevision_(existingState) + 1;
-  var assignmentEmailNotifications = sendPendingAssignmentAnnouncementEmails_(state);
+  var assignmentEmailNotifications;
   var config = getConfig_();
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
 
-  writeStateTables_(spreadsheet, state);
+  writeStateTables_(spreadsheet, state, existingState);
+
+  // Never announce an assignment that has not been committed.
+  var committedState = cloneObject_(state);
+  try {
+    assignmentEmailNotifications = sendPendingAssignmentAnnouncementEmails_(state);
+    if (JSON.stringify(committedState) !== JSON.stringify(state)) {
+      writeStateTables_(spreadsheet, state, committedState);
+    }
+  } catch (notificationError) {
+    Logger.log('Data committed; announcement confirmation pending: ' + notificationError);
+    assignmentEmailNotifications = { pending: true };
+  }
 
   return {
     assignmentEmailNotifications: assignmentEmailNotifications
@@ -2180,12 +2226,14 @@ function getStudentDiscussionContext_(state, comment, teamId) {
 function mergeStudentDiscussionComments_(nextState, incomingState, actor) {
   var existingIds = {};
   ensureArray_(nextState.Discussion_Comments).forEach(function(comment) {
-    existingIds[String(comment.Comment_ID || '')] = true;
+    existingIds[String(comment.Comment_ID || '')] = comment;
   });
 
   ensureArray_(incomingState.Discussion_Comments).forEach(function(comment) {
+    if (String(comment && comment.User_ID || '') !== String(actor.User_ID || '')) return;
     var requestedId = String(comment && comment.Comment_ID || '');
-    if (requestedId && existingIds[requestedId]) return;
+    if (requestedId && existingIds[requestedId]
+      && String(existingIds[requestedId].User_ID || '') === String(actor.User_ID || '')) return;
     if (String(comment && comment.Kind || 'comment') === 'system') return;
     var message = String(comment && comment.Message || '').trim();
     var context = getStudentDiscussionContext_(nextState, comment, actor.Team_ID);
@@ -2204,6 +2252,7 @@ function mergeStudentDiscussionComments_(nextState, incomingState, actor) {
       Created_At: nowString_()
     });
     nextState.Discussion_Comments.push(canonical);
+    if (requestedId) existingIds[requestedId] = canonical;
     createNotifications_(nextState, {
       type: 'discussion-comment',
       title: '小組留言回覆',
@@ -2218,15 +2267,66 @@ function mergeStudentDiscussionComments_(nextState, incomingState, actor) {
   });
 }
 
+function getAssetReceiptSecret_() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('ASSET_RECEIPT_SECRET');
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('ASSET_RECEIPT_SECRET', secret);
+  }
+  return secret;
+}
+
+function issueAssignmentAssetReceipt_(actor, assignment, drive) {
+  var encoded = Utilities.base64EncodeWebSafe(JSON.stringify({
+    userId: String(actor.User_ID), teamId: String(actor.Team_ID),
+    assignmentId: String(assignment.Assignment_ID), fileId: String(drive.fileId),
+    folderId: String(drive.folderId), fileName: String(drive.fileName),
+    expires: Date.now() + 48 * 60 * 60 * 1000
+  }));
+  return encoded + '.' + Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(encoded, getAssetReceiptSecret_()));
+}
+
+function validateAssignmentAssetReceipt_(record, actor, assignment, ignoreExpiry) {
+  try {
+    var parts = String(record.Asset_Receipt || '').split('.');
+    if (parts.length !== 2) throw new Error('Missing proof');
+    var secret = PropertiesService.getScriptProperties().getProperty('ASSET_RECEIPT_SECRET');
+    if (!secret) throw new Error('Missing secret');
+    var signature = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(parts[0], secret));
+    var mismatch = signature.length ^ parts[1].length;
+    for (var i = 0; i < signature.length; i++) mismatch |= signature.charCodeAt(i) ^ (parts[1].charCodeAt(i) || 0);
+    if (mismatch) throw new Error('Invalid signature');
+    var asset = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
+    if ((!ignoreExpiry && Number(asset.expires) < Date.now())
+      || asset.userId !== String(actor.User_ID) || asset.teamId !== String(actor.Team_ID)
+      || asset.assignmentId !== String(assignment.Assignment_ID)
+      || !asset.fileId || asset.fileId !== String(record.Drive_File_ID)
+      || asset.folderId !== String(record.Drive_Folder_ID) || asset.fileName !== String(record.File_Name)) throw new Error('Asset mismatch');
+    return asset;
+  } catch (error) {
+    throw new Error('ASSET_INVALID: 尚未確認附件上傳或附件已過期。文字已保留，請重新選擇檔案上傳後再繳交。');
+  }
+}
+
+function isVerifiedSubmissionAsset_(record) {
+  try {
+    validateAssignmentAssetReceipt_(record, record, record, true);
+    return true;
+  } catch (error) { return false; }
+}
+
 function mergeStudentSubmissions_(nextState, incomingState, actor) {
   var existingIds = {};
   ensureArray_(nextState.Assignment_Submissions).forEach(function(submission) {
-    existingIds[String(submission.Submission_ID || '')] = true;
+    existingIds[String(submission.Submission_ID || '')] = submission;
   });
 
   ensureArray_(incomingState.Assignment_Submissions).forEach(function(candidate) {
     var requestedId = String(candidate && candidate.Submission_ID || '');
-    if (requestedId && existingIds[requestedId]) return;
+    if (requestedId && existingIds[requestedId]
+      && String(existingIds[requestedId].Team_ID || '') === String(actor.Team_ID || '')) return;
     if (String(candidate && candidate.Team_ID || '') !== String(actor.Team_ID || '')) return;
     var assignment = ensureArray_(nextState.Assignments).find(function(item) {
       return String(item.Assignment_ID || '') === String(candidate.Assignment_ID || '');
@@ -2253,6 +2353,10 @@ function mergeStudentSubmissions_(nextState, incomingState, actor) {
     if ((requiresFile && !fileName) || (requiresText && !textContent)) {
       throw new Error('請完成繳交項目要求的檔案或文字內容。');
     }
+    var asset = requiresFile ? validateAssignmentAssetReceipt_(candidate, actor, assignment, false) : null;
+    if (asset && ensureArray_(nextState.Assignment_Submissions).some(function(record) {
+      return String(record.Drive_File_ID || '') === asset.fileId;
+    })) throw new Error('ASSET_ALREADY_USED: 這份附件已用於繳交，請重新上傳修正版。');
 
     var submissionNo = existingForAssignment.reduce(function(max, item) {
       return Math.max(max, Number(item.Submission_No || 0));
@@ -2260,13 +2364,15 @@ function mergeStudentSubmissions_(nextState, incomingState, actor) {
     var createdAt = nowString_();
     var submission = hydrateAssignmentSubmissionRecord_({
       Submission_ID: generateSequentialId_('SUB', nextState.Assignment_Submissions, 'Submission_ID'),
+      Request_ID: String(candidate.Request_ID || ''),
+      Asset_Receipt: asset ? String(candidate.Asset_Receipt) : '',
       Assignment_ID: assignment.Assignment_ID,
       User_ID: actor.User_ID,
       Team_ID: actor.Team_ID,
       Submission_No: submissionNo,
       Submission_Mode: assignment.Submission_Mode,
       File_Name: requiresFile ? fileName : '',
-      Google_Drive_URL: requiresFile ? String(candidate.Google_Drive_URL || '') : '',
+      Google_Drive_URL: asset ? 'https://drive.google.com/file/d/' + encodeURIComponent(asset.fileId) + '/view' : '',
       Text_Content: requiresText ? textContent.slice(0, 10000) : '',
       Submitted_At: createdAt,
       Updated_At: createdAt,
@@ -2276,6 +2382,7 @@ function mergeStudentSubmissions_(nextState, incomingState, actor) {
       Drive_Folder_ID: requiresFile ? String(candidate.Drive_Folder_ID || '') : ''
     });
     nextState.Assignment_Submissions.unshift(submission);
+    if (requestedId) existingIds[requestedId] = submission;
     createNotifications_(nextState, {
       type: 'assignment-submit',
       title: '小組已繳交作業',
@@ -2344,7 +2451,7 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
   }
 
   if (String(actor.Role || '') === 'Admin') {
-    ['Config_Stages', 'Users', 'Teams', 'Files', 'Assignment_Submissions'].forEach(function(key) {
+    ['Config_Stages', 'Users', 'Teams', 'Files'].forEach(function(key) {
       var idField = key === 'Config_Stages' ? 'Stage_ID'
         : key === 'Users' ? 'User_ID'
         : key === 'Teams' ? 'Team_ID'
@@ -2352,10 +2459,21 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
         : 'Submission_ID';
       assertCollectionUnchanged_(existing, incoming, key, idField, key === 'Users' ? ['Password'] : []);
     });
+    var existingSubmissionIds = {};
+    existing.Assignment_Submissions.forEach(function(item) { existingSubmissionIds[item.Submission_ID] = true; });
+    var unchangedSubmissions = { Assignment_Submissions: incoming.Assignment_Submissions.filter(function(item) {
+      return existingSubmissionIds[item.Submission_ID];
+    }) };
+    assertCollectionUnchanged_(existing, unchangedSubmissions, 'Assignment_Submissions', 'Submission_ID');
+    var additions = incoming.Assignment_Submissions.filter(function(item) { return !existingSubmissionIds[item.Submission_ID]; });
+    if (additions.length && (!hasStudentTeamForUser_(actor) || additions.some(function(item) {
+      return String(item.Team_ID || '') !== String(actor.Team_ID || '');
+    }))) throw new Error('FORBIDDEN: 只能繳交自己所屬小組的作業。');
     nextState = existing;
     nextState.Purchase_Items = incoming.Purchase_Items;
     nextState.Assignments = incoming.Assignments;
     nextState.Discussion_Comments = incoming.Discussion_Comments;
+    mergeStudentSubmissions_(nextState, { Assignment_Submissions: additions }, actor);
     mergeOwnNotificationReadState_(nextState, incoming, actor);
     preserveDesignServiceState_(nextState, existing);
     nextState.Meta = cloneServerMeta_(existing);
@@ -2391,6 +2509,44 @@ function handleSaveState_(payload) {
       ? persistResult.assignmentEmailNotifications
       : []
   });
+}
+
+// A retry identifies the same submission, independently of workbook revisions.
+function handleSubmitAssignment_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload);
+  if (!hasStudentTeamForUser_(actor)) throw new Error('FORBIDDEN: 請使用畢製小組身分繳交。');
+  var requestId = String(payload.requestId || '');
+  if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) throw new Error('請重新開啟繳交視窗後再試。');
+  var input = payload.submission || {};
+  if (String(input.Team_ID || '') !== String(actor.Team_ID || '')) throw new Error('FORBIDDEN: 只能繳交自己所屬小組的作業。');
+  var existing = previousState.Assignment_Submissions.find(function(item) {
+    return item.Request_ID === requestId && item.User_ID === actor.User_ID;
+  });
+  if (existing) {
+    if (String(existing.Team_ID || '') !== String(actor.Team_ID || '')) throw new Error('FORBIDDEN: 前次繳交屬於不同小組，請重新開啟繳交視窗。');
+    if (String(existing.Assignment_ID) !== String(input.Assignment_ID)
+      || String(existing.Text_Content || '') !== String(input.Text_Content || '').trim()
+      || String(existing.Drive_File_ID || '') !== String(input.Drive_File_ID || '')) {
+      throw new Error('ALREADY_SUBMITTED: 前次送出已完成。請關閉視窗並重新整理，確認繳交紀錄；請勿重複送出。');
+    }
+    return buildClientStateResultForUser_(previousState, actor, { submission: existing, alreadySubmitted: true });
+  }
+  var nextState = cloneObject_(previousState);
+  var candidate = cloneObject_(input);
+  candidate.Submission_ID = '';
+  candidate.Request_ID = requestId;
+  candidate.User_ID = actor.User_ID;
+  mergeStudentSubmissions_(nextState, { Assignment_Submissions: [candidate] }, actor);
+  var savedSubmission = nextState.Assignment_Submissions.find(function(item) {
+    return item.Request_ID === requestId && item.User_ID === actor.User_ID;
+  });
+  if (!savedSubmission) throw new Error('找不到可繳交的項目，請重新整理後確認適用小組。');
+  persistState_(nextState, { existingState: previousState, nextRevision: getStateRevision_(previousState) + 1 });
+  var savedState = loadState_();
+  var confirmed = savedState.Assignment_Submissions.find(function(item) { return item.Request_ID === requestId && item.User_ID === actor.User_ID; });
+  if (!confirmed) throw new Error('尚未取得儲存確認，請保留此頁並按「重試送出」。');
+  return buildClientStateResultForUser_(savedState, actor, { submission: confirmed, alreadySubmitted: false });
 }
 
 // Switch the active review stage in one server-side transaction. This avoids
@@ -2543,6 +2699,7 @@ function handleDeleteAssignment_(payload) {
   var driveFileIds = {};
 
   submissions.concat(serviceOrders, resources).forEach(function(record) {
+    if (Object.prototype.hasOwnProperty.call(record, 'Submission_ID') && !isVerifiedSubmissionAsset_(record)) return;
     var fileId = String(record && record.Drive_File_ID || '').trim();
     if (!fileId) {
       fileId = extractDriveFileId_(record && record.Google_Drive_URL);
@@ -2644,6 +2801,9 @@ function handleDeleteAssignment_(payload) {
   return buildClientStateResultForUser_(persistedState, actor, {
     deletedAssignment: targetAssignment,
     deletedAssignmentSummary: {
+      retainedLegacyFileCount: submissions.filter(function(record) {
+        return !!record.Drive_File_ID && !isVerifiedSubmissionAsset_(record);
+      }).length,
       assignmentCount: 1,
       resourceCount: resources.length,
       submissionCount: submissions.length,
@@ -3475,6 +3635,7 @@ function handleDeleteStage_(payload) {
   });
   ensureArray_(previousState.Assignment_Submissions).forEach(function(submission) {
     if (assignmentIds[String(submission && submission.Assignment_ID || '')]
+        && isVerifiedSubmissionAsset_(submission)
         && String(submission.Drive_File_ID || '').trim()) {
       driveFileIds[String(submission.Drive_File_ID).trim()] = true;
     }
@@ -3618,6 +3779,7 @@ function collectDriveFileIdsFromRecords_(records) {
   var seen = {};
   ensureArray_(records).forEach(function(record) {
     if (!record || typeof record !== 'object') return;
+    if (Object.prototype.hasOwnProperty.call(record, 'Submission_ID') && !isVerifiedSubmissionAsset_(record)) return;
     var fileId = String(record.Drive_File_ID || '').trim()
       || extractDriveFileId_(record.Google_Drive_URL);
     if (fileId) {
@@ -3706,6 +3868,30 @@ function restoreRecycleBinSnapshot_(state, entry) {
     collections: {}
   };
 
+  // Validate every collection before changing any: never attach old children to a new parent.
+  var availableStages = ensureArray_(state.Config_Stages).concat(ensureArray_(collections.Config_Stages));
+  var availableAssignments = ensureArray_(state.Assignments).concat(ensureArray_(collections.Assignments));
+  Object.keys(collections).forEach(function(name) {
+    ensureArray_(collections[name]).forEach(function(record) {
+      if (name !== 'Config_Stages' && record.Stage_ID && !availableStages.some(function(stage) {
+        return String(stage.Stage_ID) === String(record.Stage_ID);
+      })) throw new Error('RESTORE_PARENT_MISSING: 請先復原所屬會期，目前尚未變更任何資料。');
+      if (name !== 'Assignments' && record.Assignment_ID && !availableAssignments.some(function(item) {
+        return String(item.Assignment_ID) === String(record.Assignment_ID);
+      })) throw new Error('RESTORE_PARENT_MISSING: 請先復原所屬繳交項目，再復原這份附件或紀錄。');
+    });
+  });
+  Object.keys(idFields).forEach(function(collectionName) {
+    var idField = idFields[collectionName];
+    var ids = {};
+    ensureArray_(state[collectionName]).forEach(function(record) { ids[String(record[idField] || '')] = true; });
+    ensureArray_(collections[collectionName]).forEach(function(record) {
+      var id = String(record && record[idField] || '');
+      if (!id || ids[id]) throw new Error('RESTORE_CONFLICT: 復原資料與現有項目編號重複，尚未復原任何內容。請聯絡形印組長確認，避免混入錯誤紀錄。');
+      ids[id] = true;
+    });
+  });
+
   Object.keys(idFields).forEach(function(collectionName) {
     var count = prependRestoredRecords_(state, collectionName, collections[collectionName], idFields[collectionName]);
     if (count > 0) {
@@ -3755,19 +3941,58 @@ function removeDeferredDriveTrashItems_(driveFileIds) {
   };
 }
 
+function getManagedDriveFile_(fileId, restoring) {
+  var state = loadState_();
+  var authorized = ensureArray_(state.Recycle_Bin).some(function(entry) {
+    if (restoring ? entry.Status !== 'restore_pending' : entry.Status !== 'deleted') return false;
+    var collections = entry.Snapshot_JSON && entry.Snapshot_JSON.collections || {};
+    return ['Files', 'Assignment_Submissions', 'Assignment_Resources', 'Design_Service_Orders'].some(function(name) {
+      return collectDriveFileIdsFromRecords_(collections[name]).indexOf(fileId) >= 0;
+    });
+  });
+  if (!authorized) throw new Error('附件歸屬未通過驗證，已保留檔案供管理者確認。');
+  return getDriveFileInRoot_(fileId);
+}
+
+function getDriveFileInRoot_(fileId) {
+  var file = DriveApp.getFileById(fileId);
+  var rootId = String(getConfig_().driveRootFolderId || '');
+  var pending = [file], visited = {}, budget = 100;
+  while (pending.length && budget-- > 0) {
+    var node = pending.pop();
+    var parents = node.getParents();
+    while (parents.hasNext()) {
+      var folder = parents.next(), id = folder.getId();
+      if (id === rootId) return file;
+      if (!visited[id]) { visited[id] = true; pending.push(folder); }
+    }
+  }
+  throw new Error('附件已移出系統資料夾，未自動更動。請管理者確認。');
+}
+
+function trashNewUploadAfterFailure_(driveResult) {
+  // Only server-created upload results reach this compensating cleanup path.
+  try {
+    getDriveFileInRoot_(String(driveResult.fileId || '')).setTrashed(true);
+  } catch (error) {
+    Logger.log('New upload retained after failed cleanup: ' + error);
+  }
+}
+
 function restoreDriveFiles_(driveFileIds) {
   var ids = ensureArray_(driveFileIds).map(function(fileId) {
     return String(fileId || '').trim();
   }).filter(function(fileId, index, list) {
     return fileId && list.indexOf(fileId) === index;
   });
-  var summary = { requested: ids.length, restored: 0, failed: 0 };
+  var summary = { requested: ids.length, restored: 0, failed: 0, failedIds: [] };
   ids.forEach(function(fileId) {
     try {
-      DriveApp.getFileById(fileId).setTrashed(false);
+      getManagedDriveFile_(fileId, true).setTrashed(false);
       summary.restored += 1;
     } catch (error) {
       summary.failed += 1;
+      summary.failedIds.push(fileId);
       console.warn('Unable to restore Drive file from trash: ' + fileId + ' / ' + String(error && error.message || error));
     }
   });
@@ -3779,7 +4004,7 @@ function purgeExpiredRecycleBinEntries_(state) {
   var removed = 0;
   state.Recycle_Bin = ensureArray_(state.Recycle_Bin).filter(function(entry) {
     var expiresAt = parseConfiguredDateTime_(entry && entry.Expires_At);
-    var isExpired = expiresAt && expiresAt.getTime() < now;
+    var isExpired = entry.Status !== 'restore_pending' && expiresAt && expiresAt.getTime() < now;
     if (isExpired) removed += 1;
     return !isExpired;
   });
@@ -3801,12 +4026,12 @@ function handleRestoreRecycleBinItem_(payload) {
   if (!recycleEntry) {
     throw new Error('NOT_FOUND: 找不到這筆回收桶資料。');
   }
-  if (String(recycleEntry.Status || '') !== 'deleted') {
+  if (['deleted', 'restore_pending'].indexOf(String(recycleEntry.Status || '')) < 0) {
     throw new Error('這筆資料已經復原，或不再可復原。');
   }
 
   var expiryDate = parseConfiguredDateTime_(recycleEntry.Expires_At);
-  if (expiryDate && expiryDate.getTime() < new Date().getTime()) {
+  if (recycleEntry.Status === 'deleted' && expiryDate && expiryDate.getTime() < new Date().getTime()) {
     throw new Error('這筆回收桶資料已超過 30 天保留期限，無法復原。');
   }
 
@@ -3814,8 +4039,9 @@ function handleRestoreRecycleBinItem_(payload) {
   var nextEntry = ensureArray_(nextState.Recycle_Bin).find(function(entry) {
     return String(entry && entry.Recycle_ID || '') === recycleId;
   });
-  var restoreSummary = restoreRecycleBinSnapshot_(nextState, nextEntry);
-  nextEntry.Status = 'restored';
+  var restoreSummary = nextEntry.Status === 'restore_pending' ? { restoredRecords: 0, collections: {} }
+    : restoreRecycleBinSnapshot_(nextState, nextEntry);
+  nextEntry.Status = 'restore_pending';
   nextEntry.Restored_At = nowString_();
   nextEntry.Restored_By_User_ID = String(actor.User_ID || '');
 
@@ -3830,7 +4056,16 @@ function handleRestoreRecycleBinItem_(payload) {
   });
 
   var queueSummary = removeDeferredDriveTrashItems_(nextEntry.Drive_File_IDs);
-  var driveRestoreSummary = restoreDriveFiles_(nextEntry.Drive_File_IDs);
+  var pendingIds = nextEntry.Snapshot_JSON.pendingRestoreIds || nextEntry.Drive_File_IDs;
+  var driveRestoreSummary = restoreDriveFiles_(pendingIds);
+  nextEntry.Snapshot_JSON.pendingRestoreIds = driveRestoreSummary.failed
+    ? (driveRestoreSummary.failedIds || pendingIds) : [];
+  nextEntry.Status = driveRestoreSummary.failed ? 'restore_pending' : 'restored';
+  persistState_(nextState, {
+    existingState: loadState_(), preserveDesignServiceState: false,
+    preserveAssignmentResourceState: false, preserveCalendarEventState: false,
+    preserveWorkItemState: false, preserveRecycleBinState: false
+  });
   var savedState = loadState_();
   appendActivityLogEntries_([
     createActivityLogEntry_(actor, '從回收桶復原資料', '已復原「' + String(nextEntry.Title || recycleId) + '」。', 'recycle-bin', recycleId, 'normal', {
@@ -3869,7 +4104,7 @@ function trashDriveFiles_(driveFileIds) {
 
   ids.forEach(function(fileId) {
     try {
-      DriveApp.getFileById(fileId).setTrashed(true);
+      getManagedDriveFile_(fileId, false).setTrashed(true);
       summary.trashed += 1;
     } catch (error) {
       summary.failed += 1;
@@ -4022,7 +4257,7 @@ function ensureDeferredDriveTrashTrigger_() {
 
 function listDeferredDriveTrashTriggers_() {
   return ScriptApp.getProjectTriggers().filter(function(trigger) {
-    return String(trigger.getHandlerFunction() || '') === DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER;
+    return [DEFERRED_DRIVE_TRASH_TRIGGER_HANDLER, 'runDeferredDriveTrashQueue'].indexOf(String(trigger.getHandlerFunction() || '')) >= 0;
   });
 }
 
@@ -4055,7 +4290,7 @@ function scheduleDeferredDriveTrashRetry_() {
   }
 }
 
-function runDeferredDriveTrashQueue() {
+function runDeferredDriveTrashQueue_() {
   return withLock_(function() {
     return processDeferredDriveTrashQueue_();
   });
@@ -4111,7 +4346,7 @@ function processDeferredDriveTrashQueue_() {
   summary.pending = remaining.length;
   if (remaining.length === 0) {
     removeDeferredDriveTrashTriggers_();
-  } else if (listAssignmentReminderTriggers().length === 0
+  } else if (listAssignmentReminderTriggers_().length === 0
       && listDeferredDriveTrashTriggers_().length <= 1) {
     // The one-shot trigger that invoked this run will disappear after it
     // completes, so create a delayed retry when no hourly reminder trigger is
@@ -4303,23 +4538,22 @@ function ensureShapePrintTeam_(state) {
   return team;
 }
 
-function writeStateTables_(spreadsheet, state) {
-  writeTable_(spreadsheet, 'Config_Stages', state.Config_Stages);
-  writeTable_(spreadsheet, 'Users', state.Users);
-  writeTable_(spreadsheet, 'Teams', state.Teams);
-  writeTable_(spreadsheet, 'Purchase_Items', state.Purchase_Items);
-  writeTable_(spreadsheet, 'Assignments', state.Assignments);
-  writeTable_(spreadsheet, 'Assignment_Resources', state.Assignment_Resources);
-  writeTable_(spreadsheet, 'Assignment_Submissions', state.Assignment_Submissions);
-  writeTable_(spreadsheet, 'Files', state.Files);
-  writeTable_(spreadsheet, 'Notifications', state.Notifications);
-  writeTable_(spreadsheet, 'Discussion_Comments', state.Discussion_Comments);
-  writeTable_(spreadsheet, 'Design_Service_Settings', state.Design_Service_Settings);
-  writeTable_(spreadsheet, 'Design_Service_Orders', state.Design_Service_Orders);
-  writeTable_(spreadsheet, 'Calendar_Events', state.Calendar_Events);
-  writeTable_(spreadsheet, 'Work_Items', state.Work_Items);
-  writeTable_(spreadsheet, 'Recycle_Bin', state.Recycle_Bin);
-  writeMetaSheet_(spreadsheet, state.Meta || {});
+function writeStateTables_(spreadsheet, state, previousState) {
+  var tables = {};
+  ['Config_Stages', 'Users', 'Teams', 'Purchase_Items', 'Assignments',
+    'Assignment_Resources', 'Assignment_Submissions', 'Files', 'Notifications',
+    'Discussion_Comments', 'Design_Service_Settings', 'Design_Service_Orders',
+    'Calendar_Events', 'Work_Items', 'Recycle_Bin'].forEach(function(name) {
+      if (!previousState || JSON.stringify(state[name]) !== JSON.stringify(previousState[name])) {
+        tables[name] = state[name];
+      }
+    });
+  if (!previousState || JSON.stringify(state.Meta) !== JSON.stringify(previousState.Meta)) {
+    tables.Meta = Object.keys(state.Meta || {}).sort().map(function(key) {
+      return { Key: key, Value: state.Meta[key] };
+    });
+  }
+  commitTablesAtomically_(spreadsheet, tables);
   cacheState_(state);
 }
 
@@ -4638,6 +4872,7 @@ function buildClientStateResultForUser_(state, user, extraData, options) {
   result.state = safeState;
   result.currentUser = sanitizeUserRecord_(user);
   result.stateRevision = getStateRevision_(state);
+  result.release = APP_RELEASE;
   if (options.includeHeatmap !== false) {
     result.heatmap = buildHeatmapStats_(buildHeatmapSourceStateForUser_(state, user));
   }
@@ -4822,19 +5057,59 @@ function readTable_(spreadsheet, sheetName) {
 }
 
 function writeTable_(spreadsheet, sheetName, records) {
-  var schema = TABLE_SCHEMAS[sheetName];
-  var sheet = ensureSheet_(spreadsheet, sheetName, schema.headers);
-  var rows = ensureArray_(records).map(function(record) {
-    return schema.headers.map(function(header) {
-      return serializeValue_(record[header], schema.types[header] || 'string');
-    });
+  var tables = {};
+  tables[sheetName] = records;
+  commitTablesAtomically_(spreadsheet, tables);
+}
+
+function commitTablesAtomically_(spreadsheet, tables) {
+  var requests = [];
+  Object.keys(tables).forEach(function(name) {
+    var schema = TABLE_SCHEMAS[name];
+    if (!schema) throw new Error('Unknown data table: ' + name);
+    var sheet = spreadsheet.getSheetByName(name);
+    if (!sheet) throw new Error('請管理者先執行資料表初始化：' + name);
+    var rows = [schema.headers].concat(ensureArray_(tables[name]).map(function(record) {
+      return schema.headers.map(function(header) {
+        return serializeValue_(record[header], schema.types[header] || 'string');
+      });
+    }));
+    var height = Math.max(rows.length, sheet.getLastRow(), 1);
+    var width = schema.headers.length;
+    var existing = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), Math.min(width, sheet.getMaxColumns())).getValues();
+    if (JSON.stringify(existing) === JSON.stringify(rows)) return;
+    if (height > sheet.getMaxRows()) requests.push({ appendDimension: {
+      sheetId: sheet.getSheetId(), dimension: 'ROWS', length: height - sheet.getMaxRows()
+    } });
+    if (width > sheet.getMaxColumns()) requests.push({ appendDimension: {
+      sheetId: sheet.getSheetId(), dimension: 'COLUMNS', length: width - sheet.getMaxColumns()
+    } });
+    requests.push({ updateCells: {
+      range: { sheetId: sheet.getSheetId(), startRowIndex: 0, endRowIndex: height,
+        startColumnIndex: 0, endColumnIndex: width },
+      fields: 'userEnteredValue',
+      rows: rows.map(function(row) {
+        return { values: row.map(function(value) {
+          if (value === '' || value === null || value === undefined) return {};
+          var typed = {};
+          typed[typeof value === 'boolean' ? 'boolValue' : typeof value === 'number' ? 'numberValue' : 'stringValue'] = value;
+          return { userEnteredValue: typed };
+        }) };
+      })
+    } });
   });
-
-  sheet.clearContents();
-  sheet.getRange(1, 1, 1, schema.headers.length).setValues([schema.headers]);
-
-  if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, schema.headers.length).setValues(rows);
+  if (!requests.length) return;
+  SpreadsheetApp.flush();
+  // On an ambiguous network result, the next read must consult Sheets, not old cache.
+  CacheService.getScriptCache().remove(getStateCacheKey_());
+  var response = UrlFetchApp.fetch('https://sheets.googleapis.com/v4/spreadsheets/'
+    + encodeURIComponent(spreadsheet.getId()) + ':batchUpdate', {
+      method: 'post', contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+      payload: JSON.stringify({ requests: requests }), muteHttpExceptions: true
+    });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error('SAVE_NOT_CONFIRMED: 雲端未確認這次儲存，請保留頁面並重試。管理者請檢查 Sheets API、權限或配額。');
   }
 }
 
@@ -5134,7 +5409,7 @@ function getAssignmentAnnouncementRecipients_(state, assignment) {
     var email = normalizeEmail_(user.Email);
     if (!email) return;
     if (String(user.Status || '') !== 'Active') return;
-    if (['Leader', 'Member'].indexOf(String(user.Role || '')) === -1) return;
+    if (['Leader', 'Member'].indexOf(getStudentRoleForUser_(user)) === -1) return;
     if (targetIds.indexOf(String(user.Team_ID || '').trim()) === -1) return;
     recipientsByEmail[email] = user;
   });
@@ -5239,17 +5514,31 @@ function sendAssignmentAnnouncementEmail_(state, assignment) {
   var sentCount = 0;
   var failures = [];
 
+  state.Meta = state.Meta || {};
+  var announcementLog = state.Meta.AssignmentAnnouncementDelivery || {};
+  var delivery = announcementLog[assignment.Assignment_ID] || {};
+  announcementLog[assignment.Assignment_ID] = delivery;
+  state.Meta.AssignmentAnnouncementDelivery = announcementLog;
   recipients.forEach(function(user) {
     var email = normalizeEmail_(user.Email);
     if (!email) return;
+    if (delivery[email] && delivery[email].status === 'sent') { sentCount += 1; return; }
+    if (!shouldAttemptReminderEmail_(delivery, email)) {
+      failures.push(email + ': 已達 3 次嘗試，請管理者確認信箱與寄信配額。');
+      return;
+    }
+    var attempt = delivery[email] = { status: 'pending', attempts: Number(delivery[email] && delivery[email].attempts || 0) + 1, attemptedAt: nowString_() };
 
     var plainText = buildAssignmentAnnouncementEmailText_(user, assignment, stageName, targetLabel, frontendUrl);
     var htmlBody = buildAssignmentAnnouncementEmailHtml_(user, assignment, stageName, targetLabel, frontendUrl);
 
     try {
       sendSystemEmail_(email, subject, plainText, htmlBody);
+      attempt.status = 'sent';
       sentCount += 1;
     } catch (error) {
+      attempt.status = 'failed';
+      attempt.error = String(error && error.message || error).slice(0, 300);
       failures.push(email + ': ' + String(error && error.message || error));
       Logger.log('Failed to send assignment announcement email to ' + email + ': ' + error);
     }
@@ -5342,17 +5631,21 @@ function buildAssignmentReminderKey_(assignmentId, teamId, reminderCode) {
 }
 
 function hasAssignmentSubmissionForTeam_(state, assignmentId, teamId) {
-  return ensureArray_(state && state.Assignment_Submissions).some(function(submission) {
+  var latest = ensureArray_(state && state.Assignment_Submissions).filter(function(submission) {
     return String(submission.Assignment_ID || '') === String(assignmentId || '')
       && String(submission.Team_ID || '') === String(teamId || '');
-  });
+  }).sort(function(a, b) {
+    return Number(b.Submission_No || 1) - Number(a.Submission_No || 1)
+      || String(b.Submitted_At || '').localeCompare(String(a.Submitted_At || ''));
+  })[0];
+  return !!latest && !isAssignmentSubmissionRejected_(latest);
 }
 
 function getActiveStudentRecipientsForTeam_(state, teamId) {
   return ensureArray_(state && state.Users).filter(function(user) {
     return String(user.Team_ID || '') === String(teamId || '')
       && String(user.Status || '') === 'Active'
-      && ['Leader', 'Member'].indexOf(String(user.Role || '')) >= 0
+      && ['Leader', 'Member'].indexOf(getStudentRoleForUser_(user)) >= 0
       && normalizeEmail_(user.Email);
   });
 }
@@ -5361,7 +5654,7 @@ function getActiveLeaderRecipientsForTeam_(state, teamId) {
   return ensureArray_(state && state.Users).filter(function(user) {
     return String(user.Team_ID || '') === String(teamId || '')
       && String(user.Status || '') === 'Active'
-      && String(user.Role || '') === 'Leader'
+      && getStudentRoleForUser_(user) === 'Leader'
       && normalizeEmail_(user.Email);
   });
 }
@@ -5515,7 +5808,32 @@ function buildAssignmentReminderEmailHtml_(user, assignment, stageName, teamName
   ].join('');
 }
 
-function sendAssignmentReminderEmails_(state, recipients, assignment, team, bucket) {
+function shouldAttemptReminderEmail_(delivery, email) {
+  var item = delivery[email] || {};
+  return item.status !== 'sent' && Number(item.attempts || 0) < 3;
+}
+
+function getReminderDeliveryEntry_(log, key, legacyKey, recipients, dueAt, useLegacy) {
+  if (log[key]) return log[key];
+  var entry = { delivery: {} };
+  var legacy = useLegacy && log[legacyKey];
+  if (!legacy || String(legacy.dueAt || '') !== String(dueAt || '')) return entry;
+  entry.siteDone = Number(legacy.notificationCount || 0) > 0;
+  entry.notificationCount = Number(legacy.notificationCount || 0);
+  entry.emailCount = Number(legacy.emailCount || 0);
+  if (entry.emailCount > 0) {
+    entry.needsReview = entry.emailCount < recipients.length;
+    recipients.forEach(function(user) {
+      entry.delivery[normalizeEmail_(user.Email)] = {
+        status: entry.needsReview ? 'unknown_legacy' : 'sent', attempts: 3
+      };
+    });
+  }
+  return entry;
+}
+
+function sendAssignmentReminderEmails_(state, recipients, assignment, team, bucket, delivery) {
+  delivery = delivery || {};
   if (!assignment || assignment.Notify_By_Email !== true) {
     return 0;
   }
@@ -5534,8 +5852,8 @@ function sendAssignmentReminderEmails_(state, recipients, assignment, team, buck
 
   ensureArray_(recipients).forEach(function(user) {
     var email = normalizeEmail_(user.Email);
-    if (!email) return;
-
+    if (!email || !shouldAttemptReminderEmail_(delivery, email)) return;
+    var attempt = delivery[email] = { status: 'pending', attempts: Number(delivery[email] && delivery[email].attempts || 0) + 1, attemptedAt: nowString_() };
     try {
       sendSystemEmail_(
         email,
@@ -5543,8 +5861,11 @@ function sendAssignmentReminderEmails_(state, recipients, assignment, team, buck
         buildAssignmentReminderEmailText_(user, assignment, stageName, teamName, dueAtText, bucket, frontendUrl),
         buildAssignmentReminderEmailHtml_(user, assignment, stageName, teamName, dueAtText, bucket, frontendUrl)
       );
+      attempt.status = 'sent';
       sentCount += 1;
     } catch (error) {
+      attempt.status = 'failed';
+      attempt.error = String(error && error.message || error).slice(0, 300);
       Logger.log('Failed to send assignment reminder email to ' + email + ': ' + error);
     }
   });
@@ -5561,7 +5882,8 @@ function buildAssignmentEscalationMessage_(assignment, team, bucket) {
   return '你的小組尚未繳交「' + String(assignment.Title || '未命名作業') + '」，截止時間為 ' + dueLabel + '。請優先確認並完成繳交。';
 }
 
-function sendAssignmentEscalationEmails_(state, recipients, assignment, team, bucket) {
+function sendAssignmentEscalationEmails_(state, recipients, assignment, team, bucket, delivery) {
+  delivery = delivery || {};
   if (!assignment || assignment.Notify_By_Email !== true) {
     return 0;
   }
@@ -5581,7 +5903,8 @@ function sendAssignmentEscalationEmails_(state, recipients, assignment, team, bu
 
   ensureArray_(recipients).forEach(function(user) {
     var email = normalizeEmail_(user.Email);
-    if (!email) return;
+    if (!email || !shouldAttemptReminderEmail_(delivery, email)) return;
+    var attempt = delivery[email] = { status: 'pending', attempts: Number(delivery[email] && delivery[email].attempts || 0) + 1, attemptedAt: nowString_() };
     var displayName = String(user.Name || '使用者');
     var intro = isShapePrint
       ? '系統偵測到以下小組的繳交項目已逾期，請協助追蹤。'
@@ -5618,8 +5941,11 @@ function sendAssignmentEscalationEmails_(state, recipients, assignment, team, bu
     ].join('');
     try {
       sendSystemEmail_(email, subject, text, html);
+      attempt.status = 'sent';
       sentCount += 1;
     } catch (error) {
+      attempt.status = 'failed';
+      attempt.error = String(error && error.message || error).slice(0, 300);
       Logger.log('Failed to send assignment escalation email to ' + email + ': ' + error);
     }
   });
@@ -5716,13 +6042,20 @@ function runScheduledAssignmentRemindersInternal_(state) {
       var team = ensureArray_(state.Teams).find(function(item) {
         return String(item.Team_ID || '') === String(teamId || '');
       }) || null;
-      var reminderKey = bucket ? buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, bucket.code) : '';
-      if (bucket && !reminderLog[reminderKey]) {
+      var rejectedCycle = ensureArray_(state.Assignment_Submissions).filter(function(item) {
+        return item.Assignment_ID === assignment.Assignment_ID && item.Team_ID === teamId && isAssignmentSubmissionRejected_(item);
+      }).map(function(item) { return String(item.Submission_ID || ''); }).sort().join(',');
+      var cycle = '|' + String(assignment.Due_At || '') + '|' + rejectedCycle;
+      var reminderKey = bucket ? buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, bucket.code) + cycle : '';
+      if (bucket && (!reminderLog[reminderKey] || reminderLog[reminderKey].delivery)) {
         var recipients = getActiveStudentRecipientsForTeam_(state, teamId);
+        var reminderEntry = getReminderDeliveryEntry_(reminderLog, reminderKey,
+          buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, bucket.code),
+          recipients, assignment.Due_At, !rejectedCycle);
         var createdNotifications = [];
         var sentEmailCount = 0;
 
-        if (settings.sendSiteNotifications && recipients.length > 0) {
+        if (!reminderEntry.siteDone && settings.sendSiteNotifications && recipients.length > 0) {
           createdNotifications = createNotifications_(state, {
             type: 'assignment-reminder',
             title: bucket.code === 'overdue'
@@ -5743,17 +6076,20 @@ function runScheduledAssignmentRemindersInternal_(state) {
         }
 
         if (settings.sendEmail && recipients.length > 0) {
-          sentEmailCount = sendAssignmentReminderEmails_(state, recipients, assignment, team, bucket);
+          sentEmailCount = sendAssignmentReminderEmails_(state, recipients, assignment, team, bucket, reminderEntry.delivery);
         }
 
         reminderLog[reminderKey] = {
+          delivery: reminderEntry.delivery,
+          needsReview: !!reminderEntry.needsReview,
+          siteDone: reminderEntry.siteDone || settings.sendSiteNotifications,
           assignmentId: String(assignment.Assignment_ID || ''),
           teamId: String(teamId || ''),
           reminderCode: bucket.code,
           dueAt: String(assignment.Due_At || ''),
           sentAt: sweepAt,
-          notificationCount: createdNotifications.length,
-          emailCount: sentEmailCount
+          notificationCount: Number(reminderEntry.notificationCount || 0) + createdNotifications.length,
+          emailCount: Number(reminderEntry.emailCount || 0) + sentEmailCount
         };
 
         summary.remindedTeams += 1;
@@ -5765,16 +6101,19 @@ function runScheduledAssignmentRemindersInternal_(state) {
       if (!escalationBucket) {
         return;
       }
-      var escalationKey = buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, escalationBucket.code);
-      if (reminderLog[escalationKey]) {
+      var escalationKey = buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, escalationBucket.code) + cycle;
+      if (reminderLog[escalationKey] && !reminderLog[escalationKey].delivery) {
         return;
       }
       var escalationRecipients = escalationBucket.audience === 'shapeprint'
         ? getActiveShapePrintRecipients_(state)
         : getActiveLeaderRecipientsForTeam_(state, teamId);
+      var escalationEntry = getReminderDeliveryEntry_(reminderLog, escalationKey,
+        buildAssignmentReminderKey_(assignment.Assignment_ID, teamId, escalationBucket.code),
+        escalationRecipients, assignment.Due_At, !rejectedCycle);
       var escalationNotifications = [];
       var escalationEmails = 0;
-      if (settings.sendSiteNotifications && escalationRecipients.length > 0) {
+      if (!escalationEntry.siteDone && settings.sendSiteNotifications && escalationRecipients.length > 0) {
         escalationNotifications = createNotifications_(state, {
           type: 'assignment-escalation',
           title: escalationBucket.audience === 'shapeprint'
@@ -5794,16 +6133,19 @@ function runScheduledAssignmentRemindersInternal_(state) {
         });
       }
       if (settings.sendEmail && escalationRecipients.length > 0) {
-        escalationEmails = sendAssignmentEscalationEmails_(state, escalationRecipients, assignment, team, escalationBucket);
+        escalationEmails = sendAssignmentEscalationEmails_(state, escalationRecipients, assignment, team, escalationBucket, escalationEntry.delivery);
       }
       reminderLog[escalationKey] = {
+        delivery: escalationEntry.delivery,
+        needsReview: !!escalationEntry.needsReview,
+        siteDone: escalationEntry.siteDone || settings.sendSiteNotifications,
         assignmentId: String(assignment.Assignment_ID || ''),
         teamId: String(teamId || ''),
         reminderCode: escalationBucket.code,
         dueAt: String(assignment.Due_At || ''),
         sentAt: sweepAt,
-        notificationCount: escalationNotifications.length,
-        emailCount: escalationEmails,
+        notificationCount: Number(escalationEntry.notificationCount || 0) + escalationNotifications.length,
+        emailCount: Number(escalationEntry.emailCount || 0) + escalationEmails,
         audience: escalationBucket.audience
       };
       summary.notificationsCreated += escalationNotifications.length;
@@ -5832,6 +6174,7 @@ function hydrateAssignmentSubmissionRecord_(submission) {
   }
 
   submission.Submission_ID = String(submission.Submission_ID || '');
+  submission.Request_ID = String(submission.Request_ID || '');
   submission.Assignment_ID = String(submission.Assignment_ID || '');
   submission.User_ID = String(submission.User_ID || '');
   submission.Team_ID = String(submission.Team_ID || '');
@@ -6357,14 +6700,7 @@ function getLatestFileForGroup_(files, groupKey) {
 }
 
 function generateSequentialId_(prefix, collection, field) {
-  var maxNumber = ensureArray_(collection).reduce(function(max, item) {
-    var raw = String(item && item[field] ? item[field] : '');
-    var match = raw.match(new RegExp('^' + prefix + '(\\d+)$'));
-    if (!match) return max;
-    return Math.max(max, parseInt(match[1], 10));
-  }, 0);
-
-  return prefix + padNumber_(maxNumber + 1, 2);
+  return String(prefix) + '_' + Utilities.getUuid();
 }
 
 function handleLogin_(payload) {
@@ -7340,6 +7676,7 @@ function handleUploadAssignmentAsset_(payload) {
 
   return {
     assignmentId: assignment.Assignment_ID,
+    assetReceipt: issueAssignmentAssetReceipt_(currentUser, assignment, driveResult),
     fileName: driveResult.fileName,
     fileUrl: driveResult.fileUrl,
     driveFileId: driveResult.fileId,
@@ -7444,7 +7781,7 @@ function handleUploadAssignmentResource_(payload) {
       preserveAssignmentResourceState: false
     });
   } catch (error) {
-    trashDriveFiles_([driveResult.fileId]);
+    trashNewUploadAfterFailure_(driveResult);
     throw error;
   }
 
@@ -8207,6 +8544,7 @@ function handleLargeAssignmentAssetFormUpload_(payload, resumableDriveResult) {
     mode: 'assignment-asset',
     sessionKey: sessionKey,
     assignmentId: assignment.Assignment_ID,
+    assetReceipt: issueAssignmentAssetReceipt_(currentUser, assignment, driveResult),
     fileName: driveResult.fileName,
     sourceFileName: actualFileName,
     fileUrl: driveResult.fileUrl,
@@ -8289,7 +8627,7 @@ function handleLargeAssignmentResourceFormUpload_(payload, resumableDriveResult)
       preserveAssignmentResourceState: false
     });
   } catch (error) {
-    trashDriveFiles_([driveResult.fileId]);
+    trashNewUploadAfterFailure_(driveResult);
     throw error;
   }
 

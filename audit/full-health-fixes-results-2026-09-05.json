@@ -1,0 +1,213 @@
+{
+  "generatedAt": "2026-09-05T03:13:55.239Z",
+  "scope": "Isolated local fake-data audit; no production GAS calls or real file/email operations",
+  "summary": {
+    "issue": 0,
+    "pass": 37,
+    "unverified": 0,
+    "harness-error": 0
+  },
+  "sources": {
+    "index.html": "ffb34a830b9fe494548802ef3c28e553db03a07f29102c6eb125a4e8c66310c3",
+    "large-upload.html": "2aaf197d23708e6b63579e6e5efe9468b94dd3631a0d6ba3c8499bf935c18bfa",
+    "gas/Code.gs": "4685a40742761f5bec3b9a009d7f6400f22b990b654c1a72136e200992dbebc0",
+    "gas/LargeUpload.html": "a7e75047970ea9c7451ad1dbdd15020037864e35ba5cb6b4128d47a3bce82d15",
+    "gas/appsscript.json": "66e0207a707bf854dbd7db5479e19b1051ace0b87d26808fbfb9fce077153941"
+  },
+  "published": {
+    "sha256": "f4500b7396837cdf73d3818fbd0be556421e6e23734fa7da52645cc6bafb6611",
+    "includesLocalRelease": false
+  },
+  "results": [
+    {
+      "name": "H01 only authenticated upload entrypoints remain public",
+      "status": "pass"
+    },
+    {
+      "name": "H02 filename or forged file ID cannot establish submission",
+      "status": "pass"
+    },
+    {
+      "name": "H03 unverified legacy submission file is kept out of cleanup",
+      "status": "pass"
+    },
+    {
+      "name": "H04 failed atomic batch preserves old data and commits changed tables together",
+      "status": "pass"
+    },
+    {
+      "name": "H05 partial restore stays retryable without restoring rows twice",
+      "status": "pass"
+    },
+    {
+      "name": "H06 orphan restore refuses before any row changes",
+      "status": "pass"
+    },
+    {
+      "name": "H07 only latest non-rejected submission suppresses reminders",
+      "status": "pass"
+    },
+    {
+      "name": "H08 dual role recipients receive team notices and leader escalation",
+      "status": "pass"
+    },
+    {
+      "name": "H09 retries failed recipients only with bounded attempts and no duplicate site notice",
+      "status": "pass"
+    },
+    {
+      "name": "H10 completed upload authenticates before disclosing result",
+      "status": "pass"
+    },
+    {
+      "name": "R01 signed upload is accepted once and its result is idempotent",
+      "status": "pass"
+    },
+    {
+      "name": "R02 receipt rejects altered ownership, IDs, filename and signature",
+      "status": "pass"
+    },
+    {
+      "name": "R03 expired receipt cannot submit but still verifies historical ownership",
+      "status": "pass"
+    },
+    {
+      "name": "R04 cleanup validates receipt and root and rejects restored entries",
+      "status": "pass"
+    },
+    {
+      "name": "R05 completed upload also rejects revoked account session",
+      "status": "pass"
+    },
+    {
+      "name": "R06 persistence confirms data before any announcement email",
+      "status": "pass"
+    },
+    {
+      "name": "C01 session expiry, disabled account and roles are rejected",
+      "status": "pass"
+    },
+    {
+      "name": "C02 private calendars and work actions reject ordinary students",
+      "status": "pass"
+    },
+    {
+      "name": "C03 work ownership and completed-work transitions are enforced",
+      "status": "pass"
+    },
+    {
+      "name": "C04 notification clear cannot remove another account notifications",
+      "status": "pass"
+    },
+    {
+      "name": "C05 reviews reject own-team conflict and outdated versions",
+      "status": "pass"
+    },
+    {
+      "name": "C06 invalid calendar range and missing work assignee are rejected",
+      "status": "pass"
+    },
+    {
+      "name": "R11 announcement and escalation retain per-recipient delivery results",
+      "status": "pass"
+    },
+    {
+      "name": "R12 legacy reminder history does not blindly resend already-sent mail",
+      "status": "pass"
+    },
+    {
+      "name": "R13 migration checks API first and preserves existing reminder scheduling intent",
+      "status": "pass"
+    },
+    {
+      "name": "H11 work action response overwrites edits made while waiting",
+      "status": "pass",
+      "evidence": {
+        "finalTitle": "UNSAVED_NEW_TITLE",
+        "expected": "UNSAVED_NEW_TITLE"
+      }
+    },
+    {
+      "name": "H12 manual refresh discards pending edits without confirmation",
+      "status": "pass",
+      "evidence": {
+        "title": "UNSAVED_LOCAL",
+        "toasts": [
+          {
+            "message": "還有修改尚未確認儲存，已保留目前內容。請先使用上方的重試儲存；同步不會自動捨棄你的修改。",
+            "type": "warning"
+          }
+        ]
+      }
+    },
+    {
+      "name": "H13 restore UI claims files restored despite failed file restore result",
+      "status": "pass",
+      "evidence": {
+        "toasts": [
+          {
+            "message": "資料已復原，但有 1 個附件尚未恢復。請在回收桶按「重試附件復原」。",
+            "type": "warning"
+          }
+        ]
+      }
+    },
+    {
+      "name": "H14 failed work claim leaves button saying claiming",
+      "status": "pass",
+      "evidence": {
+        "labels": [
+          {
+            "text": "認養工作",
+            "disabled": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "R07 actual request transport preserves concurrent edits for any response",
+      "status": "pass"
+    },
+    {
+      "name": "R08 dirty state blocks background refresh before network access",
+      "status": "pass"
+    },
+    {
+      "name": "R09 older response cannot roll back newer cloud revision",
+      "status": "pass"
+    },
+    {
+      "name": "R10 pending restore exposes an explicit retry action",
+      "status": "pass"
+    },
+    {
+      "name": "C07 desktop and mobile main tabs have no page-level horizontal overflow",
+      "status": "pass",
+      "evidence": {
+        "viewsChecked": 69,
+        "overflows": []
+      }
+    },
+    {
+      "name": "C08 custom menu opens and keyboard Escape closes it",
+      "status": "pass"
+    },
+    {
+      "name": "C10 resumable upload retries the same chunk and finishes with confirmation",
+      "status": "pass",
+      "evidence": {
+        "syntheticBytes": 5242880,
+        "chunkRequests": 4,
+        "firstChunkRepeated": true,
+        "realDriveCalls": 0
+      }
+    },
+    {
+      "name": "C09 no uncaught browser errors across exercised pages",
+      "status": "pass",
+      "evidence": {
+        "errors": []
+      }
+    }
+  ]
+}
