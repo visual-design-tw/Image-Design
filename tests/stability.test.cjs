@@ -201,6 +201,7 @@ async function browserTests() {
       const result=await page.evaluate(async()=>{
         window.__reset('U03');activeTab='files';renderAll();openAssignmentDetailModal('A01');
         document.getElementById('assignment-submit-text').value='Audit text retained';
+        setAssignmentWizardStep(2, false);advanceAssignmentWizard();
         const toasts=[], requests=[];showToast=(message,type)=>toasts.push({message,type});
         requestGas=async(action,payload)=>{
           if(action!=='submitAssignment')throw new Error('Wrong action');

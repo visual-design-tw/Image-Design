@@ -927,6 +927,20 @@
                 transition-duration: 0.01ms !important;
             }
         }
+        #assignment-detail-modal > div { transition-property: opacity, transform; }
+        .assignment-wizard [hidden], #assignment-wizard-controls [hidden] { display: none !important; }
+        .assignment-wizard-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; list-style: none; padding: 0; }
+        .assignment-wizard-steps li { border-top: 3px solid #E8E8ED; padding-top: 10px; color: #86868B; font-size: 12px; }
+        .assignment-wizard-steps li[aria-current="step"] { border-color: #0066CC; color: #0066CC; font-weight: 700; }
+        .assignment-wizard-panel { animation: assignment-step-enter 180ms ease-out; }
+        @media (max-width: 480px) {
+            #assignment-wizard-controls { display: grid; grid-template-columns: auto auto; gap: 8px; }
+            #assignment-wizard-position { grid-column: 1 / -1; grid-row: 1; text-align: center; }
+            #assignment-wizard-back { justify-self: start; }
+            #assignment-wizard-next, #assignment-submit-button { justify-self: end; }
+        }
+        @keyframes assignment-step-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @media (prefers-reduced-motion: reduce) { .assignment-wizard-panel { animation: none; } }
     </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased booting">
@@ -2001,6 +2015,7 @@
         let activeFilePreviewContext = null;
         let activeFileCompareContext = null;
         let activeAssignmentId = "";
+        let assignmentWizardStep = 1;
         let activeAssignmentReviewSubmissionId = "";
         let pendingUploadContext = null;
         let pendingStageDeleteContext = null;
@@ -6367,7 +6382,7 @@
             }
 
             if (submitBtn) {
-                submitBtn.disabled = !validation.allPassed;
+                submitBtn.disabled = assignmentSubmitInFlight || !validation.allPassed;
             }
 
             renderLucideIcons();
@@ -9768,10 +9783,12 @@
         }
 
         function openAssignmentDetailModal(assignmentId) {
+            if (assignmentSubmitInFlight) return;
+            assignmentWizardStep = 1;
             activeAssignmentId = assignmentId;
             const modal = document.getElementById('assignment-detail-modal');
             if (!modal) return;
-            renderAssignmentDetailModal();
+            renderAssignmentDetailModal({ preserveInputs: false });
             const modalBody = document.getElementById('assignment-detail-modal-body');
             if (modalBody) {
                 modalBody.scrollTop = 0;
@@ -10481,9 +10498,129 @@
             }
         }
 
-        function renderAssignmentDetailModal() {
+        function installAssignmentSubmissionWizard() {
+            const body = document.getElementById('assignment-detail-modal-body');
+            const form = document.getElementById('assignment-submit-form');
+            const requirements = document.getElementById('assignment-wizard-requirements');
+            form.dataset.draftKey = getAssignmentSubmissionDraft(activeAssignmentId).key;
+            body.classList.add('assignment-wizard');
+            const nav = document.createElement('nav');
+            nav.id = 'assignment-wizard-nav';
+            nav.className = 'shrink-0';
+            nav.setAttribute('aria-label', '繳交步驟');
+            nav.innerHTML = '<ol class="assignment-wizard-steps"><li>1. 確認規範</li><li>2. 準備內容</li><li>3. 確認送出</li></ol>';
+            body.before(nav);
+            const service = body.querySelector('[data-assignment-service]');
+            if (service) requirements.append(service);
+            body.querySelector('[data-assignment-progress]')?.remove();
+            body.querySelector('[data-assignment-submit-intro]')?.remove();
+            const secondary = document.getElementById('assignment-secondary-content');
+            const details = document.createElement('details');
+            details.className = 'rounded-2xl border border-[#E8E8ED] p-4 text-xs';
+            const summary = document.createElement('summary');
+            summary.className = 'cursor-pointer font-semibold text-[#0066CC]';
+            summary.textContent = '查看過往繳交與留言';
+            secondary.before(details);
+            details.append(summary, secondary);
+            requirements.append(details);
+            const latest = getLatestAssignmentSubmissionForTeam(activeAssignmentId, getEffectiveRoleContext().effectiveTeamID);
+            if (latest && latest.Review_Note) {
+                const note = document.createElement('p');
+                note.className = 'rounded-2xl bg-[#FFF6F5] p-4 text-xs text-[#C9342B] whitespace-pre-wrap';
+                note.textContent = '上次審核意見：' + latest.Review_Note;
+                requirements.prepend(note);
+            }
+            const error = document.createElement('p');
+            error.id = 'assignment-wizard-error';
+            error.className = 'text-xs text-[#C9342B]';
+            error.setAttribute('role', 'alert');
+            document.getElementById('assignment-wizard-prepare').append(error);
+            ['requirements', 'prepare', 'confirm'].forEach(function(name, index) {
+                const panel = document.getElementById('assignment-wizard-' + name);
+                panel.classList.add('assignment-wizard-panel');
+                const heading = document.createElement('h4');
+                heading.className = 'text-sm font-bold text-[#1D1D1F]';
+                heading.tabIndex = -1;
+                heading.dataset.wizardHeading = '';
+                const mode = state.Assignments.find(function(item) { return item.Assignment_ID === activeAssignmentId; }).Submission_Mode;
+                const prepareTitle = mode === 'text' ? '填寫文字說明' : mode === 'file' ? '選擇要繳交的附件' : '選擇附件並填寫內容';
+                heading.textContent = ['先確認規範與參考附件', prepareTitle, '確認這次要送出的內容'][index];
+                panel.prepend(heading);
+            });
+            const footer = document.createElement('div');
+            footer.id = 'assignment-wizard-controls';
+            footer.className = 'flex shrink-0 items-center justify-between gap-3 border-t border-[#E8E8ED] pt-4 text-xs';
+            footer.innerHTML = '<button type="button" id="assignment-wizard-back" onclick="setAssignmentWizardStep(assignmentWizardStep - 1)" class="rounded-xl border border-[#E8E8ED] px-4 py-3 font-semibold">上一步</button><span id="assignment-wizard-position" role="status" aria-live="polite" class="text-[#86868B]"></span><button type="button" id="assignment-wizard-next" onclick="advanceAssignmentWizard()" class="rounded-xl bg-[#0066CC] px-5 py-3 font-bold text-white">下一步</button>';
+            const submit = document.getElementById('assignment-submit-button');
+            submit.setAttribute('form', form.id);
+            footer.append(submit);
+            document.getElementById('assignment-submit-actions').remove();
+            body.after(footer);
+            setAssignmentWizardStep(assignmentWizardStep, false);
+        }
+
+        function setAssignmentWizardStep(step, moveFocus = true) {
+            if (assignmentSubmitInFlight || !document.getElementById('assignment-wizard-nav')) return;
+            assignmentWizardStep = Math.max(1, Math.min(3, Number(step) || 1));
+            updateAssignmentDraftText();
+            const names = ['requirements', 'prepare', 'confirm'];
+            names.forEach(function(name, index) {
+                document.getElementById('assignment-wizard-' + name).hidden = index + 1 !== assignmentWizardStep;
+            });
+            document.getElementById('assignment-submit-form').hidden = assignmentWizardStep === 1;
+            document.querySelectorAll('#assignment-wizard-nav li').forEach(function(item, index) {
+                if (index + 1 === assignmentWizardStep) item.setAttribute('aria-current', 'step');
+                else item.removeAttribute('aria-current');
+            });
+            document.getElementById('assignment-wizard-back').disabled = assignmentWizardStep === 1;
+            document.getElementById('assignment-wizard-back').classList.toggle('opacity-40', assignmentWizardStep === 1);
+            document.getElementById('assignment-wizard-next').hidden = assignmentWizardStep === 3;
+            document.getElementById('assignment-submit-button').hidden = assignmentWizardStep !== 3;
+            document.getElementById('assignment-wizard-position').textContent = '步驟 ' + assignmentWizardStep + ' / 3';
+            const transferStatus = document.getElementById('assignment-upload-transfer-status');
+            if (transferStatus) {
+                const anchor = document.getElementById(assignmentWizardStep === 3 ? 'assignment-submit-feedback' : 'assignment-wizard-error');
+                anchor.before(transferStatus);
+            }
+            if (assignmentWizardStep === 3) {
+                const assignment = state.Assignments.find(function(item) { return item.Assignment_ID === activeAssignmentId; });
+                const asset = getPendingLargeAssignmentAsset(activeAssignmentId, getEffectiveRoleContext().effectiveTeamID);
+                const file = getSelectedFileFromInput('assignment-submit-file');
+                const text = String(document.getElementById('assignment-submit-text')?.value || '');
+                document.getElementById('assignment-wizard-summary').innerHTML =
+                    '<p class="text-xs text-[#86868B]">請核對項目、附件與文字；按下「送出繳交」，並看到成功訊息才算完成。</p>'
+                    + '<p class="font-bold text-sm">' + escapeHtml(assignment.Title) + '</p>'
+                    + (assignment.Submission_Mode !== 'text' ? '<p class="rounded-xl bg-white p-3 text-xs break-all">附件：' + escapeHtml(asset?.fileName || file?.name || '尚未選擇') + '</p>' : '')
+                    + (assignment.Submission_Mode !== 'file' ? '<p class="rounded-xl bg-white p-3 text-xs whitespace-pre-wrap break-words">' + escapeHtml(text) + '</p>' : '');
+            }
+            refreshAssignmentSubmitRuleValidation();
+            const body = document.getElementById('assignment-detail-modal-body');
+            body.scrollTop = 0;
+            if (moveFocus) document.querySelector('#assignment-wizard-' + names[assignmentWizardStep - 1] + ' [data-wizard-heading]')?.focus({ preventScroll: true });
+        }
+
+        function advanceAssignmentWizard() {
+            if (assignmentSubmitInFlight) return;
+            if (assignmentWizardStep === 2) {
+                const validation = refreshAssignmentSubmitRuleValidation();
+                if (!validation || !validation.allPassed) {
+                    const error = document.getElementById('assignment-wizard-error');
+                    error.textContent = getFirstFailedRuleMessage(validation?.items || [], '請先完成必要的繳交內容。');
+                    error.scrollIntoView({ block: 'nearest' });
+                    return;
+                }
+            }
+            const error = document.getElementById('assignment-wizard-error');
+            if (error) error.textContent = '';
+            setAssignmentWizardStep(assignmentWizardStep + 1);
+        }
+
+        function renderAssignmentDetailModal(options = {}) {
             const modalBody = document.getElementById('assignment-detail-modal-body');
-            if (!modalBody) return;
+            if (!modalBody || assignmentSubmitInFlight) return;
+            document.getElementById('assignment-wizard-controls')?.remove();
+            document.getElementById('assignment-wizard-nav')?.remove();
+            modalBody.classList.remove('assignment-wizard');
 
             const assignment = state.Assignments.find(function(item) {
                 return item.Assignment_ID === activeAssignmentId;
@@ -10497,8 +10634,13 @@
             const roleContext = getEffectiveRoleContext();
             const isExhibitionAdmin = canManageAssignmentBoard(roleContext.effectiveRole);
             const effectiveTeamID = roleContext.effectiveTeamID;
+            let previousFileInput = null;
             if (!isExhibitionAdmin && currentUser) {
                 const draft = getAssignmentSubmissionDraft(assignment.Assignment_ID);
+                if (options.preserveInputs !== false && document.getElementById('assignment-submit-form')?.dataset.draftKey === draft.key) {
+                    updateAssignmentDraftText();
+                    previousFileInput = document.getElementById('assignment-submit-file');
+                }
                 if (draft.asset && !getPendingLargeAssignmentAsset(assignment.Assignment_ID, effectiveTeamID)) {
                     pendingLargeAssignmentAssetUpload = draft.asset;
                 }
@@ -10580,7 +10722,7 @@
                     </div>
                     ${canSubmit || isExhibitionAdmin ? `
                         <div class="flex flex-wrap items-center gap-2 shrink-0">
-                            ${canSubmit ? `
+                            ${canSubmit && isExhibitionAdmin ? `
                                 <button onclick="document.getElementById('assignment-submit-form').scrollIntoView({behavior:'smooth', block:'start'})" class="bg-[#0066CC] text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:opacity-95 transition shadow-sm">
                                     前往繳交
                                 </button>
@@ -10595,6 +10737,7 @@
                     ` : ''}
                 </div>
 
+                <section id="assignment-wizard-requirements" class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-4">
                     <div class="bg-[#F5F5F7] p-4 rounded-2xl">
                         <p class="text-[11px] text-[#86868B] font-semibold">繳交需求</p>
@@ -10620,9 +10763,10 @@
                 <div class="mt-4">
                     ${buildAssignmentResourcePanelMarkup(assignment, isExhibitionAdmin)}
                 </div>
+                </section>
 
                 <div class="pt-4 space-y-4">
-                    <div class="space-y-1.5">
+                    <div data-assignment-progress class="space-y-1.5">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[10px] font-semibold text-[#86868B]">繳交進度</span>
                             <span class="text-[10px] font-bold text-[#1D1D1F]">${Math.round(progressWidth)}%</span>
@@ -10633,7 +10777,7 @@
                     </div>
 
                     ${!isExhibitionAdmin && isDesignServiceEnabled() ? `
-                        <div class="rounded-3xl border border-[#DCE8F8] bg-[#F7FAFF] p-4">
+                        <div data-assignment-service class="rounded-3xl border border-[#DCE8F8] bg-[#F7FAFF] p-4">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div class="flex items-start gap-2.5">
                                     <i data-lucide="briefcase" class="mt-0.5 h-4 w-4 shrink-0 text-[#0066CC]"></i>
@@ -10654,7 +10798,8 @@
 
                     ${canSubmit ? `
                         <form id="assignment-submit-form" onsubmit="handleSubmitAssignment(event)" class="space-y-4 rounded-3xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
-                            <div class="flex items-center gap-2 text-[#0066CC]">
+                            <section id="assignment-wizard-prepare" class="space-y-4">
+                            <div data-assignment-submit-intro class="flex items-center gap-2 text-[#0066CC]">
                                 <i data-lucide="send" class="w-4 h-4"></i>
                                 <div>
                                     <h4 class="font-bold text-sm text-[#1D1D1F]">繳交作業</h4>
@@ -10712,10 +10857,14 @@
                                 </div>
                             ` : ''}
 
+                            </section>
+                            <section id="assignment-wizard-confirm" class="space-y-4">
+                            <div id="assignment-wizard-summary" class="space-y-3"></div>
                             <div id="assignment-submit-rule-checklist" class="rounded-2xl border border-[#E8E8ED] bg-white p-4"></div>
-                            <p id="assignment-submit-feedback" role="status" aria-live="polite" class="rounded-xl bg-[#F2F7FF] px-4 py-3 text-xs leading-relaxed text-[#0066CC]">${escapeHtml(getAssignmentSubmissionDraft(assignment.Assignment_ID).message || '1. 填寫內容／選擇附件　2. 送出　3. 出現「繳交成功」才算完成。文字會暫存在此分頁。')}</p>
+                            <p id="assignment-submit-feedback" role="status" aria-live="polite" class="rounded-xl bg-[#F2F7FF] px-4 py-3 text-xs leading-relaxed text-[#0066CC]">${escapeHtml(getAssignmentSubmissionDraft(assignment.Assignment_ID).message || '確認無誤後再送出，看到「繳交成功」才算完成。未送出前，可回上一步修改。')}</p>
 
-                            <div class="flex justify-end gap-2 pt-2 text-xs">
+                            </section>
+                            <div id="assignment-submit-actions" class="flex justify-end gap-2 pt-2 text-xs">
                                 <button type="button" onclick="closeAssignmentDetailModal()" class="px-4 py-2 border border-[#E8E8ED] rounded-xl hover:bg-[#F5F5F7] font-semibold text-[#86868B] transition">關閉</button>
                                 <button type="submit" id="assignment-submit-button" class="px-5 py-2 bg-[#0066CC] disabled:opacity-40 text-white rounded-xl hover:opacity-90 font-bold transition flex items-center gap-1.5 shadow-sm">
                                     ${renderMorphIconMarkup("assignment-submit", "idle", "w-4 h-4")}
@@ -10725,6 +10874,7 @@
                         </form>
                     ` : ''}
 
+                    <div id="assignment-secondary-content" class="space-y-4">
                     <div class="space-y-3 rounded-3xl border border-[#E8E8ED] bg-white p-4">
                         <div class="flex items-center justify-between gap-3">
                             <div>
@@ -10758,8 +10908,13 @@
                         submitAction: "submitAssignmentDiscussionComment",
                         placeholder: "可以留下審核註解、補充說明，或回覆形印組的調整建議。"
                     })}
+                    </div>
                 </div>
             `;
+            if (canSubmit && !isExhibitionAdmin) {
+                if (previousFileInput?.files?.length) document.getElementById('assignment-submit-file')?.replaceWith(previousFileInput);
+                installAssignmentSubmissionWizard();
+            }
             refreshAssignmentSubmitRuleValidation();
             renderLucideIcons();
         }
@@ -10809,6 +10964,10 @@
         async function handleSubmitAssignment(event) {
             event.preventDefault();
             if (assignmentSubmitInFlight) return;
+            if (document.getElementById('assignment-wizard-nav') && assignmentWizardStep !== 3) {
+                advanceAssignmentWizard();
+                return;
+            }
             const assignment = state.Assignments.find(function(item) { return item.Assignment_ID === activeAssignmentId; });
             if (!assignment || !currentUser) { showToast('請重新開啟繳交項目。', 'warning'); return; }
             const role = getEffectiveRoleContext();
@@ -10829,7 +10988,7 @@
             const submitButton = document.getElementById('assignment-submit-button');
             const status = document.getElementById('assignment-submit-feedback');
             const form = document.getElementById('assignment-submit-form');
-            const controls = form ? Array.from(form.querySelectorAll('input, textarea, button')).map(function(element) {
+            const controls = form ? Array.from(form.querySelectorAll('input, textarea, button')).concat(Array.from(document.querySelectorAll('#assignment-wizard-controls button'))).map(function(element) {
                 const previous = element.disabled;
                 element.disabled = true;
                 return { element: element, disabled: previous };

@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "name": "opens only requirements, with collapsed history and no premature submit",
+      "passed": true
+    },
+    {
+      "name": "next shows only inputs; missing content stays on step two with a clear error",
+      "passed": true
+    },
+    {
+      "name": "file and text survive back/next and a same-assignment redraw",
+      "passed": true
+    },
+    {
+      "name": "confirmation shows summary and checklist, not editing controls; no upload yet",
+      "passed": true
+    },
+    {
+      "name": "footer stays in viewport at narrow widths and every step is scrollable",
+      "passed": true
+    },
+    {
+      "name": "text-only Enter advances to confirmation rather than submitting",
+      "passed": true
+    },
+    {
+      "name": "real submit locks navigation, keeps failure draft and retry uses same request ID",
+      "passed": true
+    },
+    {
+      "name": "file-only flow and an already uploaded large-file draft can reach confirmation",
+      "passed": true
+    },
+    {
+      "name": "large file must finish its upload before moving to confirmation",
+      "passed": true
+    },
+    {
+      "name": "student input is escaped in confirmation summary",
+      "passed": true
+    },
+    {
+      "name": "switching assignments does not carry a selected file or skip requirements",
+      "passed": true
+    },
+    {
+      "name": "teacher review retains its existing non-wizard interface",
+      "passed": true
+    },
+    {
+      "name": "submitted student with no resubmission sees records, not another submission wizard",
+      "passed": true
+    },
+    {
+      "name": "all interactions complete without uncaught page errors",
+      "passed": true
+    }
+  ]
+}

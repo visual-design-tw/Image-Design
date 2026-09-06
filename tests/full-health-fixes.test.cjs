@@ -441,7 +441,7 @@ async function main() {
   const published=fs.existsSync(publicPath)?{sha256:crypto.createHash('sha256').update(fs.readFileSync(publicPath)).digest('hex'),includesLocalRelease:fs.readFileSync(publicPath,'utf8').includes('2026.09.05-stability.1')}:null;
   const summary=Object.fromEntries(['issue','pass','unverified','harness-error'].map(status=>[status,results.filter(r=>r.status===status).length]));
   const report={generatedAt:new Date().toISOString(),scope:'Isolated local fake-data audit; no production GAS calls or real file/email operations',summary,sources,published,results};
-  fs.writeFileSync(path.join(root,'audit/full-health-fixes-results-2026-09-05.json'),JSON.stringify(report,null,2)+'\n');
+  fs.writeFileSync(process.env.HEALTH_REPORT_PATH || path.join(root,'audit/full-health-fixes-results-2026-09-05.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(summary));if(summary['harness-error'] || summary.issue)process.exitCode=1;
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
