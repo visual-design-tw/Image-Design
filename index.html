@@ -1953,16 +1953,17 @@
 
     <!-- Apple Style 刪除確認彈窗 -->
     <div id="stage-delete-modal" class="fixed inset-0 bg-[rgba(15,23,42,0.18)] backdrop-blur-[10px] z-[90] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeStageDeleteModal()">
-        <div class="w-full max-w-[380px] overflow-hidden rounded-[26px] border border-white/75 bg-[rgba(255,255,255,0.88)] shadow-[0_14px_34px_rgba(15,23,42,0.12),0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
-            <div class="px-5 pt-5 pb-4 text-center">
+        <div role="dialog" aria-modal="true" aria-labelledby="stage-delete-modal-title" class="flex max-h-[calc(100dvh-2rem)] w-full max-w-[380px] flex-col overflow-hidden rounded-[26px] border border-white/75 bg-[rgba(255,255,255,0.88)] shadow-[0_14px_34px_rgba(15,23,42,0.12),0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
+            <div class="min-h-0 overflow-y-auto px-5 pt-5 pb-4 text-center">
                 <div class="mx-auto mb-3.5 flex h-12 w-12 items-center justify-center rounded-[16px] border border-[#FFD7D4] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,242,242,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_8px_20px_rgba(255,59,48,0.08)] text-[#FF3B30]">
                     <i data-lucide="trash-2" class="w-5 h-5"></i>
                 </div>
                 <h3 id="stage-delete-modal-title" class="text-[20px] leading-tight font-semibold tracking-[-0.03em] text-[#1D1D1F]">刪除會審期數？</h3>
-                <p id="stage-delete-modal-message" class="mt-2 text-[12px] leading-5 text-[#6E6E73]">刪除後將無法復原。</p>
+                <p id="stage-delete-modal-message" class="mt-2 text-[12px] leading-5 text-[#6E6E73]">移至回收桶後，可在 30 天內復原。</p>
                 <div id="stage-delete-modal-impact" class="mt-3.5 hidden"></div>
+                <p id="stage-delete-modal-feedback" class="mt-3 hidden rounded-xl bg-[#F5F5F7] p-3 text-left text-xs leading-relaxed text-[#6E6E73]" role="status" aria-live="polite"></p>
             </div>
-            <div class="grid grid-cols-2 border-t border-[rgba(15,23,42,0.05)] bg-[rgba(255,255,255,0.18)]">
+            <div class="grid shrink-0 grid-cols-2 border-t border-[rgba(15,23,42,0.05)] bg-[rgba(255,255,255,0.18)]">
                 <button type="button" onclick="closeStageDeleteModal()" class="min-h-[52px] px-4 text-[16px] font-normal text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none">
                     取消
                 </button>
@@ -2045,7 +2046,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.17-reset.1";
+        const APP_RELEASE = "2026.10.17-stage-delete.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -4086,6 +4087,8 @@
             cancelQueuedRemoteStateSync();
             remoteSaveInFlight = false;
             remoteSavePromise = null;
+            stageDeleteInFlight = false;
+            pendingStageDeleteContext = null;
             assignmentSubmitInFlight = false;
             assignmentSubmitDrafts.clear();
             Object.keys(largeUploadSessions).forEach(function(key) { delete largeUploadSessions[key]; });
@@ -14186,12 +14189,19 @@
             const submissions = ensureArray(state.Assignment_Submissions).filter(function(item) {
                 return assignmentIds.has(item.Assignment_ID);
             });
+            const resources = ensureArray(state.Assignment_Resources).filter(item => assignmentIds.has(item.Assignment_ID));
+            const calendarEvents = ensureArray(state.Calendar_Events).filter(item => item.Stage_ID === stageId);
+            const workItems = ensureArray(state.Work_Items).filter(item => item.Stage_ID === stageId);
+            const workItemIds = new Set(workItems.map(item => item.Work_Item_ID));
+            const serviceOrders = ensureArray(state.Design_Service_Orders).filter(item => item.Stage_ID === stageId || assignmentIds.has(item.Assignment_ID));
             const notifications = ensureArray(state.Notifications).filter(function(item) {
                 const refType = String(item && item.Ref_Type ? item.Ref_Type : "");
                 const refId = String(item && item.Ref_ID ? item.Ref_ID : "");
-                return assignmentIds.has(refId)
-                    || fileIds.has(refId)
-                    || (refType === "file-group" && fileGroupKeys.has(refId));
+                return (refType === "stage" && refId === stageId)
+                    || (refType === "assignment" && assignmentIds.has(refId))
+                    || (refType === "file" && fileIds.has(refId))
+                    || (refType === "file-group" && fileGroupKeys.has(refId))
+                    || (refType === "work-item" && workItemIds.has(refId));
             });
             const notificationIds = new Set(notifications.map(function(item) {
                 return item.Notification_ID;
@@ -14199,7 +14209,9 @@
             const discussionComments = ensureArray(state.Discussion_Comments).filter(function(item) {
                 const refType = String(item && item.Ref_Type ? item.Ref_Type : "");
                 const refId = String(item && item.Ref_ID ? item.Ref_ID : "");
-                return (refType === "assignment" && assignmentIds.has(refId))
+                return (refType === "stage" && refId === stageId)
+                    || (refType === "assignment" && assignmentIds.has(refId))
+                    || (refType === "file" && fileIds.has(refId))
                     || (refType === "file-group" && fileGroupKeys.has(refId));
             });
             const discussionCommentIds = new Set(discussionComments.map(function(item) {
@@ -14210,9 +14222,26 @@
             if (assignments.length > 0) impactItems.push({ label: "繳交項目", count: assignments.length, unit: "則" });
             if (submissions.length > 0) impactItems.push({ label: "作業繳交", count: submissions.length, unit: "筆" });
             if (files.length > 0) impactItems.push({ label: "檔案收件", count: files.length, unit: "筆" });
+            if (resources.length > 0) impactItems.push({ label: "項目附件", count: resources.length, unit: "份" });
             if (purchases.length > 0) impactItems.push({ label: "採購紀錄", count: purchases.length, unit: "筆" });
+            if (calendarEvents.length > 0) impactItems.push({ label: "行事曆事件", count: calendarEvents.length, unit: "則" });
+            if (workItems.length > 0) impactItems.push({ label: "工作事項", count: workItems.length, unit: "則" });
+            if (serviceOrders.length > 0) impactItems.push({ label: "代做案件", count: serviceOrders.length, unit: "筆" });
             if (notifications.length > 0) impactItems.push({ label: "相關通知", count: notifications.length, unit: "則" });
             if (discussionComments.length > 0) impactItems.push({ label: "留言註解", count: discussionComments.length, unit: "則" });
+
+            const canonical = function(value) {
+                if (Array.isArray(value)) return value.map(canonical);
+                if (value && typeof value === "object") {
+                    return Object.fromEntries(Object.keys(value).filter(key => !['Created_At', 'Updated_At'].includes(key))
+                        .sort().map(key => [key, canonical(value[key])]));
+                }
+                return value;
+            };
+            const related = { assignments, submissions, files, resources, purchases, calendarEvents, workItems, serviceOrders, notifications, discussionComments };
+            const fingerprint = JSON.stringify({ stage: canonical(stage), related: Object.fromEntries(
+                Object.entries(related).map(([key, rows]) => [key, rows.map(item => JSON.stringify(canonical(item))).sort()])
+            ) });
 
             return {
                 stage: stage,
@@ -14227,11 +14256,13 @@
                 notifications: notifications,
                 notificationIds: notificationIds,
                 discussionCommentIds: discussionCommentIds,
+                resources, calendarEvents, workItems, serviceOrders, fingerprint,
                 impactItems: impactItems
             };
         }
 
         function openStageDeleteModal(stageId) {
+            if (stageDeleteInFlight) return;
             const context = getStageDeleteContext(stageId);
             if (!context) return;
 
@@ -14247,7 +14278,20 @@
 
             pendingStageDeleteContext = context;
             setStageDeleteModalPending(false);
+            const toast = document.getElementById("toast-notif");
+            toast?.classList.add("opacity-0", "pointer-events-none");
+            toast?.classList.remove("opacity-100", "translate-y-0");
 
+            renderStageDeleteConfirmation(context);
+            const modal = document.getElementById("stage-delete-modal");
+            if (!modal) return;
+            renderLucideIcons();
+            animateSurfaceOpen(modal, modal.firstElementChild, {
+                fromY: 16, fromScale: 0.972, fromBlur: 14, duration: 420
+            });
+        }
+
+        function renderStageDeleteConfirmation(context, feedback = "") {
             const modal = document.getElementById("stage-delete-modal");
             const titleEl = document.getElementById("stage-delete-modal-title");
             const messageEl = document.getElementById("stage-delete-modal-message");
@@ -14255,9 +14299,10 @@
             if (!modal || !titleEl || !messageEl || !impactEl) return;
 
             titleEl.textContent = "刪除「" + context.stage.Stage_Name + "」？";
-            messageEl.textContent = context.impactItems.length > 0
-                ? "刪除後會同步移除這個會審底下的相關資料，且無法復原。"
-                : "這個會審目前沒有關聯資料，刪除後將無法復原。";
+            messageEl.textContent = isRemoteSyncEnabled()
+                ? "這個會審與下列相關資料將移至回收桶，可在 30 天內復原。確認前會先核對最新內容。"
+                : "這是本機預覽資料；刪除後不會影響雲端，且無法復原。";
+            setStageDeleteFeedback(feedback);
 
             if (context.impactItems.length > 0) {
                 impactEl.innerHTML = `
@@ -14280,16 +14325,18 @@
             }
 
             renderLucideIcons();
-            animateSurfaceOpen(modal, modal.firstElementChild, {
-                fromY: 16,
-                fromScale: 0.972,
-                fromBlur: 14,
-                duration: 420
-            });
         }
 
-        function closeStageDeleteModal() {
-            if (stageDeleteInFlight) return;
+        function setStageDeleteFeedback(message) {
+            const feedback = document.getElementById("stage-delete-modal-feedback");
+            if (feedback) {
+                feedback.textContent = message;
+                feedback.classList.toggle("hidden", !message);
+            }
+        }
+
+        function closeStageDeleteModal(force) {
+            if (stageDeleteInFlight && force !== true) return;
             pendingStageDeleteContext = null;
             const modal = document.getElementById("stage-delete-modal");
             if (modal) {
@@ -14300,16 +14347,42 @@
             }
         }
 
-        function setStageDeleteModalPending(isPending) {
+        function setStageDeleteModalPending(isPending, label = "刪除中…") {
             const button = document.getElementById("stage-delete-modal-confirm");
             if (!button) return;
             setMorphActionButtonState(
                 button,
                 "destructive-action",
                 isPending ? "loading" : "idle",
-                isPending ? "刪除中…" : "刪除",
+                isPending ? label : pendingStageDeleteContext?.needsReconfirm ? "再次確認刪除" : "刪除",
                 { disabled: isPending, busy: isPending }
             );
+        }
+
+        function stageDeleteHasUnsavedChanges() {
+            return remoteSaveTimer || pendingRemoteSave || remoteSaveInFlight
+                || ["error", "conflict", "saving"].includes(saveFeedbackState);
+        }
+
+        async function loadLatestStageDeleteContext(stageId, preferredUserId) {
+            const latest = await requestGas("bootstrap", { fresh: true, includeHeatmap: false });
+            if (!applyBackendStateResponse(latest, { preferredUserId, allowFallback: false })) {
+                throw new Error("尚未取得可套用的最新版本，這次沒有刪除。請稍後再試或重新同步。");
+            }
+            const refreshed = getStageDeleteContext(stageId);
+            if (!refreshed) {
+                closeStageDeleteModal(true);
+                showToast("這個會審已不在雲端清單中，頁面已同步，沒有再次刪除。", "info");
+                return null;
+            }
+            if (state.Config_Stages.length <= 1 || refreshed.stage.Is_Active) {
+                closeStageDeleteModal(true);
+                showToast(refreshed.stage.Is_Active
+                    ? "這一期現在是活躍會審，請先切換至其他會審。這次沒有刪除。"
+                    : "目前只剩一個會審，必須保留，這次沒有刪除。", "warning");
+                return null;
+            }
+            return refreshed;
         }
 
         async function confirmStageDelete() {
@@ -14334,20 +14407,50 @@
             }
 
             if (isRemoteSyncEnabled() && authSessionToken && gasConnectionStatus === "remote") {
+                if (remoteMutationInFlight || stageDeleteHasUnsavedChanges()) {
+                    const message = "目前還有操作或修改尚未確認儲存。請先完成儲存，再刪除會審；您的修改不會被捨棄。";
+                    setStageDeleteFeedback(message);
+                    showToast(message, "warning");
+                    return;
+                }
+                remoteMutationInFlight = true;
                 stageDeleteInFlight = true;
-                setStageDeleteModalPending(true);
+                setStageDeleteModalPending(true, "確認最新資料…");
+                setStageDeleteFeedback("正在核對雲端最新資料，請稍候，不需要重複點擊。");
                 const preferredUserId = currentUser && currentUser.User_ID ? currentUser.User_ID : "";
+                const expectedEpoch = authEpoch;
+                let deleteConfirmed = false;
 
                 try {
+                    const refreshed = await loadLatestStageDeleteContext(stageId, preferredUserId);
+                    if (!refreshed) return;
+                    if (stageDeleteHasUnsavedChanges()) {
+                        throw new Error("等待期間的修改已保留。請先確認儲存，再重新刪除會審。");
+                    }
+                    pendingStageDeleteContext = refreshed;
+                    if (refreshed.fingerprint !== context.fingerprint) {
+                        refreshed.needsReconfirm = true;
+                        renderStageDeleteConfirmation(refreshed, "這一期的內容或關聯資料剛更新，清單已重新核對。尚未刪除，請再次確認最新內容。");
+                        return;
+                    }
+                    setStageDeleteModalPending(true);
+                    setStageDeleteFeedback("正在將會審與相關資料移至回收桶，請稍候。");
                     const response = await requestGas("deleteStage", {
                         stageId: stageId,
                         stateRevision: remoteStateRevision
                     });
+                    if (response.data?.deletedStage?.Stage_ID !== stageId
+                        || response.data?.recycleBinItem?.Entity_ID !== stageId
+                        || !Array.isArray(response.data?.state?.Config_Stages)
+                        || response.data.state.Config_Stages.some(item => item.Stage_ID === stageId)) {
+                        throw new Error("尚未取得完整的刪除確認，請先重新同步，避免重複操作。");
+                    }
+                    deleteConfirmed = true;
                     if (!applyBackendStateResponse(response, {
                         preferredUserId: preferredUserId,
                         allowFallback: false
                     })) {
-                        throw new Error("GAS 刪除完成後沒有回傳最新資料。");
+                        throw new Error("雲端已完成移至回收桶，但尚未更新目前畫面。請重新同步，避免重複操作。");
                     }
                     gasConnectionStatus = "remote";
                     pendingStageDeleteContext = null;
@@ -14365,37 +14468,51 @@
                     const failedDriveCount = driveTrashSummary ? Number(driveTrashSummary.failed || 0) : 0;
                     const pendingDriveCount = driveTrashSummary ? Number(driveTrashSummary.pending || 0) : 0;
                     if (failedDriveCount > 0) {
-                        showToast("會審已刪除，但有 " + failedDriveCount + " 個 Google Drive 檔案未能移到垃圾桶。", "warning");
+                        showToast("會審已移至回收桶，但有 " + failedDriveCount + " 個 Google Drive 檔案尚未移到垃圾桶。", "warning");
                     } else if (pendingDriveCount > 0) {
-                        showToast("已刪除會審【" + stageName + "】，Google Drive 檔案正在背景移到垃圾桶。", "success");
+                        showToast("會審【" + stageName + "】已移至回收桶，附件正在背景處理，可在 30 天內復原。", "success");
                     } else if (trashedDriveCount > 0) {
-                        showToast("已刪除會審【" + stageName + "】與相關資料，原始檔案已移到垃圾桶", "success");
+                        showToast("會審【" + stageName + "】與附件已移至回收桶，可在 30 天內復原。", "success");
                     } else {
-                        showToast("已從雲端刪除會審【" + stageName + "】與相關資料", "success");
+                        showToast("會審【" + stageName + "】已移至回收桶，可在 30 天內復原。", "success");
                     }
                 } catch (error) {
+                    if (expectedEpoch !== authEpoch || error.sessionExpired || /STALE_REQUEST/.test(String(error?.message || ""))) return;
                     const message = String(error && error.message || "");
+                    if (deleteConfirmed) {
+                        closeStageDeleteModal(true);
+                        showToast(message, "warning");
+                        return;
+                    }
                     if (/STATE_CONFLICT/.test(message)) {
                         try {
-                            const latest = await requestGas("bootstrap", null, "GET");
-                            applyBackendStateResponse(latest, {
-                                preferredUserId: preferredUserId,
-                                allowFallback: false
-                            });
+                            const refreshed = await loadLatestStageDeleteContext(stageId, preferredUserId);
+                            if (!refreshed) return;
+                            refreshed.needsReconfirm = true;
+                            pendingStageDeleteContext = refreshed;
+                            renderStageDeleteConfirmation(refreshed, "確認期間雲端又有更新，尚未刪除。已核對最新內容，請再次確認；系統不會自動重複刪除。");
                             gasConnectionStatus = "remote";
-                            showToast("雲端資料剛更新，已重新載入最新版本；請再確認一次刪除。", "warning");
                         } catch (reloadError) {
-                            gasConnectionStatus = "fallback";
-                            showToast("刪除衝突後無法重新載入雲端資料。", "error");
+                            if (!reloadError.sessionExpired && expectedEpoch === authEpoch) {
+                                setStageDeleteFeedback(reloadError.message || "尚未載入最新資料，沒有再次刪除。請稍後重試。");
+                                showToast("尚未確認最新資料，沒有再次刪除。請稍後重試。", "error");
+                            }
                         }
                     } else {
-                        showToast("雲端刪除失敗：" + message, "error");
+                        const feedback = /REQUEST_TIMEOUT|AbortError|Failed to fetch/.test(message)
+                            ? "連線尚未回覆，刪除結果還不能確認。請稍候再試；系統會先檢查雲端，不會直接重複刪除。"
+                            : "尚未完成刪除：" + message;
+                        setStageDeleteFeedback(feedback);
+                        showToast(feedback, "error");
                     }
                     console.error("GAS 會審刪除失敗", error);
                 } finally {
-                    stageDeleteInFlight = false;
-                    setStageDeleteModalPending(false);
-                    renderConnectionStatusBadge();
+                    if (expectedEpoch === authEpoch) {
+                        remoteMutationInFlight = false;
+                        stageDeleteInFlight = false;
+                        setStageDeleteModalPending(false);
+                        renderConnectionStatusBadge();
+                    }
                 }
                 return;
             }
@@ -18599,6 +18716,11 @@
 
         // 全域 Toast 提示
         function showToast(message, type = "success") {
+            const stageDeleteModal = document.getElementById('stage-delete-modal');
+            if (pendingStageDeleteContext && stageDeleteModal && !stageDeleteModal.classList.contains('hidden')) {
+                setStageDeleteFeedback(message);
+                return;
+            }
             const toast = document.getElementById('toast-notif');
             const toastText = document.getElementById('toast-notif-text');
 

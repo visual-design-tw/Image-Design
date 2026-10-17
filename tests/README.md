@@ -1,5 +1,16 @@
 # Stability Regression Tests
 
+## Stage Deletion
+
+`node tests/stage-delete.test.cjs` checks authoritative cache-bypassing reads,
+locked refresh, revision and role guards, unrelated updates, changed content
+requiring explicit reconfirmation, unsaved edits, double clicks, expiry,
+timeout recovery, complete impact counts, and mobile scrolling and toast
+occlusion. Set `STAGE_DELETE_REPORT_PATH` for JSON and
+`STAGE_DELETE_SCREENSHOT_PATH` for an isolated mobile screenshot. Network,
+accounts, deletion, recycle-bin records, and Drive cleanup are mocked; the
+suite never deletes production data.
+
 ## Password Reset and Storage Service
 
 `node tests/password-reset.test.cjs` verifies explicit Sheets v4 configuration

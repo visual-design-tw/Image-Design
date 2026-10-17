@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.17-reset.1';
+var APP_RELEASE = '2026.10.17-stage-delete.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -1896,8 +1896,8 @@ function cacheState_(state) {
   }
 }
 
-function loadState_() {
-  var cachedState = getCachedState_();
+function loadState_(options) {
+  var cachedState = options && options.fresh === true ? null : getCachedState_();
   if (cachedState) {
     return cachedState;
   }
@@ -1906,7 +1906,7 @@ function loadState_() {
 
   var config = getConfig_();
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
-  var state = {
+  var state = options && options.fresh === true ? readFreshStateTables_(config) : {
     Config_Stages: readTable_(spreadsheet, 'Config_Stages'),
     Users: readTable_(spreadsheet, 'Users'),
     Teams: readTable_(spreadsheet, 'Teams'),
@@ -1937,6 +1937,50 @@ function loadState_() {
   // Read normalization is persisted only by a later locked write.
 
   cacheState_(state);
+  return state;
+}
+
+function readFreshStateTables_(config) {
+  var names = ['Config_Stages', 'Users', 'Teams', 'Purchase_Items', 'Assignments',
+    'Assignment_Resources', 'Assignment_Submissions', 'Files', 'Notifications',
+    'Discussion_Comments', 'Design_Service_Settings', 'Design_Service_Orders',
+    'Calendar_Events', 'Work_Items', 'Recycle_Bin', 'Meta'];
+  var ranges = names.map(function(name) {
+    var width = TABLE_SCHEMAS[name].headers.length;
+    var column = '';
+    while (width > 0) {
+      width -= 1;
+      column = String.fromCharCode(65 + width % 26) + column;
+      width = Math.floor(width / 26);
+    }
+    return 'ranges=' + encodeURIComponent("'" + name + "'!A:" + column);
+  });
+  // A direct API read avoids both script cache and SpreadsheetApp's read-ahead cache after a REST write.
+  var response = UrlFetchApp.fetch('https://sheets.googleapis.com/v4/spreadsheets/'
+    + encodeURIComponent(config.spreadsheetId) + '/values:batchGet?'
+    + ranges.join('&') + '&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING', {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+    });
+  if (response.getResponseCode() !== 200) {
+    throw new Error('SYNC_NOT_CONFIRMED: 尚未取得最新雲端資料，這次沒有再次刪除。請稍後重試。');
+  }
+  var result = JSON.parse(response.getContentText());
+  if (!Array.isArray(result.valueRanges) || result.valueRanges.length !== names.length) {
+    throw new Error('SYNC_NOT_CONFIRMED: 雲端資料不完整，這次沒有再次刪除。請稍後重試。');
+  }
+  var state = {};
+  names.forEach(function(name, index) {
+    var values = result.valueRanges[index].values;
+    var headers = values && values[0];
+    if (!Array.isArray(headers) || TABLE_SCHEMAS[name].headers.some(function(header, i) { return headers[i] !== header; })) {
+      throw new Error('SYNC_NOT_CONFIRMED: 雲端資料欄位需要確認，這次沒有再次刪除。請聯絡管理者。');
+    }
+    var records = tableValuesToRecords_(name, values);
+    if (name === 'Meta') {
+      state.Meta = {};
+      records.forEach(function(row) { if (row.Key) state.Meta[row.Key] = row.Value; });
+    } else state[name] = records;
+  });
   return state;
 }
 
@@ -2253,7 +2297,8 @@ function handleUpdateRegistrationOptions_(payload) {
 }
 
 function handleBootstrap_(payload) {
-  var state = loadState_();
+  var fresh = payload && (payload.fresh === true || String(payload.fresh) === 'true');
+  var state = fresh ? withLock_(function() { return loadState_({ fresh: true }); }) : loadState_();
   var sessionContext = requireSessionContext_(state, payload);
   return buildClientStateResultForUser_(state, sessionContext.user, {
     sessionExpiresAt: sessionContext.session.Expires_At
@@ -3780,7 +3825,8 @@ function handleDeleteWorkItem_(payload) {
 // server transaction. This avoids a stale browser snapshot restoring data
 // after the interface has already removed it optimistically.
 function handleDeleteStage_(payload) {
-  var previousState = loadState_();
+  // The caller holds the script lock; never compare a destructive write to a cached revision.
+  var previousState = loadState_({ fresh: true });
   var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
   assertExpectedStateRevision_(payload, previousState);
 
@@ -3983,7 +4029,7 @@ function handleDeleteStage_(payload) {
     preserveWorkItemState: false,
     preserveRecycleBinState: false
   });
-  var persistedState = loadState_();
+  var persistedState = loadState_({ fresh: true });
   appendActivityLogEntries_(buildStateAuditEntries_(previousState, persistedState, actor));
   var driveTrashSummary = enqueueDeferredDriveTrash_(Object.keys(driveFileIds));
   return buildClientStateResultForUser_(persistedState, actor, {
@@ -5256,6 +5302,11 @@ function readTable_(spreadsheet, sheetName) {
   }
 
   var values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
+  return tableValuesToRecords_(sheetName, values);
+}
+
+function tableValuesToRecords_(sheetName, values) {
+  var schema = TABLE_SCHEMAS[sheetName];
   var headerRow = values[0].map(function(value) {
     return String(value || '').trim();
   });

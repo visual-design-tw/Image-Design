@@ -1,5 +1,14 @@
 # GAS Backend
 
+## 2026.10.17-stage-delete.1 會審刪除確認
+
+- 會審刪除前先以 POST `bootstrap` 加上 `fresh: true`、`includeHeatmap: false` 取得最新快照；舊快照未成功套用時，不宣稱已重新載入，也不刪除。
+- `fresh: true` 在 script lock 內，以 Sheets API `values:batchGet` 一次讀取全部狀態資料表，避開 Script Cache 與 SpreadsheetApp 讀取快取。一般首頁載入仍維持既有快取策略。
+- `deleteStage` 在既有鎖內直接檢查最新資料及 `stateRevision`，提交後直接讀回；保留角色、活躍會審及至少一個會審的保護。禁止用舊快取或本機狀態作為失敗備援。
+- 前端比較這一期與其關聯資料的內容，不因其他會審更新而反覆要求確認；真正的內容變更及提交期間的版本衝突，仍須使用者重新確認，不會自動重送刪除。
+- 列出項目附件、行事曆、工作事項、代做案件與會審通知／留言，並說明移至回收桶後可在 30 天內復原。手機視窗可捲動，底部操作列固定，提示不覆蓋確認按鈕。
+- 未儲存修改、其他進行中的操作、斷線與過期登入都會先停止刪除；逾時重試先查雲端，已刪除的會審不再次送出刪除。
+
 ## 2026.10.17-reset.1 儲存服務與重設密碼修復
 
 - `appsscript.json` 明確啟用 Sheets v4 進階服務，OAuth scopes 與 Web App 的存取設定不變。預設 Google Cloud 專案會在加入進階服務時自動啟用對應 API；若改用標準 Cloud 專案，仍須另外啟用 Sheets API。不要只同步 `Code.gs` 而漏掉 manifest。
