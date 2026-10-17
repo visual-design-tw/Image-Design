@@ -1,5 +1,24 @@
 # Stability Regression Tests
 
+## Registration Entry Settings
+
+`node tests/registration-options.test.cjs` covers the four public registration
+entry switches, leader/teacher authorization, dedicated settings revisions,
+old client saves, closed-route rejection, reopening, cross-device refresh,
+failed saves, retained drafts, and all 16 entry combinations at desktop and
+mobile widths. Set `REGISTRATION_REPORT_PATH` for a JSON result. Requests and
+accounts are mocked; the suite makes no production registrations or changes.
+
+## Assignment Guide Preview
+
+`node tests/assignment-guides.test.cjs` checks Google Slides URL validation,
+assignment creation and guide edits through mocked Apps Script dispatch,
+schema persistence, role and target-team boundaries, retries, legacy saves,
+recycle-bin retention, student drafts, and desktop/mobile preview layout.
+Set `GUIDE_REPORT_PATH` to keep a JSON report. Google viewer requests are mocked;
+this does not verify the real deck's sharing permissions or Google availability.
+
+
 `stability.test.cjs` runs the local Apps Script logic in a VM and exercises the actual HTML in isolated headless Chrome. All GAS requests are mocked, and test accounts use `example.invalid`. It does not write to the production spreadsheet, send email, or upload files.
 
 Requirements: Node.js, Playwright, and Chrome. The default Chrome path is the macOS application path; set `CHROME_PATH` for another installed executable. The page's existing CDN dependencies require network access.

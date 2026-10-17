@@ -927,12 +927,67 @@
                 transition-duration: 0.01ms !important;
             }
         }
+        [data-file-pill-button] {
+            border: 1px solid transparent;
+            min-height: 36px;
+            transition-property: background-color, color, border-color, box-shadow;
+        }
+        [data-file-pill-button][data-active="true"] {
+            background: #FFFFFF;
+            color: #005BB5;
+            border-color: #CFE3FF;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        [data-file-pill-button]:focus-visible {
+            outline: 2px solid #0066CC;
+            outline-offset: -3px;
+        }
+        @media (pointer: coarse) { [data-file-pill-button] { min-height: 44px; } }
         #assignment-detail-modal > div { transition-property: opacity, transform; }
+        .registration-switch { appearance: none; flex: 0 0 44px; width: 44px; height: 26px; border-radius: 20px; background: #D1D1D6; cursor: pointer; transition: background 180ms; }
+        .registration-switch::after { content: ''; display: block; width: 20px; height: 20px; margin-top: 3px; border-radius: 50%; background: white; transform: translateX(3px); box-shadow: 0 1px 3px #0002; transition: transform 180ms; }
+        .registration-switch:checked { background: #0066CC; }
+        .registration-switch:checked::after { transform: translateX(21px); }
+        .registration-switch:focus-visible { outline: 3px solid #B8D7FF; outline-offset: 3px; }
+        .registration-switch:disabled { opacity: .5; cursor: wait; }
+        @media (prefers-reduced-motion: reduce) { .registration-switch, .registration-switch::after { transition: none; } }
         .assignment-wizard [hidden], #assignment-wizard-controls [hidden] { display: none !important; }
         .assignment-wizard-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; list-style: none; padding: 0; }
         .assignment-wizard-steps li { border-top: 3px solid #E8E8ED; padding-top: 10px; color: #86868B; font-size: 12px; }
         .assignment-wizard-steps li[aria-current="step"] { border-color: #0066CC; color: #0066CC; font-weight: 700; }
         .assignment-wizard-panel { animation: assignment-step-enter 180ms ease-out; }
+        .assignment-drag-handle {
+            min-width: 40px;
+            min-height: 40px;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: grab;
+        }
+        .assignment-drag-handle:active { cursor: grabbing; }
+        .assignment-drag-handle.is-armed { color: #0066CC; background: #F2F7FF; border-color: #CFE3FF; }
+        .assignment-item-card.is-dragging {
+            cursor: grabbing;
+            opacity: 0.96;
+            box-shadow: 0 20px 44px rgba(0, 102, 204, 0.22);
+            transform: scale(1.018) rotate(0.35deg);
+            transition: box-shadow 180ms ease, transform 180ms ease;
+        }
+        .assignment-drag-placeholder {
+            border: 2px dashed #9CCBFF;
+            border-radius: 22px;
+            background: linear-gradient(135deg, #F7FAFF, #EEF6FF);
+            animation: assignment-drop-pulse 900ms ease-in-out infinite alternate;
+        }
+        .assignment-drag-target {
+            border-color: #7BB8FF !important;
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.10);
+        }
+        @keyframes assignment-drop-pulse { from { opacity: 0.55; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) {
+            .assignment-drag-placeholder { animation: none; }
+            .assignment-item-card.is-dragging { transition: none; }
+        }
         @media (max-width: 480px) {
             #assignment-wizard-controls { display: grid; grid-template-columns: auto auto; gap: 8px; }
             #assignment-wizard-position { grid-column: 1 / -1; grid-row: 1; text-align: center; }
@@ -975,10 +1030,10 @@
                     <button onclick="openAuthView('login')" class="topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white bg-white/10 border border-white/10 hover:bg-white/15 transition">
                         <i data-lucide="log-in" class="w-3.5 h-3.5"></i> 登入系統
                     </button>
-                    <button onclick="openAuthView('register', 'reg-code')" class="topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#D2D2D7] hover:text-white bg-transparent border border-white/10 hover:border-white/20 hover:bg-white/5 transition">
+                    <button id="topbar-register-member" onclick="openAuthView('register', 'reg-code')" class="hidden topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#D2D2D7] hover:text-white bg-transparent border border-white/10 hover:border-white/20 hover:bg-white/5 transition">
                         <i data-lucide="users" class="w-3.5 h-3.5"></i> 邀請碼加入
                     </button>
-                    <button onclick="openAuthView('register', 'reg-pending')" class="topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#64D2FF] bg-[#64D2FF]/10 border border-[#64D2FF]/20 hover:bg-[#64D2FF]/15 transition">
+                    <button id="topbar-register-activation" onclick="openAuthView('register', 'reg-pending')" class="hidden topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#64D2FF] bg-[#64D2FF]/10 border border-[#64D2FF]/20 hover:bg-[#64D2FF]/15 transition">
                         <i data-lucide="mail-check" class="w-3.5 h-3.5"></i> 信箱開通
                     </button>
                 </div>
@@ -1038,7 +1093,7 @@
     </div>
 
     <!-- 登入與註冊全螢幕入口 -->
-    <main id="auth-section" class="relative flex-1 flex items-center justify-center py-16 pb-24 px-4 bg-[#FFFFFF] hidden">
+    <main id="auth-section" class="relative flex-1 flex items-center justify-center py-16 pb-44 sm:pb-28 px-4 bg-[#FFFFFF] hidden">
         <div class="w-full max-w-md space-y-8 animate-in fade-in duration-300">
             <div class="text-center">
                 <h1 id="auth-title" class="text-3xl font-bold tracking-tight text-[#1D1D1F]">畢展形印組管理系統</h1>
@@ -1084,15 +1139,19 @@
 
             <!-- 註冊表單群 -->
             <div id="form-register" class="space-y-6 hidden">
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 bg-[#F5F5F7] rounded-[20px] border border-[#E8E8ED]">
-                    <button onclick="toggleRegisterSubTab('reg-leader')" id="sub-tab-reg-leader" class="py-1.5 text-[11px] font-semibold rounded-full bg-white text-[#1D1D1F] shadow-sm">組長建組</button>
-                    <button onclick="toggleRegisterSubTab('reg-code')" id="sub-tab-reg-code" class="py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">組員註冊</button>
-                    <button onclick="toggleRegisterSubTab('reg-pending')" id="sub-tab-reg-pending" class="py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">信箱開通</button>
-                    <button onclick="toggleRegisterSubTab('reg-shape-print')" id="sub-tab-reg-shape-print" class="py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">形印組加入</button>
+                <div id="registration-option-tabs" role="tablist" aria-label="註冊方式" onkeydown="handleRegistrationTabKeydown(event)" class="hidden grid gap-1 p-1 bg-[#F5F5F7] rounded-[20px] border border-[#E8E8ED]">
+                    <button type="button" role="tab" onclick="toggleRegisterSubTab('reg-leader')" id="sub-tab-reg-leader" class="hidden py-1.5 text-[11px] font-semibold rounded-full bg-white text-[#1D1D1F] shadow-sm">組長建組</button>
+                    <button type="button" role="tab" onclick="toggleRegisterSubTab('reg-code')" id="sub-tab-reg-code" class="hidden py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">組員註冊</button>
+                    <button type="button" role="tab" onclick="toggleRegisterSubTab('reg-pending')" id="sub-tab-reg-pending" class="hidden py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">信箱開通</button>
+                    <button type="button" role="tab" onclick="toggleRegisterSubTab('reg-shape-print')" id="sub-tab-reg-shape-print" class="hidden py-1.5 text-[11px] font-semibold rounded-full text-[#86868B]">形印組加入</button>
+                </div>
+                <div id="registration-options-notice" class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4 text-xs leading-relaxed text-[#6E6E73]">
+                    <p id="registration-options-message" role="status" aria-live="polite">正在確認註冊方式…</p>
+                    <button id="registration-options-retry" type="button" onclick="refreshRegistrationOptions({ force: true })" class="hidden mt-2 font-bold text-[#0066CC]">重新確認</button>
                 </div>
 
                 <!-- 組長建組 -->
-                <form id="form-sub-reg-leader" onsubmit="handleRegisterLeader(event)" class="space-y-4">
+                <form id="form-sub-reg-leader" onsubmit="handleRegisterLeader(event)" class="hidden space-y-4">
                     <p class="text-[11px] text-[#86868B] bg-[#F5F5F7] p-3 rounded-xl border border-[#E8E8ED] leading-relaxed">已是形印組員？可直接填入原本的信箱與密碼建立畢製小組，形印組身分會一併保留。</p>
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">組別名稱</label>
@@ -1508,6 +1567,18 @@
         </div>
     </div>
 
+    <div id="session-expired-modal" role="dialog" aria-modal="true" aria-labelledby="session-expired-title" onkeydown="if(event.key === 'Tab') { const buttons = this.querySelectorAll('button'); event.preventDefault(); (document.activeElement === buttons[0] ? buttons[1] : buttons[0]).focus(); }" class="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 p-4 hidden">
+        <div class="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl space-y-4">
+            <h2 id="session-expired-title" class="text-xl font-bold">需要重新登入</h2>
+            <p class="text-sm leading-relaxed text-[#6E6E73]">登入有效時間已結束，或登入授權已失效。請重新登入後再操作，系統不會自動重做剛才的刪除或送出。</p>
+            <p class="text-xs leading-relaxed rounded-xl bg-[#F2F7FF] p-3 text-[#0066CC]">未送出的內容不代表已儲存。你可以先返回查看、記下其他表單內容；作業繳交的文字草稿會嘗試保留在此分頁。尚未上傳的檔案需重新選取。</p>
+            <div class="flex flex-wrap justify-end gap-2">
+                <button type="button" onclick="document.getElementById('session-expired-modal').classList.add('hidden')" class="rounded-xl border border-[#E5E5EA] px-4 py-3 text-sm">返回查看內容</button>
+                <button id="session-expired-login" type="button" onclick="returnToLoginAfterExpiry()" class="rounded-xl bg-[#0066CC] px-4 py-3 text-sm font-bold text-white">重新登入</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 作業詳情與繳交 Modal -->
     <div id="assignment-detail-modal" class="fixed inset-0 overflow-y-auto bg-black/30 backdrop-blur-sm z-[80] p-3 sm:p-5 hidden">
         <div class="mx-auto flex max-h-[calc(100dvh-24px)] w-full max-w-4xl flex-col gap-4 overflow-hidden rounded-3xl border border-[#E8E8ED] bg-white p-4 shadow-xl animate-in fade-in zoom-in duration-200 sm:max-h-[calc(100dvh-40px)] sm:p-6">
@@ -1678,7 +1749,7 @@
     </div>
 
     <!-- 檔案預覽 Modal -->
-    <div id="file-preview-modal" data-surface-layout="centered-modal" class="fixed inset-0 z-[84] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFilePreviewModal()">
+    <div id="file-preview-modal" role="dialog" aria-modal="true" aria-labelledby="file-preview-modal-title" data-surface-layout="centered-modal" class="fixed inset-0 z-[84] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeFilePreviewModal()" onkeydown="handleFilePreviewKeydown(event)">
         <div class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.96)] shadow-[0_16px_42px_rgba(15,23,42,0.14),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
             <div class="flex items-center justify-between gap-4 border-b border-[#E8E8ED] px-5 py-4">
                 <div class="min-w-0">
@@ -1973,7 +2044,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.09.05-health.2";
+        const APP_RELEASE = "2026.10.17-registration.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2002,6 +2073,8 @@
             team: "all",
             sortBy: "newest"
         };
+        let assignmentDragSession = null;
+        let assignmentReorderInFlight = false;
         let notificationBrowserState = {
             query: "",
             category: "all",
@@ -2013,9 +2086,12 @@
         let notificationActionInFlight = false;
         let activeFileGroupKey = null;
         let activeFilePreviewContext = null;
+        let filePreviewReturnFocus = null;
+        let assignmentGuideSaveInFlight = false;
         let activeFileCompareContext = null;
         let activeAssignmentId = "";
         let assignmentWizardStep = 1;
+        let expiredSessionToken = '';
         let activeAssignmentReviewSubmissionId = "";
         let pendingUploadContext = null;
         let pendingStageDeleteContext = null;
@@ -2056,6 +2132,21 @@
         let loginSubmitInFlight = false;
         let registerSubmitInFlight = false;
         let activeRegisterSubTab = "reg-leader";
+        const REGISTRATION_ENTRIES = [
+            { key: 'leader', tab: 'reg-leader', label: '組長建組', description: '建立畢製小組，並註冊為小組組長。' },
+            { key: 'member', tab: 'reg-code', label: '組員註冊', description: '使用小組邀請碼加入並建立帳號。' },
+            { key: 'activation', tab: 'reg-pending', label: '信箱開通', description: '已受信箱直邀的成員設定密碼並啟用帳號。' },
+            { key: 'shapePrint', tab: 'reg-shape-print', label: '形印組加入', description: '使用形印組專屬邀請連結註冊。' }
+        ];
+        let registrationOptions = { leader: true, member: true, activation: true, shapePrint: true };
+        let registrationOptionsRevision = 0;
+        let registrationOptionsStatus = 'idle';
+        let registrationOptionsLastFetchAt = 0;
+        let registrationOptionsPromise = null;
+        let registrationOptionsDraft = null;
+        let registrationOptionsSaveInFlight = false;
+        let registrationOptionsSaveMessage = '';
+        let registrationOptionsRefreshFailed = false;
         let shapePrintInviteToken = "";
         let shapePrintInviteStatus = "idle";
         let shapePrintInviteData = null;
@@ -2317,6 +2408,7 @@
                 status.textContent = registerSubmitInFlight ? copy.statusLabel : "";
                 status.classList.toggle("hidden", !registerSubmitInFlight);
             }
+            renderRegistrationOptions();
         }
 
         function isMobileViewport() {
@@ -3144,7 +3236,10 @@
         }
 
         function syncFileBrowserPillIndicators() {
-            const groups = ["submissionMode", "status", "heatmapView"];
+            document.querySelectorAll('[data-file-pill-button]').forEach(function(button) {
+                button.setAttribute('aria-pressed', button.dataset.active === 'true' ? 'true' : 'false');
+            });
+            const groups = ["heatmapView"];
             const engine = getAnimeEngine();
 
             groups.forEach(function(groupKey) {
@@ -3217,6 +3312,231 @@
                     value: currentValue
                 };
             });
+        }
+
+        function getManualAssignmentOrderIds() {
+            return ensureArray(state.Assignments).slice().sort(function(a, b) {
+                const aOrder = Number(a.Display_Order || 0);
+                const bOrder = Number(b.Display_Order || 0);
+                const aHasOrder = Number.isFinite(aOrder) && aOrder > 0;
+                const bHasOrder = Number.isFinite(bOrder) && bOrder > 0;
+                if (aHasOrder && bHasOrder && aOrder !== bOrder) return aOrder - bOrder;
+                if (aHasOrder !== bHasOrder) return aHasOrder ? -1 : 1;
+                return String(b.Created_At || '').localeCompare(String(a.Created_At || ''));
+            }).map(function(assignment) {
+                return String(assignment.Assignment_ID || '');
+            }).filter(Boolean);
+        }
+
+        function getAssignmentOrderForVisibleCards(container) {
+            const visibleIds = Array.from(container.querySelectorAll('[data-assignment-id]')).map(function(card) {
+                return String(card.dataset.assignmentId || '');
+            }).filter(Boolean);
+            const visibleSet = new Set(visibleIds);
+            const allIds = getManualAssignmentOrderIds();
+            const nextOrder = [];
+            let inserted = false;
+            allIds.forEach(function(assignmentId) {
+                if (visibleSet.has(assignmentId)) {
+                    if (!inserted) {
+                        nextOrder.push.apply(nextOrder, visibleIds);
+                        inserted = true;
+                    }
+                    return;
+                }
+                nextOrder.push(assignmentId);
+            });
+            if (!inserted) nextOrder.push.apply(nextOrder, visibleIds);
+            return nextOrder;
+        }
+
+        function clearAssignmentPointerSession() {
+            const session = assignmentDragSession;
+            if (!session) return;
+            clearTimeout(session.timer);
+            window.removeEventListener('pointermove', handleAssignmentPointerMove);
+            window.removeEventListener('pointerup', handleAssignmentPointerUp);
+            window.removeEventListener('pointercancel', handleAssignmentPointerCancel);
+            session.handle?.classList.remove('is-armed');
+            assignmentDragSession = null;
+        }
+
+        function handleAssignmentPointerDown(event, handle) {
+            const role = getEffectiveRoleContext();
+            if (assignmentBrowserState.sortBy !== 'manual'
+                || !canManageAssignmentBoard(role.effectiveRole)
+                || assignmentReorderInFlight
+                || assignmentDragSession) return;
+            if (event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+            const card = handle.closest('[data-assignment-id]');
+            const container = card && card.parentElement;
+            if (!card || !container) return;
+            const session = {
+                handle: handle,
+                card: card,
+                container: container,
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                active: false,
+                timer: null
+            };
+            assignmentDragSession = session;
+            handle.classList.add('is-armed');
+            session.timer = window.setTimeout(function() {
+                beginAssignmentDrag(session, event);
+            }, 440);
+            window.addEventListener('pointermove', handleAssignmentPointerMove, { passive: false });
+            window.addEventListener('pointerup', handleAssignmentPointerUp, { passive: false });
+            window.addEventListener('pointercancel', handleAssignmentPointerCancel, { passive: false });
+        }
+
+        function beginAssignmentDrag(session, event) {
+            if (assignmentDragSession !== session || !session.card.isConnected) return;
+            session.active = true;
+            clearTimeout(session.timer);
+            session.handle.classList.remove('is-armed');
+            const card = session.card;
+            const rect = card.getBoundingClientRect();
+            session.originNextId = card.nextElementSibling?.dataset.assignmentId || '';
+            session.offsetY = event.clientY - rect.top;
+            session.originalStyle = card.getAttribute('style') || '';
+            session.placeholder = document.createElement('div');
+            session.placeholder.className = 'assignment-drag-placeholder';
+            session.placeholder.style.height = rect.height + 'px';
+            session.placeholder.setAttribute('aria-hidden', 'true');
+            card.parentNode.insertBefore(session.placeholder, card);
+            card.classList.add('is-dragging');
+            card.setAttribute('aria-grabbed', 'true');
+            card.style.width = rect.width + 'px';
+            card.style.position = 'fixed';
+            card.style.left = rect.left + 'px';
+            card.style.top = rect.top + 'px';
+            card.style.zIndex = '240';
+            card.style.pointerEvents = 'none';
+            document.body.classList.add('assignment-is-dragging');
+            showToast('已進入排序模式，拖到想要的位置後放開。', 'info');
+        }
+
+        function handleAssignmentPointerMove(event) {
+            const session = assignmentDragSession;
+            if (!session || event.pointerId !== session.pointerId) return;
+            const moved = Math.hypot(event.clientX - session.startX, event.clientY - session.startY);
+            if (!session.active) {
+                if (moved > 10) clearAssignmentPointerSession();
+                return;
+            }
+            event.preventDefault();
+            const card = session.card;
+            card.style.top = Math.max(8, event.clientY - session.offsetY) + 'px';
+            const targets = Array.from(session.container.querySelectorAll('[data-assignment-id]'))
+                .filter(function(item) { return item !== card; });
+            let target = null;
+            for (const item of targets) {
+                const rect = item.getBoundingClientRect();
+                if (event.clientY < rect.top + rect.height / 2) {
+                    target = item;
+                    break;
+                }
+            }
+            session.container.querySelectorAll('.assignment-drag-target').forEach(function(item) {
+                item.classList.remove('assignment-drag-target');
+            });
+            if (target) {
+                target.classList.add('assignment-drag-target');
+                session.container.insertBefore(session.placeholder, target);
+            } else {
+                session.container.appendChild(session.placeholder);
+            }
+        }
+
+        function finishAssignmentDrag(commit) {
+            const session = assignmentDragSession;
+            if (!session) return;
+            if (!session.active) {
+                clearAssignmentPointerSession();
+                return;
+            }
+            const card = session.card;
+            if (!commit && session.originNextId) {
+                const originalNext = Array.from(session.container.querySelectorAll('[data-assignment-id]')).find(function(item) {
+                    return item.dataset.assignmentId === session.originNextId;
+                });
+                if (originalNext) session.container.insertBefore(session.placeholder, originalNext);
+            } else if (!commit) {
+                session.container.appendChild(session.placeholder);
+            }
+            session.placeholder.replaceWith(card);
+            card.setAttribute('style', session.originalStyle);
+            card.classList.remove('is-dragging', 'assignment-drag-target');
+            card.removeAttribute('aria-grabbed');
+            session.container.querySelectorAll('.assignment-drag-target').forEach(function(item) {
+                item.classList.remove('assignment-drag-target');
+            });
+            document.body.classList.remove('assignment-is-dragging');
+            clearAssignmentPointerSession();
+            if (commit) {
+                const orderIds = getAssignmentOrderForVisibleCards(session.container);
+                const previousOrder = getManualAssignmentOrderIds();
+                if (JSON.stringify(previousOrder) !== JSON.stringify(orderIds)) {
+                    persistAssignmentOrder(orderIds, previousOrder);
+                } else {
+                    showToast('順序沒有變更。', 'info');
+                }
+            }
+        }
+
+        function handleAssignmentPointerUp(event) {
+            if (assignmentDragSession && event.pointerId === assignmentDragSession.pointerId) finishAssignmentDrag(true);
+        }
+
+        function handleAssignmentPointerCancel(event) {
+            if (assignmentDragSession && event.pointerId === assignmentDragSession.pointerId) finishAssignmentDrag(false);
+        }
+
+        async function persistAssignmentOrder(orderIds, previousOrder) {
+            if (assignmentReorderInFlight) return;
+            const oldOrders = {};
+            ensureArray(state.Assignments).forEach(function(assignment) {
+                oldOrders[String(assignment.Assignment_ID || '')] = Number(assignment.Display_Order || 0);
+            });
+            orderIds.forEach(function(assignmentId, index) {
+                const assignment = state.Assignments.find(function(item) {
+                    return String(item.Assignment_ID || '') === assignmentId;
+                });
+                if (assignment) assignment.Display_Order = index + 1;
+            });
+            if (!isRemoteSyncEnabled()) {
+                writeLocalStateSnapshot(state);
+                renderAll();
+                showToast('已調整目前畫面順序；連線後才會同步給其他裝置。', 'info');
+                return;
+            }
+            assignmentReorderInFlight = true;
+            remoteMutationInFlight = true;
+            showToast('正在儲存繳交項目順序…', 'info');
+            try {
+                const response = await requestGas('reorderAssignments', {
+                    assignmentIds: orderIds,
+                    stateRevision: remoteStateRevision
+                });
+                if (!applyBackendStateResponse(response, {
+                    preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : '',
+                    allowFallback: false
+                })) throw new Error('尚未取得最新排序，請重新整理後再試。');
+                gasConnectionStatus = 'remote';
+                renderAll();
+                showToast('繳交項目順序已同步。', 'success');
+            } catch (error) {
+                ensureArray(state.Assignments).forEach(function(assignment) {
+                    assignment.Display_Order = oldOrders[String(assignment.Assignment_ID || '')] || 0;
+                });
+                renderAll();
+                if (!error.sessionExpired) showToast('順序尚未儲存，已恢復原本順序。請確認連線後再試。', 'warning');
+            } finally {
+                assignmentReorderInFlight = false;
+                remoteMutationInFlight = false;
+            }
         }
 
         function setBootLoaderPhase(name, overrides = {}) {
@@ -3333,6 +3653,12 @@
                     clearStoredSession();
                 }
                 const loadResult = await loadState();
+                if (isRemoteSyncEnabled()) {
+                    if (!currentUser) refreshRegistrationOptions();
+                } else {
+                    captureRegistrationOptions({ registrationOptions: state.Meta?.Registration_Options || registrationOptions,
+                        registrationOptionsRevision: Number(state.Meta?.Registration_Options_Revision || 0) });
+                }
                 if (!loadResult || !loadResult.fromCache) {
                     setBootLoaderPhase("auth");
                 }
@@ -3487,7 +3813,15 @@
                 syncFileBrowserPillIndicators();
                 window.requestAnimationFrame(renderHeatmap);
             }
+            renderRegistrationOptions();
         });
+        window.addEventListener('focus', function() { if (!currentUser) refreshRegistrationOptions(); });
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && !currentUser) refreshRegistrationOptions();
+        });
+        setInterval(function() {
+            if (!document.hidden && !currentUser && isRemoteSyncEnabled()) refreshRegistrationOptions();
+        }, 60000);
 
         async function loadState() {
             const saved = localStorage.getItem(STORAGE_KEY);
@@ -3743,7 +4077,9 @@
             return Boolean(currentUser && String(currentUser.User_ID || "") === String(userId));
         }
 
-        function clearStoredSession() {
+        function clearStoredSession(options = {}) {
+            expiredSessionToken = '';
+            document.getElementById('session-expired-modal')?.classList.add('hidden');
             authEpoch += 1;
             cancelQueuedRemoteStateSync();
             remoteSaveInFlight = false;
@@ -3753,8 +4089,10 @@
             Object.keys(largeUploadSessions).forEach(function(key) { delete largeUploadSessions[key]; });
             pendingLargeAssignmentAssetUpload = null;
             try {
-                Object.keys(sessionStorage).filter(function(key) { return key.startsWith('shapeprint_submission_draft:'); })
-                    .forEach(function(key) { sessionStorage.removeItem(key); });
+                if (!options.preserveSubmissionDrafts) {
+                    Object.keys(sessionStorage).filter(function(key) { return key.startsWith('shapeprint_submission_draft:'); })
+                        .forEach(function(key) { sessionStorage.removeItem(key); });
+                }
             } catch (error) {}
             setSaveFeedback("idle", "");
             const storedSession = getStoredSession();
@@ -3886,6 +4224,7 @@
             }
             if (Number.isFinite(Number(responseData.stateRevision))
                 && Number(responseData.stateRevision) < remoteStateRevision) return false;
+            captureRegistrationOptions(responseData);
             document.querySelectorAll('[data-cloud-release]').forEach(function(label) {
                 label.textContent = responseData.release
                     ? '雲端版本 ' + responseData.release + (responseData.release === APP_RELEASE ? '' : '（與介面版本不同，請通知管理者確認更新）')
@@ -3928,8 +4267,44 @@
             return true;
         }
 
+        function showSessionExpiredNotice() {
+            expiredSessionToken = authSessionToken;
+            cancelQueuedRemoteStateSync();
+            updateAssignmentDraftText();
+            const modal = document.getElementById('session-expired-modal');
+            modal.classList.remove('hidden');
+            document.getElementById('session-expired-login').focus({ preventScroll: true });
+        }
+
+        function returnToLoginAfterExpiry() {
+            const email = currentUser?.Email || '';
+            updateAssignmentDraftText();
+            clearStoredSession({ preserveSubmissionDrafts: true });
+            currentUser = null;
+            state = createUnauthenticatedState();
+            activeAssignmentId = '';
+            pendingAssignmentDeleteContext = null;
+            pendingStageDeleteContext = null;
+            remoteMutationInFlight = false;
+            authScreenMode = 'login';
+            document.querySelectorAll('[id$="-modal"]').forEach(function(modal) { modal.classList.add('hidden'); });
+            renderAll();
+            document.getElementById('login-email').value = email;
+            document.getElementById('login-password').value = '';
+            document.getElementById('login-feedback').textContent = '請重新登入。登入後請再次確認要執行的操作，系統不會自動刪除或送出。';
+            document.getElementById('login-password').focus();
+        }
+
         async function requestGas(action, payload, method = "POST", requestOptions = {}) {
-            const isIndependentMutation = !/^(save|bootstrap|login|logout|register|activate|reset|forgot|health|setup)/i.test(action);
+            const isPublicRegistrationRead = action === 'getRegistrationOptions';
+            const isAuthAction = /^(login|logout|register|activate|reset|forgot)/i.test(action);
+            if (!isPublicRegistrationRead && !isAuthAction && expiredSessionToken && expiredSessionToken === authSessionToken) {
+                showSessionExpiredNotice();
+                const error = new Error('登入已失效，請重新登入後再操作。');
+                error.sessionExpired = true;
+                throw error;
+            }
+            const isIndependentMutation = !isPublicRegistrationRead && !/^(save|bootstrap|login|logout|register|activate|reset|forgot|health|setup)/i.test(action);
             const hasUnconfirmedChanges = remoteSaveTimer || pendingRemoteSave || remoteSaveInFlight || ["error", "conflict", "saving"].includes(saveFeedbackState);
             if ((isIndependentMutation || action === "bootstrap") && hasUnconfirmedChanges && !requestOptions.discardLocalChanges) {
                 throw new Error("UNSAVED_CHANGES: 頁面還有未確認的修改，請先完成上方的儲存或重試，再進行這項操作。");
@@ -3941,12 +4316,12 @@
             }
 
             const requestPayload = Object.assign({}, payload || {});
-            if (authSessionToken && !requestPayload.sessionToken) {
+            if (!isPublicRegistrationRead && authSessionToken && !requestPayload.sessionToken) {
                 requestPayload.sessionToken = authSessionToken;
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = /upload|Upload/.test(action) ? 120000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -3988,7 +4363,7 @@
                 throw new Error(result.error && result.error.message ? result.error.message : "GAS request failed.");
             }
 
-            if (expectedEpoch !== authEpoch) throw new Error("STALE_REQUEST: 已忽略先前登入階段的回應。");
+            if (expectedEpoch !== authEpoch || (!isAuthAction && expiredSessionToken && expiredSessionToken === requestPayload.sessionToken)) throw new Error("STALE_REQUEST: 已忽略先前登入階段的回應。");
             result.authEpoch = expectedEpoch;
             Object.defineProperty(result, "requestBaseState", { value: requestBaseState });
             if (result.data && typeof result.data === "object") {
@@ -4006,6 +4381,20 @@
                         }, timeoutMs);
                     })
                 ]);
+            } catch (error) {
+                if (/REGISTRATION_CLOSED/.test(String(error?.message || ''))) {
+                    refreshRegistrationOptions({ force: true });
+                    error.message = error.message.replace(/^REGISTRATION_CLOSED:\s*/, '');
+                }
+                if (!isPublicRegistrationRead && !isAuthAction && expectedEpoch === authEpoch && currentUser && authSessionToken
+                    && requestPayload.sessionToken === authSessionToken
+                    && /\bAUTH_(EXPIRED|REQUIRED)\b/.test(String(error && error.message || ''))) {
+                    showSessionExpiredNotice();
+                    const expired = new Error('登入已失效，請重新登入後再操作。');
+                    expired.sessionExpired = true;
+                    throw expired;
+                }
+                throw error;
             } finally {
                 clearTimeout(timeout);
             }
@@ -4054,6 +4443,7 @@
                 renderConnectionStatusBadge();
                 return true;
             } catch (error) {
+                if (error.sessionExpired) return false;
                 if (expectedEpoch !== authEpoch || (Number.isFinite(Number(options.workspaceHydrationId))
                     && Number(options.workspaceHydrationId) !== workspaceHydrationGeneration)) return false;
                 const message = String(error && error.message || "");
@@ -4366,6 +4756,8 @@
                     pendingRemoteSave = false;
                     if (/STATE_CONFLICT/.test(message)) {
                         setSaveFeedback('conflict', '其他人已更新雲端，您的修改仍保留在此頁。可先下載未儲存備份，再載入雲端最新版，避免覆蓋他人的修改。');
+                    } else if (error.sessionExpired) {
+                        setSaveFeedback('error', '登入已失效，修改尚未確認儲存。請先保留內容，再重新登入。');
                     } else if (/AUTH_REQUIRED|AUTH_EXPIRED|重新登入/.test(message)) {
                         currentUser = null;
                         clearStoredSession();
@@ -7215,6 +7607,7 @@
             assignment.Stage_ID = String(assignment.Stage_ID || "");
             assignment.Title = String(assignment.Title || "");
             assignment.Body = String(assignment.Body || "");
+            assignment.Guide_URL = String(assignment.Guide_URL || "").trim();
             assignment.Submission_Mode = normalizeAssignmentSubmissionMode(assignment.Submission_Mode);
             assignment.Requirement_Text = String(assignment.Requirement_Text || "");
             assignment.Target_Mode = String(assignment.Target_Mode || (ensureArray(assignment.Target_Team_IDs).length > 0 ? "selected" : "all"));
@@ -7778,6 +8171,15 @@
         function sortAssignmentsForBrowser(assignments) {
             const sortedAssignments = ensureArray(assignments).slice();
             sortedAssignments.sort(function(a, b) {
+                if (assignmentBrowserState.sortBy === "manual") {
+                    const aOrder = Number(a.Display_Order || 0);
+                    const bOrder = Number(b.Display_Order || 0);
+                    const aHasOrder = Number.isFinite(aOrder) && aOrder > 0;
+                    const bHasOrder = Number.isFinite(bOrder) && bOrder > 0;
+                    if (aHasOrder && bHasOrder && aOrder !== bOrder) return aOrder - bOrder;
+                    if (aHasOrder !== bHasOrder) return aHasOrder ? -1 : 1;
+                    return String(b.Created_At || "").localeCompare(String(a.Created_At || ""));
+                }
                 const aCreated = String(a.Created_At || "");
                 const bCreated = String(b.Created_At || "");
                 const aDue = String(a.Due_At || "");
@@ -9091,6 +9493,162 @@
             renderLucideIcons();
         }
 
+        // Keep equivalent to the GAS parser; only canonical Google Slides URLs reach an iframe.
+        function getGoogleSlidesLink(value) {
+            const raw = String(value || '').trim();
+            if (!raw || raw.length > 2048 || /[\s\\<>"']/.test(raw)) return null;
+            const match = raw.match(/^https:\/\/docs\.google\.com\/presentation\/d\/(e\/)?([A-Za-z0-9_-]{10,200})(?:\/(pub|embed|edit|view|preview|present))?\/?(?:\?([^#]*))?(?:#(.*))?$/i);
+            if (!match) return null;
+            const published = Boolean(match[1]);
+            const action = String(match[3] || '').toLowerCase();
+            if (published ? !/^(pub|embed)$/.test(action) : action === 'pub') return null;
+            const params = {};
+            try {
+                [match[4], match[5]].filter(Boolean).join('&').split('&').forEach(function(part) {
+                    const split = part.indexOf('=');
+                    if (split < 0) return;
+                    const key = decodeURIComponent(part.slice(0, split));
+                    if (key === 'slide' || key === 'resourcekey') params[key] = decodeURIComponent(part.slice(split + 1));
+                });
+            } catch (error) { return null; }
+            let query = 'start=false&loop=false&delayms=3000';
+            if (/^id\.[A-Za-z0-9_-]{1,160}$/.test(params.slide || '')) query += '&slide=' + encodeURIComponent(params.slide);
+            if (/^[A-Za-z0-9_-]{1,200}$/.test(params.resourcekey || '')) query += '&resourcekey=' + encodeURIComponent(params.resourcekey);
+            const base = 'https://docs.google.com/presentation/d/' + (published ? 'e/' : '') + match[2];
+            return { url: base + (published ? '/pub?' : '/view?') + query, embedUrl: base + '/embed?' + query, published: published };
+        }
+
+        function buildAssignmentGuideInputMarkup(inputId, value = '') {
+            return `
+                <label for="${inputId}" class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">規範簡報連結 <span class="font-normal text-[#86868B]">（選填）</span></label>
+                <div class="flex flex-col gap-2 sm:flex-row">
+                    <input id="${inputId}" type="url" maxlength="2048" value="${escapeHtml(value)}" inputmode="url" autocomplete="off" spellcheck="false" aria-describedby="${inputId}-help ${inputId}-error" oninput="clearAssignmentGuideError('${inputId}')" class="min-w-0 flex-1 rounded-xl border border-[#E8E8ED] bg-white px-4 py-2.5 text-xs outline-none focus:border-[#0066CC]" placeholder="貼上 Google 簡報分享或發布連結">
+                    <button type="button" onclick="previewAssignmentGuideInput('${inputId}')" class="shrink-0 rounded-xl border border-[#CFE3FF] bg-white px-3.5 py-2.5 text-xs font-bold text-[#0066CC] hover:bg-[#F2F7FF]">預覽簡報</button>
+                </div>
+                <p id="${inputId}-help" class="mt-2 text-[11px] leading-relaxed text-[#6E6E73]">學生可在「確認規範」直接查看，不必下載。請確認簡報已分享給適用學生；若使用「發布到網路」，取得連結的人可能可直接閱讀，系統不會額外限制 Google 的存取權限。</p>
+                <p id="${inputId}-error" role="status" aria-live="polite" class="mt-1 text-xs text-[#C9342B]"></p>
+            `;
+        }
+
+        function clearAssignmentGuideError(inputId) {
+            document.getElementById(inputId)?.removeAttribute('aria-invalid');
+            const feedback = document.getElementById(inputId + '-error');
+            if (feedback) feedback.textContent = '';
+        }
+
+        function readAssignmentGuideInput(inputId, required = false) {
+            const input = document.getElementById(inputId);
+            const raw = String(input?.value || '').trim();
+            const link = getGoogleSlidesLink(raw);
+            clearAssignmentGuideError(inputId);
+            if ((!raw && required) || (raw && !link)) {
+                const feedback = document.getElementById(inputId + '-error');
+                if (feedback) feedback.textContent = raw
+                    ? '請貼上有效的 Google 簡報分享或「發布到網路」連結，不要貼嵌入程式碼。'
+                    : '請先貼上簡報連結，再按預覽。';
+                input?.setAttribute('aria-invalid', 'true');
+                input?.focus();
+                return null;
+            }
+            return link ? link.url : '';
+        }
+
+        function previewAssignmentGuideInput(inputId) {
+            const url = readAssignmentGuideInput(inputId, true);
+            if (!url) return;
+            showFilePreview({ recordType: 'assignment-guide-draft', previewRecord: { Title: '規範簡報預覽', Guide_URL: url } });
+        }
+
+        function buildAssignmentGuidePanelMarkup(assignment, canManage) {
+            const link = getGoogleSlidesLink(assignment.Guide_URL);
+            if (!link && !canManage) return '';
+            return `<div id="assignment-guide-panel" class="mt-4 space-y-3 rounded-3xl border border-[#DCE8F8] bg-[#F7FAFF] p-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-start gap-3">
+                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#0066CC]"><i data-lucide="presentation" class="h-5 w-5"></i></span>
+                        <div><h4 class="text-sm font-bold text-[#1D1D1F]">規範簡報</h4><p class="mt-1 text-xs leading-relaxed text-[#5F6975]">${link ? '先閱讀規範，再繼續下一步準備作業。' : '可加入 Google 簡報，讓學生直接閱讀規範。'}</p></div>
+                    </div>
+                    ${link ? `<button type="button" onclick="openFilePreview('assignment-guide', '${escapeInlineJsString(assignment.Assignment_ID)}')" class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0066CC] px-4 py-2.5 text-xs font-bold text-white hover:opacity-90"><i data-lucide="book-open" class="h-4 w-4"></i>查看規範</button>` : ''}
+                </div>
+                ${canManage ? `<details id="assignment-guide-editor" class="border-t border-[#DCE8F8] pt-3">
+                    <summary class="cursor-pointer text-xs font-bold text-[#0066CC]">${link ? '更換或移除簡報連結' : '新增簡報連結'}</summary>
+                    <form id="assignment-guide-form" data-assignment-id="${escapeHtml(assignment.Assignment_ID)}" onsubmit="saveAssignmentGuide(event)" class="mt-3">
+                        <fieldset class="min-w-0" ${assignmentGuideSaveInFlight ? 'disabled' : ''}>
+                            ${buildAssignmentGuideInputMarkup('assignment-guide-url', assignment.Guide_URL)}
+                            <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                                <span class="text-[11px] text-[#6E6E73]">清空連結後儲存即可移除，不會刪除 Google 原始簡報。</span>
+                                <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-[#0066CC] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">儲存連結</button>
+                            </div>
+                        </fieldset>
+                    </form>
+                </details>` : ''}
+            </div>`;
+        }
+
+        async function saveAssignmentGuide(event) {
+            event.preventDefault();
+            if (assignmentGuideSaveInFlight) return;
+            const form = event.currentTarget;
+            const assignmentId = form.dataset.assignmentId;
+            if (!currentUser || !canManageAssignmentBoard(getEffectiveRoleContext().effectiveRole)) {
+                showToast('請切換到形印組身分後再管理規範簡報。', 'warning');
+                return;
+            }
+            const guideUrl = readAssignmentGuideInput('assignment-guide-url');
+            if (guideUrl === null) return;
+            if (!isRemoteSyncEnabled() || !authSessionToken) {
+                showToast('請先登入並連線至雲端，再儲存簡報連結。', 'warning');
+                return;
+            }
+            if (remoteMutationInFlight) {
+                showToast('另一項操作仍在儲存，請稍候再試。', 'info');
+                return;
+            }
+            assignmentGuideSaveInFlight = true;
+            remoteMutationInFlight = true;
+            const fieldset = form.querySelector('fieldset');
+            const button = form.querySelector('button[type="submit"]');
+            fieldset.disabled = true;
+            form.setAttribute('aria-busy', 'true');
+            button.innerHTML = '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>儲存中…';
+            try {
+                const response = await requestGas('updateAssignmentGuide', { assignmentId: assignmentId, guideUrl: guideUrl, stateRevision: remoteStateRevision });
+                if (response.data?.assignmentId !== assignmentId || response.data?.guideUrl !== guideUrl
+                    || !applyBackendStateResponse(response, { preferredUserId: currentUser?.User_ID || '', allowFallback: false, skipRender: true })) {
+                    throw new Error('尚未取得儲存確認，請保留連結並重試。');
+                }
+                assignmentGuideSaveInFlight = false;
+                renderAll();
+                if (activeAssignmentId === assignmentId) renderAssignmentDetailModal({ preserveGuideInput: false });
+                showToast(guideUrl ? '規範簡報已儲存，適用學生可按「查看規範」閱讀。' : '已移除簡報連結，Google 原始簡報不受影響。', 'success');
+            } catch (error) {
+                const feedback = form.querySelector('#assignment-guide-url-error');
+                if (feedback) feedback.textContent = error.message || '尚未儲存，請確認連線後重試。';
+                if (!error.sessionExpired) showToast(error.message || '連結尚未儲存，已保留輸入內容。', 'warning');
+            } finally {
+                assignmentGuideSaveInFlight = false;
+                remoteMutationInFlight = false;
+                fieldset.disabled = false;
+                form.removeAttribute('aria-busy');
+                button.textContent = '儲存連結';
+            }
+        }
+
+        function buildAssignmentGuidePreviewMarkup(record) {
+            const link = getGoogleSlidesLink(record?.Guide_URL);
+            if (!link) return '<p class="text-sm text-[#6E6E73]">這份簡報連結無法預覽，請聯絡形印組確認。</p>';
+            return `<div class="space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-3">
+                    <p class="text-xs text-[#6E6E73]">可使用簡報下方的箭頭切換頁面，不必下載檔案。</p>
+                    <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-xl border border-[#CFE3FF] bg-white px-3 py-2 text-xs font-bold text-[#0066CC]"><i data-lucide="external-link" class="h-3.5 w-3.5"></i>在新分頁開啟</a>
+                </div>
+                <p id="assignment-guide-loading" role="status" class="flex items-center gap-2 text-xs text-[#0066CC]"><span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-[#CFE3FF] border-t-[#0066CC] motion-safe:animate-spin"></span>正在載入簡報…</p>
+                <iframe title="${escapeHtml(record.Title || '規範簡報')}" src="${escapeHtml(link.embedUrl)}" style="width:100%;aspect-ratio:16/10;height:auto;min-height:220px" class="block rounded-2xl border border-[#E8E8ED] bg-white" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation" allowfullscreen onload="document.getElementById('assignment-guide-loading')?.classList.add('hidden')"></iframe>
+                <p class="text-xs leading-relaxed text-[#6E6E73]">若畫面空白、無法載入或要求權限，請按「在新分頁開啟」，使用獲授權的 Google 帳號登入，或請提供者調整分享設定。這裡只提供閱讀，不會更改原始簡報。</p>
+                <div class="flex justify-end"><button type="button" onclick="closeFilePreviewModal()" class="rounded-xl bg-[#0066CC] px-4 py-2.5 text-xs font-bold text-white">關閉預覽，返回項目</button></div>
+            </div>`;
+        }
+
         function getDriveFileIdFromRecord(record) {
             if (!record || typeof record !== "object") return "";
             const explicitId = String(record.Drive_File_ID || "").trim();
@@ -9107,6 +9665,12 @@
         function getPreviewRecord(recordType, recordId) {
             const id = String(recordId || "");
             if (!id) return null;
+            if (recordType === 'assignment-guide') {
+                const assignment = state.Assignments.find(function(item) { return item.Assignment_ID === id; });
+                const role = getEffectiveRoleContext();
+                return currentUser && assignment && getGoogleSlidesLink(assignment.Guide_URL)
+                    && (canManageAssignmentBoard(role.effectiveRole) || getAssignmentTargetTeamIds(assignment).includes(role.effectiveTeamID)) ? assignment : null;
+            }
             const mapping = {
                 file: { collection: state.Files, key: "File_ID" },
                 "assignment-resource": { collection: state.Assignment_Resources, key: "Resource_ID" },
@@ -9184,25 +9748,44 @@
                 showToast("找不到要預覽的檔案。", "warning");
                 return;
             }
-            activeFilePreviewContext = { recordType: recordType, recordId: String(recordId || "") };
+            showFilePreview({ recordType: recordType, recordId: String(recordId || "") });
+        }
+
+        function showFilePreview(context) {
+            filePreviewReturnFocus = document.activeElement;
+            activeFilePreviewContext = context;
             renderFilePreviewModal();
             const modal = document.getElementById("file-preview-modal");
-            if (modal) animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.98, fromBlur: 10, duration: 360 });
+            if (modal) {
+                animateSurfaceOpen(modal, modal.firstElementChild, { fromY: 16, fromScale: 0.98, fromBlur: 10, duration: 360 });
+                modal.querySelector('button[aria-label]')?.focus({ preventScroll: true });
+            }
         }
 
         function closeFilePreviewModal() {
             activeFilePreviewContext = null;
+            document.getElementById('file-preview-modal-body')?.replaceChildren();
             const modal = document.getElementById("file-preview-modal");
             if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
+            if (filePreviewReturnFocus?.isConnected) filePreviewReturnFocus.focus({ preventScroll: true });
+            filePreviewReturnFocus = null;
+        }
+
+        function handleFilePreviewKeydown(event) {
+            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFilePreviewModal(); }
+            if (event.key !== 'Tab') return;
+            const items = Array.from(event.currentTarget.querySelectorAll('button, a[href], iframe')).filter(function(item) { return item.getClientRects().length > 0; });
+            if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1]?.focus(); }
+            else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0]?.focus(); }
         }
 
         function renderFilePreviewModal() {
             const title = document.getElementById("file-preview-modal-title");
             const body = document.getElementById("file-preview-modal-body");
             const context = activeFilePreviewContext;
-            const record = context ? getPreviewRecord(context.recordType, context.recordId) : null;
+            const record = context ? context.previewRecord || getPreviewRecord(context.recordType, context.recordId) : null;
             if (title) title.textContent = record ? getRecordPreviewTitle(record) : "檔案預覽";
-            if (body) body.innerHTML = buildFilePreviewMarkup(record);
+            if (body) body.innerHTML = context?.recordType.startsWith('assignment-guide') ? buildAssignmentGuidePreviewMarkup(record) : buildFilePreviewMarkup(record);
             renderLucideIcons();
         }
 
@@ -9275,8 +9858,16 @@
         }
 
         function setAssignmentBrowserValue(key, value) {
+            if (assignmentReorderInFlight) return;
+            const keepPillFocus = document.activeElement?.getAttribute('data-file-pill-button') === key;
             assignmentBrowserState[key] = value;
             renderAll();
+            if (keepPillFocus) {
+                const button = Array.from(document.querySelectorAll('[data-file-pill-button]')).find(function(item) {
+                    return item.dataset.filePillButton === key && item.dataset.pillValue === value;
+                });
+                button?.focus({ preventScroll: true });
+            }
         }
 
         function resetAssignmentBrowserFilters() {
@@ -9412,6 +10003,10 @@
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">項目說明</label>
                         <textarea id="assignment-post-body" rows="4" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs resize-none" placeholder="說明這份作業要繳交什麼、格式怎麼看、截止時間是什麼。"></textarea>
+                    </div>
+
+                    <div class="rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] p-4">
+                        ${buildAssignmentGuideInputMarkup('assignment-post-guide-url')}
                     </div>
 
                     <div class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4">
@@ -9577,6 +10172,8 @@
 
             const title = String((document.getElementById('assignment-post-title') || {}).value || "").trim();
             const body = String((document.getElementById('assignment-post-body') || {}).value || "").trim();
+            const guideUrl = readAssignmentGuideInput('assignment-post-guide-url');
+            if (guideUrl === null) return;
             const requirementText = String((document.getElementById('assignment-post-requirement') || {}).value || "").trim();
             const stageId = String((document.getElementById('assignment-post-stage') || {}).value || "").trim();
             const dueDate = String((document.getElementById('assignment-post-due-date') || {}).value || "").trim();
@@ -9650,6 +10247,7 @@
                 Stage_ID: stageId,
                 Title: title,
                 Body: body,
+                Guide_URL: guideUrl,
                 Submission_Mode: submissionMode,
                 Requirement_Text: requirementText,
                 Target_Mode: targetMode,
@@ -9669,6 +10267,7 @@
 
             const submitButton = event.currentTarget && event.currentTarget.querySelector('button[type="submit"]');
             let assignmentPublished = false;
+            let guideConfirmationPending = false;
             let uploadedResourceCount = 0;
 
             try {
@@ -9707,6 +10306,23 @@
 
                 if (!syncResult.ok) {
                     throw new Error("尚未確認項目發布成功，表單內容已保留。請先依頁面上方的儲存提示處理，再重試發布。");
+                }
+
+                // A retry may refer to an already-created item; never silently drop its guide.
+                const confirmedAssignment = state.Assignments.find(function(item) { return item.Assignment_ID === assignmentId; });
+                if (!syncResult.skipped && String(confirmedAssignment?.Guide_URL || '') !== guideUrl) {
+                    guideConfirmationPending = true;
+                    remoteMutationInFlight = true;
+                    try {
+                        const response = await requestGas('updateAssignmentGuide', { assignmentId: assignmentId, guideUrl: guideUrl, stateRevision: remoteStateRevision });
+                        if (response.data?.assignmentId !== assignmentId || response.data?.guideUrl !== guideUrl
+                            || !applyBackendStateResponse(response, { preferredUserId: currentUser?.User_ID || '', allowFallback: false, skipRender: true })) {
+                            throw new Error('尚未取得簡報連結的儲存確認。');
+                        }
+                    } finally {
+                        remoteMutationInFlight = false;
+                    }
+                    guideConfirmationPending = false;
                 }
 
                 for (let index = 0; index < resourceFiles.length; index += 1) {
@@ -9761,7 +10377,12 @@
                 showToast(publishToastText, publishToastType);
             } catch (error) {
                 console.error("發布繳交項目或上傳項目附件失敗", error);
-                if (assignmentPublished) {
+                if (guideConfirmationPending) {
+                    const message = '項目已建立，但簡報連結尚未確認儲存。表單與待上傳附件已保留；請確認前端與 GAS 都已更新後重試，不必重新建立項目。';
+                    const feedback = document.getElementById('assignment-post-guide-url-error');
+                    if (feedback) feedback.textContent = message;
+                    showToast(message, 'warning');
+                } else if (assignmentPublished) {
                     pendingAssignmentPostResourceFiles = [];
                     closeAssignmentPostModal();
                     renderAll();
@@ -10617,7 +11238,11 @@
 
         function renderAssignmentDetailModal(options = {}) {
             const modalBody = document.getElementById('assignment-detail-modal-body');
-            if (!modalBody || assignmentSubmitInFlight) return;
+            if (!modalBody || assignmentSubmitInFlight || assignmentGuideSaveInFlight) return;
+            const previousGuideForm = document.getElementById('assignment-guide-form');
+            const guideDraft = options.preserveGuideInput !== false && options.preserveInputs !== false
+                && previousGuideForm?.dataset.assignmentId === activeAssignmentId && document.getElementById('assignment-guide-editor')?.open
+                ? document.getElementById('assignment-guide-url')?.value : null;
             document.getElementById('assignment-wizard-controls')?.remove();
             document.getElementById('assignment-wizard-nav')?.remove();
             modalBody.classList.remove('assignment-wizard');
@@ -10759,6 +11384,8 @@
                         <p class="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-[#1D1D1F]">${escapeHtml(assignment.Body)}</p>
                     </div>
                 ` : ''}
+
+                ${buildAssignmentGuidePanelMarkup(assignment, isExhibitionAdmin)}
 
                 <div class="mt-4">
                     ${buildAssignmentResourcePanelMarkup(assignment, isExhibitionAdmin)}
@@ -10914,6 +11541,10 @@
             if (canSubmit && !isExhibitionAdmin) {
                 if (previousFileInput?.files?.length) document.getElementById('assignment-submit-file')?.replaceWith(previousFileInput);
                 installAssignmentSubmissionWizard();
+            }
+            if (guideDraft !== null && document.getElementById('assignment-guide-url')) {
+                document.getElementById('assignment-guide-editor').open = true;
+                document.getElementById('assignment-guide-url').value = guideDraft;
             }
             refreshAssignmentSubmitRuleValidation();
             renderLucideIcons();
@@ -11745,7 +12376,7 @@
             const emailInput = document.getElementById("reg-shape-email");
             const passwordInput = document.getElementById("reg-shape-pwd");
             const submitButton = document.getElementById("btn-register-shape-print-submit");
-            const isValid = shapePrintInviteStatus === "valid" && shapePrintInviteData && shapePrintInviteToken;
+            const isValid = isRegistrationEntryAvailable('reg-shape-print') && shapePrintInviteStatus === "valid" && shapePrintInviteData && shapePrintInviteToken;
 
             if (status) {
                 let message = "請透過形印組長或指導教師提供的一人一組邀請連結開啟此頁面。";
@@ -11781,6 +12412,7 @@
             }
             if (submitButton) {
                 submitButton.disabled = !isValid || registerSubmitInFlight;
+                submitButton.classList.toggle('opacity-50', !isValid || registerSubmitInFlight);
             }
         }
 
@@ -11834,7 +12466,199 @@
             });
         }
 
+        function captureRegistrationOptions(data) {
+            const options = data?.registrationOptions;
+            const revision = data?.registrationOptionsRevision;
+            if (!options || REGISTRATION_ENTRIES.some(function(entry) { return typeof options[entry.key] !== 'boolean'; })
+                || typeof revision !== 'number' || !Number.isInteger(revision) || revision < registrationOptionsRevision) return false;
+            registrationOptions = Object.fromEntries(REGISTRATION_ENTRIES.map(function(entry) { return [entry.key, options[entry.key]]; }));
+            registrationOptionsRevision = revision;
+            registrationOptionsStatus = 'ready';
+            registrationOptionsRefreshFailed = false;
+            return true;
+        }
+
+        async function refreshRegistrationOptions(options = {}) {
+            if (!isRemoteSyncEnabled()) return registrationOptionsStatus === 'ready';
+            if (registrationOptionsPromise) return registrationOptionsPromise;
+            if (!options.force && Date.now() - registrationOptionsLastFetchAt < 15000) return registrationOptionsStatus === 'ready';
+            registrationOptionsLastFetchAt = Date.now();
+            if (registrationOptionsStatus !== 'ready') registrationOptionsStatus = 'loading';
+            renderRegistrationOptions();
+            renderRegistrationSettingsPanel();
+            registrationOptionsPromise = (async function() {
+                try {
+                    const response = await requestGas('getRegistrationOptions', {}, 'GET');
+                    if (!captureRegistrationOptions(response.data) && registrationOptionsStatus !== 'ready') throw new Error('OPTIONS_UNAVAILABLE');
+                    return registrationOptionsStatus === 'ready';
+                } catch (error) {
+                    registrationOptionsRefreshFailed = true;
+                    if (registrationOptionsStatus !== 'ready') registrationOptionsStatus = 'error';
+                    return false;
+                } finally {
+                    registrationOptionsPromise = null;
+                    if (!currentUser) renderAuthPanels();
+                    renderRegistrationSettingsPanel();
+                }
+            })();
+            return registrationOptionsPromise;
+        }
+
+        function isRegistrationEntryAvailable(tab) {
+            const entry = REGISTRATION_ENTRIES.find(function(item) { return item.tab === tab; });
+            return Boolean(entry && registrationOptionsStatus === 'ready' && registrationOptions[entry.key]);
+        }
+
+        function checkRegistrationEntry(tab) {
+            if (isRegistrationEntryAvailable(tab)) return true;
+            showToast(registrationOptionsStatus === 'ready'
+                ? '這個註冊方式目前暫停開放，請聯絡形印組長或指導老師。'
+                : '正在確認可用的註冊方式，請稍候或按「重新確認」。', 'info');
+            renderRegistrationOptions();
+            refreshRegistrationOptions();
+            return false;
+        }
+
+        function handleRegistrationTabKeydown(event) {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || registerSubmitInFlight) return;
+            const entries = REGISTRATION_ENTRIES.filter(function(entry) { return isRegistrationEntryAvailable(entry.tab); });
+            if (!entries.length) return;
+            event.preventDefault();
+            const current = entries.findIndex(function(entry) { return entry.tab === activeRegisterSubTab; });
+            const index = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1
+                : (current + (event.key === 'ArrowRight' ? 1 : -1) + entries.length) % entries.length;
+            toggleRegisterSubTab(entries[index].tab);
+            document.getElementById('sub-tab-' + entries[index].tab)?.focus();
+        }
+
+        function renderRegistrationOptions() {
+            const entries = REGISTRATION_ENTRIES.filter(function(entry) { return isRegistrationEntryAvailable(entry.tab); });
+            const ready = registrationOptionsStatus === 'ready';
+            if (ready && !entries.some(function(entry) { return entry.tab === activeRegisterSubTab; })) {
+                activeRegisterSubTab = shapePrintInviteToken && entries.some(function(entry) { return entry.key === 'shapePrint'; })
+                    ? 'reg-shape-print' : entries[0]?.tab || '';
+            }
+            const tabs = document.getElementById('registration-option-tabs');
+            if (tabs) {
+                tabs.classList.toggle('hidden', entries.length === 0);
+                tabs.style.gridTemplateColumns = 'repeat(' + Math.max(1, Math.min(entries.length, innerWidth < 640 ? 2 : 4)) + ', minmax(0, 1fr))';
+            }
+            REGISTRATION_ENTRIES.forEach(function(entry) {
+                const available = isRegistrationEntryAvailable(entry.tab);
+                const selected = available && activeRegisterSubTab === entry.tab;
+                const button = document.getElementById('sub-tab-' + entry.tab);
+                const form = document.getElementById('form-sub-' + entry.tab);
+                if (button) {
+                    button.classList.toggle('hidden', !available);
+                    button.classList.toggle('bg-white', selected);
+                    button.classList.toggle('text-[#1D1D1F]', selected);
+                    button.classList.toggle('shadow-sm', selected);
+                    button.classList.toggle('text-[#86868B]', !selected);
+                    button.setAttribute('aria-selected', String(selected));
+                    button.setAttribute('aria-controls', 'form-sub-' + entry.tab);
+                    button.tabIndex = selected ? 0 : -1;
+                }
+                if (form) {
+                    form.classList.toggle('hidden', !selected);
+                    form.setAttribute('role', 'tabpanel');
+                    form.setAttribute('aria-labelledby', 'sub-tab-' + entry.tab);
+                    form.querySelectorAll('input, button').forEach(function(input) { input.disabled = !available || registerSubmitInFlight; });
+                }
+            });
+            document.getElementById('topbar-register-member')?.classList.toggle('hidden', !isRegistrationEntryAvailable('reg-code'));
+            document.getElementById('topbar-register-activation')?.classList.toggle('hidden', !isRegistrationEntryAvailable('reg-pending'));
+            const notice = document.getElementById('registration-options-notice');
+            if (notice) notice.classList.toggle('hidden', ready && entries.length > 0);
+            const message = document.getElementById('registration-options-message');
+            if (message) message.textContent = ready ? '目前暫停開放新註冊。已有帳號可使用「登入系統」。'
+                : registrationOptionsStatus === 'error' ? '暫時無法確認註冊方式，請重新確認。您仍可使用已有帳號登入。' : '正在確認註冊方式…';
+            document.getElementById('registration-options-retry')?.classList.toggle('hidden', registrationOptionsStatus !== 'error');
+            renderShapePrintInviteForm();
+        }
+
+        function canManageRegistrationOptions() {
+            return Boolean(currentUser) && getEffectiveRoleContext().effectiveRole === 'SuperAdmin';
+        }
+
+        function buildRegistrationSettingsMarkup() {
+            if (!canManageRegistrationOptions()) return '';
+            if (registrationOptionsDraft && registrationOptionsDraft.owner !== currentUser.User_ID) registrationOptionsDraft = null;
+            const ready = registrationOptionsStatus === 'ready';
+            const draft = registrationOptionsDraft;
+            const values = draft?.options || registrationOptions;
+            const conflict = draft && draft.revision !== registrationOptionsRevision;
+            return `<section class="rounded-3xl border border-[#DCE8F8] bg-[#F7FAFF] p-5 shadow-sm md:p-6">
+                <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i></span><div><h3 class="text-base font-bold text-[#1D1D1F]">註冊入口顯示設定</h3><p class="mt-1 text-xs leading-relaxed text-[#6E6E73]">由形印組長與指導老師控制登入頁的四種註冊方式。關閉後會隱藏入口並暫停該方式註冊；已有帳號仍可登入。</p></div></div>
+                ${ready ? `<form id="registration-settings-form" onsubmit="saveRegistrationOptions(event)" aria-busy="${registrationOptionsSaveInFlight}" class="mt-4">
+                    <fieldset ${registrationOptionsSaveInFlight ? 'disabled' : ''} class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
+                        ${REGISTRATION_ENTRIES.map(function(entry) { return `<label class="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-[#E0E7F0] bg-white p-4"><span class="min-w-0"><span class="block text-sm font-bold text-[#1D1D1F]">${entry.label}</span><span class="mt-1 block text-xs leading-relaxed text-[#6E6E73]">${entry.description}</span></span><input name="${entry.key}" type="checkbox" role="switch" aria-label="顯示${entry.label}" ${values[entry.key] ? 'checked' : ''} onchange="updateRegistrationOptionsDraft()" class="registration-switch"></label>`; }).join('')}
+                    </fieldset>
+                    <p id="registration-settings-feedback" role="status" aria-live="polite" class="mt-3 text-xs leading-relaxed ${conflict || registrationOptionsSaveMessage || registrationOptionsRefreshFailed ? 'text-[#C65A00]' : 'text-[#6E6E73]'}">${escapeHtml(registrationOptionsSaveMessage || (conflict ? '其他裝置已更新設定。您的調整仍保留，請重新載入設定後再修改。' : registrationOptionsRefreshFailed ? '無法確認最新設定，目前保留上次取得的內容。請重新載入設定後再調整。' : draft ? '尚未儲存；按「儲存設定」後才會套用到其他裝置。' : '目前顯示的是已儲存的設定。'))}</p>
+                    <div class="mt-4 flex flex-wrap justify-end gap-2"><button type="button" onclick="reloadRegistrationOptions()" ${registrationOptionsSaveInFlight ? 'disabled' : ''} class="rounded-xl border border-[#D9E2EE] bg-white px-4 py-2.5 text-xs font-bold text-[#6E6E73] disabled:opacity-50">重新載入設定</button><button id="registration-settings-save" type="submit" ${!draft || conflict || registrationOptionsSaveInFlight ? 'disabled' : ''} class="inline-flex items-center gap-2 rounded-xl bg-[#0066CC] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40">${registrationOptionsSaveInFlight ? '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>儲存中…' : '儲存設定'}</button></div>
+                </form>` : `<p class="mt-4 text-xs text-[#6E6E73]">${registrationOptionsStatus === 'error' ? '暫時無法取得註冊設定，請重新載入。' : '正在載入註冊設定…'}</p><button type="button" onclick="refreshRegistrationOptions({ force: true })" class="mt-3 text-xs font-bold text-[#0066CC]">重新載入設定</button>`}
+            </section>`;
+        }
+
+        function renderRegistrationSettingsPanel() {
+            const panel = document.getElementById('registration-settings-panel');
+            if (panel) { panel.innerHTML = buildRegistrationSettingsMarkup(); renderLucideIcons(); }
+        }
+
+        function updateRegistrationOptionsDraft() {
+            if (!canManageRegistrationOptions() || registrationOptionsSaveInFlight) return;
+            const form = document.getElementById('registration-settings-form');
+            const options = Object.fromEntries(REGISTRATION_ENTRIES.map(function(entry) { return [entry.key, form.elements[entry.key].checked]; }));
+            const revision = registrationOptionsDraft?.owner === currentUser.User_ID ? registrationOptionsDraft.revision : registrationOptionsRevision;
+            registrationOptionsDraft = REGISTRATION_ENTRIES.every(function(entry) { return options[entry.key] === registrationOptions[entry.key]; })
+                ? null : { owner: currentUser.User_ID, options: options, revision: revision };
+            registrationOptionsSaveMessage = '';
+            const feedback = document.getElementById('registration-settings-feedback');
+            if (feedback) feedback.textContent = registrationOptionsDraft ? '尚未儲存；按「儲存設定」後才會套用到其他裝置。' : '目前顯示的是已儲存的設定。';
+            const button = document.getElementById('registration-settings-save');
+            if (button) button.disabled = !registrationOptionsDraft || registrationOptionsDraft.revision !== registrationOptionsRevision;
+        }
+
+        async function reloadRegistrationOptions() {
+            if (registrationOptionsSaveInFlight) return;
+            registrationOptionsDraft = null;
+            registrationOptionsSaveMessage = '';
+            await refreshRegistrationOptions({ force: true });
+            renderRegistrationSettingsPanel();
+        }
+
+        async function saveRegistrationOptions(event) {
+            event.preventDefault();
+            if (registrationOptionsSaveInFlight || !registrationOptionsDraft || !canManageRegistrationOptions()) return;
+            if (!isRemoteSyncEnabled() || !authSessionToken) { showToast('請先登入並連線至雲端，再儲存註冊設定。', 'warning'); return; }
+            if (remoteMutationInFlight) { showToast('另一項操作仍在儲存，請稍候再試。', 'info'); return; }
+            const draft = cloneStateSnapshot(registrationOptionsDraft);
+            registrationOptionsSaveInFlight = true;
+            remoteMutationInFlight = true;
+            registrationOptionsSaveMessage = '';
+            renderRegistrationSettingsPanel();
+            try {
+                const response = await requestGas('updateRegistrationOptions', { registrationOptions: draft.options, registrationOptionsRevision: draft.revision });
+                if (REGISTRATION_ENTRIES.some(function(entry) { return response.data?.registrationOptions?.[entry.key] !== draft.options[entry.key]; })
+                    || !applyBackendStateResponse(response, { preferredUserId: currentUser?.User_ID || '', allowFallback: false, skipRender: true })) {
+                    throw new Error('尚未取得設定儲存確認，已保留您的選擇，請重試。');
+                }
+                registrationOptionsDraft = null;
+                showToast('註冊入口設定已儲存，其他裝置的登入頁會自動更新。', 'success');
+                renderRegistrationOptions();
+            } catch (error) {
+                registrationOptionsSaveMessage = /REQUEST_TIMEOUT/.test(error.message || '') ? '連線等候較久，尚未確認設定已儲存。已保留您的選擇，請重試。'
+                    : String(error.message || '設定尚未儲存，已保留您的選擇。').replace(/^[A-Z_]+:\s*/, '');
+                if (/SETTINGS_CONFLICT/.test(error.message || '')) await refreshRegistrationOptions({ force: true });
+                if (!error.sessionExpired) showToast(registrationOptionsSaveMessage, 'warning');
+            } finally {
+                registrationOptionsSaveInFlight = false;
+                remoteMutationInFlight = false;
+                renderRegistrationSettingsPanel();
+            }
+        }
+
         function renderAuthPanels() {
+            renderRegistrationOptions();
             const title = document.getElementById('auth-title');
             const subtitle = document.getElementById('auth-subtitle');
             const tabs = document.getElementById('auth-primary-tabs');
@@ -11913,7 +12737,8 @@
             }
 
             if (title) title.textContent = "畢展形印組管理系統";
-            if (subtitle) subtitle.textContent = "請輸入您的電子郵件與密碼登入，或使用邀請碼註冊";
+            if (subtitle) subtitle.textContent = registrationOptionsStatus === 'ready' && Object.values(registrationOptions).some(Boolean)
+                ? "請輸入您的電子郵件與密碼登入，或選擇開放的方式註冊" : "請使用已註冊的電子郵件與密碼登入";
             if (tabs) tabs.classList.remove('hidden');
 
             if (authScreenMode === "register") {
@@ -11979,6 +12804,7 @@
             closeTopbarMenu();
             clearPasswordResetState();
             if (type === "register") {
+                refreshRegistrationOptions();
                 setAuthScreenMode("register");
                 if (subType) {
                     toggleRegisterSubTab(subType);
@@ -12342,6 +13168,7 @@
 
         function toggleRegisterSubTab(subType) {
             if (registerSubmitInFlight) return;
+            if (!checkRegistrationEntry(subType)) return;
 
             const tabs = ['reg-leader', 'reg-code', 'reg-pending', 'reg-shape-print'];
             if (!tabs.includes(subType)) return;
@@ -12364,6 +13191,7 @@
                 }
             });
             activeRegisterSubTab = subType;
+            renderRegistrationOptions();
             if (subType === "reg-shape-print") {
                 renderShapePrintInviteForm();
             }
@@ -12404,9 +13232,12 @@
                 clearStoredSession();
                 clearPasswordResetState();
                 authScreenMode = "login";
+                registrationOptionsDraft = null;
+                registrationOptionsSaveMessage = '';
                 logoutInFlight = false;
                 showToast("您已登出系統", "info");
                 renderAll();
+                refreshRegistrationOptions({ force: true });
             }
         }
 
@@ -12703,6 +13534,7 @@
         async function handleRegisterLeader(e) {
             e.preventDefault();
             if (registerSubmitInFlight) return;
+            if (!checkRegistrationEntry('reg-leader')) return;
 
             const teamName = document.getElementById('reg-leader-team').value.trim();
             const name = document.getElementById('reg-leader-name').value.trim();
@@ -12766,6 +13598,7 @@
         async function handleRegisterMember(e) {
             e.preventDefault();
             if (registerSubmitInFlight) return;
+            if (!checkRegistrationEntry('reg-code')) return;
 
             const inviteCode = document.getElementById('reg-member-code').value.trim();
             const name = document.getElementById('reg-member-name').value.trim();
@@ -12830,6 +13663,7 @@
         async function handleRegisterShapePrintMember(e) {
             e.preventDefault();
             if (registerSubmitInFlight) return;
+            if (!checkRegistrationEntry('reg-shape-print')) return;
 
             if (shapePrintInviteStatus !== "valid" || !shapePrintInviteToken || !shapePrintInviteData) {
                 showToast("請使用有效的形印組專屬邀請連結註冊。", "warning");
@@ -12878,6 +13712,7 @@
         async function handleRegisterPending(e) {
             e.preventDefault();
             if (registerSubmitInFlight) return;
+            if (!checkRegistrationEntry('reg-pending')) return;
 
             const email = document.getElementById('reg-pending-email').value.trim();
             const name = document.getElementById('reg-pending-name').value.trim();
@@ -16762,8 +17597,7 @@
                             </div>
                             <div class="xl:col-span-2">
                                 <label class="block text-[10px] font-bold text-[#1D1D1F] mb-1.5">繳交形式</label>
-                                <div class="relative grid w-full min-w-0 grid-cols-4 gap-1 p-1 rounded-full bg-[#F5F5F7] border border-[#E5E5EA] overflow-hidden" data-file-pill-group="submissionMode">
-                                    <span data-file-pill-indicator="submissionMode" class="pointer-events-none absolute inset-y-1 left-0 rounded-full bg-white border border-[#E5E5EA] shadow-sm"></span>
+                                <div class="relative grid w-full min-w-0 grid-cols-4 gap-1 p-1 rounded-full bg-[#F5F5F7] border border-[#E5E5EA] overflow-hidden" data-file-pill-group="submissionMode" role="group" aria-label="繳交形式">
                                     <button type="button" data-file-pill-button="submissionMode" data-pill-value="all" data-active="${assignmentBrowserState.submissionMode === 'all'}" onclick="setAssignmentBrowserValue('submissionMode', 'all')" class="relative z-10 inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap px-1.5 sm:px-2.5 py-2 rounded-full text-[9px] sm:text-[10px] leading-none font-semibold transition-all ${assignmentBrowserState.submissionMode === 'all' ? 'text-[#1D1D1F]' : 'text-[#86868B] hover:text-[#1D1D1F]'}">全部</button>
                                     <button type="button" data-file-pill-button="submissionMode" data-pill-value="file" data-active="${assignmentBrowserState.submissionMode === 'file'}" onclick="setAssignmentBrowserValue('submissionMode', 'file')" class="relative z-10 inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap px-1.5 sm:px-2.5 py-2 rounded-full text-[9px] sm:text-[10px] leading-none font-semibold transition-all ${assignmentBrowserState.submissionMode === 'file' ? 'text-[#1D1D1F]' : 'text-[#86868B] hover:text-[#1D1D1F]'}">檔案</button>
                                     <button type="button" data-file-pill-button="submissionMode" data-pill-value="text" data-active="${assignmentBrowserState.submissionMode === 'text'}" onclick="setAssignmentBrowserValue('submissionMode', 'text')" class="relative z-10 inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap px-1.5 sm:px-2.5 py-2 rounded-full text-[9px] sm:text-[10px] leading-none font-semibold transition-all ${assignmentBrowserState.submissionMode === 'text' ? 'text-[#1D1D1F]' : 'text-[#86868B] hover:text-[#1D1D1F]'}">文字</button>
@@ -16780,8 +17614,7 @@
                             ` : `
                                 <div class="xl:col-span-2">
                                     <label class="block text-[10px] font-bold text-[#1D1D1F] mb-1.5">檔案狀態</label>
-                                    <div class="relative grid w-full min-w-0 grid-cols-4 gap-1 p-1 rounded-full bg-[#F5F5F7] border border-[#E5E5EA] overflow-hidden" data-file-pill-group="status">
-                                        <span data-file-pill-indicator="status" class="pointer-events-none absolute inset-y-1 left-0 rounded-full bg-white border border-[#E5E5EA] shadow-sm"></span>
+                                    <div class="relative grid w-full min-w-0 grid-cols-4 gap-1 p-1 rounded-full bg-[#F5F5F7] border border-[#E5E5EA] overflow-hidden" data-file-pill-group="status" role="group" aria-label="繳交狀態">
                                         <button type="button" data-file-pill-button="status" data-pill-value="all" data-active="${assignmentBrowserState.status === 'all'}" onclick="setAssignmentBrowserValue('status', 'all')" class="relative z-10 inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap px-1.5 sm:px-2.5 py-2 rounded-full text-[9px] sm:text-[10px] leading-none font-semibold transition-all ${assignmentBrowserState.status === 'all' ? 'text-[#1D1D1F]' : 'text-[#86868B] hover:text-[#1D1D1F]'}">全部</button>
                                         <button type="button" data-file-pill-button="status" data-pill-value="pending" data-active="${assignmentBrowserState.status === 'pending'}" onclick="setAssignmentBrowserValue('status', 'pending')" class="relative z-10 inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap px-1.5 sm:px-2.5 py-2 rounded-full text-[9px] sm:text-[10px] leading-none font-semibold transition-all ${assignmentBrowserState.status === 'pending' ? 'text-[#1D1D1F]' : 'text-[#86868B] hover:text-[#1D1D1F]'}">待繳交</button>
                                         <button type="button" data-file-pill-button="status" data-pill-value="submitted" data-active="${assignmentBrowserState.status === 'submitted'}" onclick="setAssignmentBrowserValue('status', 'submitted')" class="relative z-10 inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap px-1.5 sm:px-2.5 py-2 rounded-full text-[9px] sm:text-[10px] leading-none font-semibold transition-all ${assignmentBrowserState.status === 'submitted' ? 'text-[#1D1D1F]' : 'text-[#86868B] hover:text-[#1D1D1F]'}">已繳交</button>
@@ -16803,9 +17636,16 @@
                                     <option value="due" ${assignmentBrowserState.sortBy === "due" ? "selected" : ""}>截止時間</option>
                                     <option value="title" ${assignmentBrowserState.sortBy === "title" ? "selected" : ""}>標題 A-Z</option>
                                     <option value="progress" ${assignmentBrowserState.sortBy === "progress" ? "selected" : ""}>繳交進度</option>
+                                    ${isExhibitionAdmin ? `<option value="manual" ${assignmentBrowserState.sortBy === "manual" ? "selected" : ""}>手動排序</option>` : ''}
                                 </select>
                             </div>
                         </div>
+                        ${isExhibitionAdmin && assignmentBrowserState.sortBy === 'manual' ? `
+                            <div class="mt-3 flex items-center gap-2 rounded-2xl border border-[#CFE3FF] bg-[#F2F7FF] px-3.5 py-3 text-[10px] leading-relaxed text-[#005BB5]" role="status">
+                                <i data-lucide="hand" class="h-4 w-4 shrink-0"></i>
+                                <span>長按項目左側的拖曳把手，拖到想要的位置後放開；完成後會同步給其他裝置。</span>
+                            </div>
+                        ` : ''}
                     </div>
 
                     <div class="mt-4 space-y-2.5">
@@ -16836,13 +17676,20 @@
                             const latestSubmissionText = lmsMeta.latestSubmissionSummary;
 
                             return `
-                                <article class="assignment-item-card group bg-white border border-[#E5E5EA] rounded-[22px] p-4 md:p-5 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-lg hover:border-[#D9D9E3]">
+                                <article data-assignment-id="${escapeHtml(assignment.Assignment_ID)}" class="assignment-item-card group bg-white border border-[#E5E5EA] rounded-[22px] p-4 md:p-5 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-lg hover:border-[#D9D9E3]">
                                     <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                                         <div class="space-y-3 flex-1 min-w-0">
-                                            <div class="flex flex-wrap items-center gap-2">
-                                                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${statusTone}">${lmsMeta.statusLabel}</span>
-                                                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#0066CC] bg-opacity-10 text-[#0066CC]">${getAssignmentSubmissionModeLabel(assignment.Submission_Mode)}</span>
-                                                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${audienceTone}">${audienceLabel}</span>
+                                            <div class="flex items-center justify-between gap-3">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${statusTone}">${lmsMeta.statusLabel}</span>
+                                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#0066CC] bg-opacity-10 text-[#0066CC]">${getAssignmentSubmissionModeLabel(assignment.Submission_Mode)}</span>
+                                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${audienceTone}">${audienceLabel}</span>
+                                                </div>
+                                                ${isExhibitionAdmin && assignmentBrowserState.sortBy === 'manual' ? `
+                                                    <button type="button" class="assignment-drag-handle shrink-0 inline-flex items-center justify-center rounded-xl border border-[#E5E5EA] bg-[#FBFBFD] text-[#86868B] transition-colors hover:border-[#CFE3FF] hover:bg-[#F2F7FF] hover:text-[#0066CC]" aria-label="長按拖動${escapeHtml(assignment.Title)}調整順序" aria-grabbed="false" onpointerdown="handleAssignmentPointerDown(event, this)">
+                                                        <i data-lucide="grip-vertical" class="h-4 w-4 pointer-events-none"></i>
+                                                    </button>
+                                                ` : ''}
                                             </div>
 
                                             <div>
@@ -17077,6 +17924,7 @@
                 const canSetUpStudentTeam = isShapePrintAccount(currentUser)
                     && String(currentUser.Team_ID || "") === "T00";
                 maybeLoadShapePrintInvites();
+                if (canManageRegistrationOptions() && registrationOptionsStatus === 'idle') refreshRegistrationOptions();
                 let visibleUsers = [];
                 if (isExhibitionAdmin) {
                     visibleUsers = state.Users;
@@ -17098,6 +17946,7 @@
                             }).join('')}</div>`;
 
                 container.innerHTML = `
+                    ${canManageRegistrationOptions() ? `<div id="registration-settings-panel">${buildRegistrationSettingsMarkup()}</div>` : ''}
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         ${canManageShapePrintInvites() ? `
                             <section class="md:col-span-2 rounded-3xl border border-[#DCE8F8] bg-[linear-gradient(135deg,#FFFFFF_0%,#F5F9FF_100%)] p-5 shadow-sm md:p-6">

@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.09.05-health.2';
+var APP_RELEASE = '2026.10.17-registration.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -88,14 +88,17 @@ var TABLE_SCHEMAS = {
       'Email_Notification_Status',
       'Email_Notification_Recipient_Count',
       'Email_Notification_Sent_At',
-      'Email_Notification_Last_Error'
+      'Email_Notification_Last_Error',
+      'Display_Order',
+      'Guide_URL'
     ],
     types: {
       Target_Team_IDs: 'json',
       Allow_ReSubmit: 'boolean',
       Notify_By_Email: 'boolean',
       Email_Notification_Sent: 'boolean',
-      Email_Notification_Recipient_Count: 'number'
+      Email_Notification_Recipient_Count: 'number',
+      Display_Order: 'number'
     }
   },
   Assignment_Resources: {
@@ -383,6 +386,10 @@ function doGet(e) {
       return jsonResponse_(true, buildHealthPayload_());
     }
 
+    if (action === 'getRegistrationOptions') {
+      return jsonResponse_(true, handleGetRegistrationOptions_());
+    }
+
     if (action === 'getShapePrintInvite') {
       return jsonResponse_(true, withLock_(function() {
         return handleGetShapePrintInvite_(e && e.parameter ? e.parameter : {});
@@ -420,6 +427,15 @@ function doPost(e) {
     var payload = parsePayload_(e);
     var action = getAction_(e, payload);
     var result;
+
+    if (action === 'getRegistrationOptions') {
+      return jsonResponse_(true, handleGetRegistrationOptions_());
+    }
+
+    if (action === 'updateRegistrationOptions') {
+      result = withLock_(function() { return handleUpdateRegistrationOptions_(payload); });
+      return jsonResponse_(true, result);
+    }
 
     if (action === 'bootstrap' || action === 'state') {
       result = handleBootstrap_(payload);
@@ -580,6 +596,20 @@ function doPost(e) {
     if (action === 'deleteAssignment') {
       result = withLock_(function() {
         return handleDeleteAssignment_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'reorderAssignments') {
+      result = withLock_(function() {
+        return handleReorderAssignments_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
+    if (action === 'updateAssignmentGuide') {
+      result = withLock_(function() {
+        return handleUpdateAssignmentGuide_(payload);
       });
       return jsonResponse_(true, result);
     }
@@ -2135,6 +2165,70 @@ function buildStateAuditEntries_(beforeState, afterState, actor) {
   return entries;
 }
 
+function getRegistrationOptions_(state) {
+  var raw = state && state.Meta && state.Meta.Registration_Options || {};
+  var result = {};
+  ['leader', 'member', 'activation', 'shapePrint'].forEach(function(key) { result[key] = raw[key] !== false; });
+  return result;
+}
+
+function getRegistrationOptionsRevision_(state) {
+  var revision = Number(state && state.Meta && state.Meta.Registration_Options_Revision || 0);
+  return isFinite(revision) && revision >= 0 ? Math.floor(revision) : 0;
+}
+
+function getRegistrationOptionsPayload_(state) {
+  return {
+    registrationOptions: getRegistrationOptions_(state),
+    registrationOptionsRevision: getRegistrationOptionsRevision_(state),
+    release: APP_RELEASE
+  };
+}
+
+function handleGetRegistrationOptions_() {
+  // The signed-out page needs only these four flags, not the full workbook.
+  var spreadsheet = SpreadsheetApp.openById(getConfig_().spreadsheetId);
+  return getRegistrationOptionsPayload_({ Meta: readMetaSheet_(spreadsheet) });
+}
+
+function assertRegistrationOpen_(state, key) {
+  var labels = { leader: '組長建組', member: '組員註冊', activation: '信箱開通', shapePrint: '形印組加入' };
+  if (getRegistrationOptions_(state)[key] !== true) {
+    throw new Error('REGISTRATION_CLOSED: 「' + labels[key] + '」目前暫停開放，請聯絡形印組長或指導老師。已有帳號可直接登入。');
+  }
+}
+
+function handleUpdateRegistrationOptions_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin']);
+  var options = payload.registrationOptions;
+  var keys = ['leader', 'member', 'activation', 'shapePrint'];
+  if (!options || typeof options !== 'object' || Array.isArray(options)
+    || Object.keys(options).length !== keys.length
+    || keys.some(function(key) { return typeof options[key] !== 'boolean'; })) {
+    throw new Error('請完整設定四種註冊入口的顯示狀態。');
+  }
+  var expected = payload.registrationOptionsRevision;
+  if (typeof expected !== 'number' || !isFinite(expected) || expected < 0 || Math.floor(expected) !== expected) {
+    throw new Error('SETTINGS_CONFLICT: 請重新載入註冊設定後再儲存。');
+  }
+  var currentOptions = getRegistrationOptions_(previousState);
+  if (keys.every(function(key) { return currentOptions[key] === options[key]; })) {
+    return buildClientStateResultForUser_(previousState, actor);
+  }
+  if (expected !== getRegistrationOptionsRevision_(previousState)) {
+    throw new Error('SETTINGS_CONFLICT: 註冊設定已在其他裝置更新。請重新載入設定後再調整。');
+  }
+  var nextState = cloneObject_(previousState);
+  nextState.Meta.Registration_Options = cloneObject_(options);
+  nextState.Meta.Registration_Options_Revision = expected + 1;
+  persistState_(nextState, { existingState: previousState, nextRevision: getStateRevision_(previousState) + 1 });
+  var savedState = loadState_();
+  appendActivityLogEntries_([createActivityLogEntry_(actor, '更新註冊入口', '已更新四種註冊方式的開放狀態。',
+    'registration-settings', 'registration', 'normal', { options: cloneObject_(options) })]);
+  return buildClientStateResultForUser_(savedState, actor);
+}
+
 function handleBootstrap_(payload) {
   var state = loadState_();
   var sessionContext = requireSessionContext_(state, payload);
@@ -2442,6 +2536,15 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
   var existing = normalizeState_(cloneObject_(existingState));
   var incoming = normalizeState_(cloneObject_(incomingState));
   var nextState;
+
+  if (['SuperAdmin', 'Admin'].indexOf(String(actor.Role || '')) >= 0) {
+    incoming.Assignments.forEach(function(assignment) {
+      var saved = existing.Assignments.find(function(item) { return item.Assignment_ID === assignment.Assignment_ID; });
+      // Existing guides use a dedicated action, so older clients cannot erase them.
+      if (saved) assignment.Guide_URL = saved.Guide_URL;
+      else assignment.Guide_URL = normalizeAssignmentGuideUrl_(assignment.Guide_URL);
+    });
+  }
 
   if (String(actor.Role || '') === 'SuperAdmin') {
     nextState = incoming;
@@ -2816,6 +2919,98 @@ function handleDeleteAssignment_(payload) {
     recycleBinItem: recycleEntry,
     driveTrashSummary: driveTrashSummary
   });
+}
+
+// Persist the display order as one locked server transaction. The client sends
+// the complete list so filtered views cannot accidentally drop hidden items.
+function handleReorderAssignments_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  assertExpectedStateRevision_(payload, previousState);
+
+  var requestedIds = payload && payload.assignmentIds;
+  if (typeof requestedIds === 'string') {
+    try {
+      requestedIds = JSON.parse(requestedIds);
+    } catch (error) {
+      requestedIds = requestedIds.split(',');
+    }
+  }
+  requestedIds = ensureArray_(requestedIds).map(function(assignmentId) {
+    return String(assignmentId || '').trim();
+  });
+
+  var currentIds = ensureArray_(previousState.Assignments).map(function(assignment) {
+    return String(assignment.Assignment_ID || '').trim();
+  }).filter(function(assignmentId) {
+    return !!assignmentId;
+  });
+  var idCounts = {};
+  requestedIds.forEach(function(assignmentId) {
+    idCounts[assignmentId] = (idCounts[assignmentId] || 0) + 1;
+  });
+  var invalidId = requestedIds.some(function(assignmentId) {
+    return currentIds.indexOf(assignmentId) === -1 || idCounts[assignmentId] !== 1;
+  });
+  var missingId = currentIds.some(function(assignmentId) {
+    return idCounts[assignmentId] !== 1;
+  });
+  if (invalidId || missingId || requestedIds.length !== currentIds.length) {
+    throw new Error('STATE_CONFLICT: 繳交項目清單已更新，請重新整理後再排序。');
+  }
+
+  var assignmentById = {};
+  ensureArray_(previousState.Assignments).forEach(function(assignment) {
+    assignmentById[String(assignment.Assignment_ID || '')] = assignment;
+  });
+  var nextState = cloneObject_(previousState);
+  nextState.Assignments = requestedIds.map(function(assignmentId, index) {
+    var assignment = cloneObject_(assignmentById[assignmentId]);
+    assignment.Display_Order = index + 1;
+    return assignment;
+  });
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1
+  });
+
+  var savedState = loadState_();
+  appendActivityLogEntries_([
+    createActivityLogEntry_(
+      actor,
+      '調整繳交項目順序',
+      '已更新 ' + requestedIds.length + ' 個繳交項目的顯示順序。',
+      'assignment-order',
+      requestedIds.join(','),
+      'normal',
+      { source: 'reorderAssignments', assignmentIds: requestedIds }
+    )
+  ]);
+  return buildClientStateResultForUser_(savedState, actor, {
+    assignmentOrder: requestedIds
+  });
+}
+
+function handleUpdateAssignmentGuide_(payload) {
+  var previousState = loadState_();
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
+  var assignmentId = String(payload.assignmentId || '');
+  var assignment = previousState.Assignments.find(function(item) { return item.Assignment_ID === assignmentId; });
+  if (!assignment) throw new Error('NOT_FOUND: 找不到這份繳交項目，請重新整理後確認。');
+  if (typeof payload.guideUrl !== 'string') throw new Error('請提供規範簡報連結；移除時請傳送空白連結。');
+  var guideUrl = normalizeAssignmentGuideUrl_(payload.guideUrl);
+  if (String(assignment.Guide_URL || '') === guideUrl) {
+    return buildClientStateResultForUser_(previousState, actor, { assignmentId: assignmentId, guideUrl: guideUrl });
+  }
+  assertExpectedStateRevision_(payload, previousState);
+  var nextState = cloneObject_(previousState);
+  nextState.Assignments.find(function(item) { return item.Assignment_ID === assignmentId; }).Guide_URL = guideUrl;
+  persistState_(nextState, { existingState: previousState, nextRevision: getStateRevision_(previousState) + 1 });
+  var savedState = loadState_();
+  appendActivityLogEntries_([createActivityLogEntry_(actor, '更新規範簡報',
+    (guideUrl ? '已更新' : '已移除') + '「' + assignment.Title + '」的規範簡報連結。',
+    'assignment', assignmentId, 'normal', { source: 'updateAssignmentGuide' })]);
+  return buildClientStateResultForUser_(savedState, actor, { assignmentId: assignmentId, guideUrl: guideUrl });
 }
 
 // Calendar events are deliberately handled through dedicated actions. This
@@ -4873,6 +5068,8 @@ function buildClientStateResultForUser_(state, user, extraData, options) {
   result.currentUser = sanitizeUserRecord_(user);
   result.stateRevision = getStateRevision_(state);
   result.release = APP_RELEASE;
+  result.registrationOptions = getRegistrationOptions_(state);
+  result.registrationOptionsRevision = getRegistrationOptionsRevision_(state);
   if (options.includeHeatmap !== false) {
     result.heatmap = buildHeatmapStats_(buildHeatmapSourceStateForUser_(state, user));
   }
@@ -5316,6 +5513,7 @@ function hydrateAssignmentRecord_(assignment) {
   assignment.Stage_ID = String(assignment.Stage_ID || '');
   assignment.Title = String(assignment.Title || '');
   assignment.Body = String(assignment.Body || '');
+  assignment.Guide_URL = String(assignment.Guide_URL || '').trim();
   assignment.Submission_Mode = String(assignment.Submission_Mode || 'file-text');
   assignment.Requirement_Text = String(assignment.Requirement_Text || '');
   assignment.Target_Mode = String(assignment.Target_Mode || (ensureArray_(assignment.Target_Team_IDs).length > 0 ? 'selected' : 'all'));
@@ -5338,8 +5536,43 @@ function hydrateAssignmentRecord_(assignment) {
   assignment.Email_Notification_Recipient_Count = Number(assignment.Email_Notification_Recipient_Count || 0);
   assignment.Email_Notification_Sent_At = String(assignment.Email_Notification_Sent_At || '');
   assignment.Email_Notification_Last_Error = String(assignment.Email_Notification_Last_Error || '');
+  assignment.Display_Order = Number(assignment.Display_Order || 0);
+  if (!isFinite(assignment.Display_Order) || assignment.Display_Order < 0) assignment.Display_Order = 0;
 
   return assignment;
+}
+
+// Keep equivalent to the browser parser; never accept arbitrary iframe HTML or hosts.
+function getGoogleSlidesLink_(value) {
+  var raw = String(value || '').trim();
+  if (!raw || raw.length > 2048 || /[\s\\<>"']/.test(raw)) return null;
+  var match = raw.match(/^https:\/\/docs\.google\.com\/presentation\/d\/(e\/)?([A-Za-z0-9_-]{10,200})(?:\/(pub|embed|edit|view|preview|present))?\/?(?:\?([^#]*))?(?:#(.*))?$/i);
+  if (!match) return null;
+  var published = Boolean(match[1]);
+  var action = String(match[3] || '').toLowerCase();
+  if (published ? !/^(pub|embed)$/.test(action) : action === 'pub') return null;
+  var params = {};
+  try {
+    [match[4], match[5]].filter(Boolean).join('&').split('&').forEach(function(part) {
+      var split = part.indexOf('=');
+      if (split < 0) return;
+      var key = decodeURIComponent(part.slice(0, split));
+      if (key === 'slide' || key === 'resourcekey') params[key] = decodeURIComponent(part.slice(split + 1));
+    });
+  } catch (error) { return null; }
+  var query = 'start=false&loop=false&delayms=3000';
+  if (/^id\.[A-Za-z0-9_-]{1,160}$/.test(params.slide || '')) query += '&slide=' + encodeURIComponent(params.slide);
+  if (/^[A-Za-z0-9_-]{1,200}$/.test(params.resourcekey || '')) query += '&resourcekey=' + encodeURIComponent(params.resourcekey);
+  var base = 'https://docs.google.com/presentation/d/' + (published ? 'e/' : '') + match[2];
+  return { url: base + (published ? '/pub?' : '/view?') + query, embedUrl: base + '/embed?' + query, published: published };
+}
+
+function normalizeAssignmentGuideUrl_(value) {
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  var link = getGoogleSlidesLink_(raw);
+  if (!link) throw new Error('請貼上有效的 Google 簡報分享或「發布到網路」連結，不要貼嵌入程式碼。');
+  return link.url;
 }
 
 function hydrateAssignmentResourceRecord_(resource) {
@@ -6807,6 +7040,7 @@ function buildAuthenticatedClientResult_(state, user, extraData, options) {
 
 function handleRegisterLeader_(payload) {
   var state = loadState_();
+  assertRegistrationOpen_(state, 'leader');
   var teamName = String(payload.teamName || '').trim();
   var name = String(payload.name || '').trim();
   var email = normalizeEmail_(payload.email);
@@ -6891,6 +7125,7 @@ function handleRegisterLeader_(payload) {
 
 function handleRegisterMember_(payload) {
   var state = loadState_();
+  assertRegistrationOpen_(state, 'member');
   var inviteCode = String(payload.inviteCode || '').trim();
   var name = String(payload.name || '').trim();
   var email = normalizeEmail_(payload.email);
@@ -7099,6 +7334,8 @@ function handleRevokeShapePrintInvite_(payload) {
 }
 
 function handleRegisterShapePrintMember_(payload) {
+  var state = loadState_();
+  assertRegistrationOpen_(state, 'shapePrint');
   var rawToken = String(payload && (payload.token || payload.inviteToken) || '').trim();
   var name = String(payload && payload.name || '').trim();
   var email = normalizeEmail_(payload && payload.email);
@@ -7121,7 +7358,6 @@ function handleRegisterShapePrintMember_(payload) {
     throw new Error('請使用受邀信箱完成形印組註冊。');
   }
 
-  var state = loadState_();
   if (findUserByEmail_(state.Users, email)) {
     throw new Error('該信箱已被註冊。');
   }
@@ -7280,6 +7516,7 @@ function handleInviteStudentMember_(payload) {
 
 function handleActivatePending_(payload) {
   var state = loadState_();
+  assertRegistrationOpen_(state, 'activation');
   var email = normalizeEmail_(payload.email);
   var name = String(payload.name || '').trim();
   var password = String(payload.password || payload.pwd || '');

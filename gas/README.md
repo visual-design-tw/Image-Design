@@ -1,6 +1,6 @@
 # GAS Backend
 
-## 2026.09.05-health.2 上線前必做
+## 2026.09.12-order.1 上線前必做
 
 目前程式已修改並在本機隔離測試；不代表正式 Web App 已部署。
 
@@ -9,7 +9,8 @@
 3. 將新版 Code.gs 與 HTML 同步至測試環境，在 Apps Script 編輯器執行私有函式 migrateHealthRelease_。它先唯讀驗證 Sheets API，再補齊 Asset_Receipt 欄位、建立附件簽章密鑰、清除狀態快取並遷移既有提醒／清理觸發器。原本沒有提醒觸發器不會擅自啟用；需要時另外使用 enableAssignmentReminderAutomation_。
 4. 維護函式名稱現在結尾均為底線。舊 runScheduledAssignmentReminders、runDeferredDriveTrashQueue 觸發器不能直接沿用；遷移後分別使用 runScheduledAssignmentReminders_、runDeferredDriveTrashQueue_。不要保留無授權的舊公開轉接函式。
 5. 確認小檔與分段上傳都回傳 assetReceipt，繳交提交 Asset_Receipt。憑證綁定帳號、小組、項目、Drive 檔案與檔名，有效 48 小時；重送已確認的 requestId 不重複建立紀錄。ASSET_RECEIPT_SECRET 不可刪除或任意更換，否則舊附件會失去自動清理驗證。
-6. 以至少兩個帳號測試儲存衝突、斷線重試、退件提醒、部分附件復原。確認前後端版本皆為 2026.09.05-health.2，再協調正式前後端一起更新，請使用者重新整理。舊分頁的未繳交附件可能需重新選檔，文字草稿應保留。
+6. 以至少兩個帳號測試儲存衝突、斷線重試、退件提醒、部分附件復原。確認前後端版本皆為 2026.09.12-order.1，再協調正式前後端一起更新，請使用者重新整理。舊分頁的未繳交附件可能需重新選檔，文字草稿應保留。
+7. `Assignments` 會自動補上 `Display_Order` 欄位；部署後由 `setupSheets_()` 建立或補齊欄位。排序功能只接受形印組長與形印組員送出的完整項目清單，並以 `stateRevision` 防止舊頁面覆蓋新順序。
 
 安全相容處理：
 
@@ -64,6 +65,7 @@
   - `action=getShapePrintInvite` / `registerShapePrintMember`：驗證受邀連結並立即建立形印組員帳號
   - `action=joinStudentTeam` / `createStudentTeam`：讓既有形印組員保留原身分，同時加入或建立畢製小組
   - `action=saveState`：以 `stateRevision` 防止舊畫面覆蓋其他人的新資料
+  - `action=reorderAssignments`：由形印組管理者以長按拖動後儲存繳交項目順序
 - `action=uploadFile`：接收瀏覽器直傳檔案，建立/續版繳交紀錄，並自動存到 `會審 / 小組` 資料夾
 - `action=uploadAssignmentAsset`：接收公告作業直傳檔案，並自動存到 `會審 / 小組 / 公告作業 / 作業標題` 資料夾
 - `action=reviewFile`：更新審核狀態並產生通知
@@ -311,6 +313,27 @@ GET https://script.google.com/macros/s/你的部署ID/exec?action=bootstrap&sess
 - `POST action=uploadFile`
 - `POST action=uploadAssignmentAsset`
 - `GET action=largeUploadPage`：給 18 MB 以上的大檔改走穩定上傳頁
+
+## 規範簡報預覽（2026.10.17-slides.1）
+
+- 新增繳交項目時可填「規範簡報連結」，接受 Google Slides 的分享、發布或嵌入網址，不接受 HTML 程式碼。
+- `Assignments` 工作表會在原欄位後新增 `Guide_URL`，舊資料保持空白，不會更動現有欄位順序。
+- 已發布項目的連結由 `POST action=updateAssignmentGuide` 更新，參數為 `assignmentId`、`guideUrl`、`stateRevision` 與登入 token；空白 `guideUrl` 表示只移除連結。
+- 沿用繳交項目管理權限（SuperAdmin、Admin）。一般學生只能閱讀自己適用項目的簡報；舊客戶端的 `saveState` 不會覆蓋既有簡報連結。
+- 學生於繳交第一步按「查看規範」才載入 Google 預覽。Google 權限仍由提供者設定；系統不會自動公開簡報，也不能讓已發布的網址變成私人網址。
+- 上線時先更新並部署 GAS，再發布同版號的 `index.html`。只更新其中一端不足以啟用完整的儲存與預覽功能。
+
+## 註冊入口控制（2026.10.17-registration.1）
+
+- 後台「小組與成員」新增「註冊入口顯示設定」，僅形印組長與指導老師（SuperAdmin）可調整。
+- 可獨立控制「組長建組」「組員註冊」「信箱開通」「形印組加入」；初始均為開啟，既有帳號登入不受影響。
+- 關閉後隱藏該入口、對應表單與頂端快捷按鈕；後端同步暫停該註冊方式，舊表單及直接請求也會被拒絕。既有形印邀請不會因此被使用或撤銷，重新開放後仍須符合原本的有效期限與邀請規則。
+- `GET/POST action=getRegistrationOptions` 無須登入，只讀 Meta 設定並回傳四個布林值、設定版次與系統版號，不回傳帳號或小組資料。
+- `POST action=updateRegistrationOptions` 需要登入 token，並傳入完整的 `registrationOptions`（`leader`、`member`、`activation`、`shapePrint`）及 `registrationOptionsRevision`。
+- 設定存放於 `Meta.Registration_Options` 與 `Meta.Registration_Options_Revision`，沿用既有 Meta 工作表。一般整批 `saveState` 不會覆蓋這些伺服器設定。
+- 設定使用獨立版次處理衝突；其他頁面的正常儲存不會造成註冊設定的假衝突。兩位管理者同時修改時，後儲存的一方會保留選擇並收到重新載入提示。
+- 登入頁在背景讀取設定，重新聚焦、切回頁面及前景停留時定期更新。讀取失敗提供重試；已填的姓名、信箱等內容會保留。
+- 上線需先部署此版 GAS，再發布同版 `index.html`；可連同本次尚未部署的規範簡報功能一起更新。
 
 ## 注意
 
