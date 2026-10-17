@@ -1,5 +1,15 @@
 # Stability Regression Tests
 
+## Password Reset and Storage Service
+
+`node tests/password-reset.test.cjs` verifies explicit Sheets v4 configuration
+without broader OAuth scopes, safe API-error classification, preserving atomic
+save failure, save-before-mail ordering, account-enumeration protection,
+duplicate-click prevention, retained email and clear timeout feedback, and
+public reset requests with an expired workspace session. Set
+`PASSWORD_RESET_REPORT_PATH` for a JSON report. All users, reset tokens, network
+requests, and mail delivery are isolated fixtures; no production email is sent.
+
 ## Registration Entry Settings
 
 `node tests/registration-options.test.cjs` covers the four public registration

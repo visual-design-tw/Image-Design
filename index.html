@@ -1257,6 +1257,7 @@
                     <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">電子郵件信箱</label>
                     <input type="email" id="reset-request-email" required class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="example@test.com">
                 </div>
+                <p id="reset-request-feedback" class="hidden rounded-xl border border-[#E8E8ED] bg-[#F5F5F7] p-3 text-xs leading-relaxed text-[#6E6E73]" role="status" aria-live="polite"></p>
                 <button type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
                     <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="mail" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="mail" class="h-4 w-4"></i></morph-icon>
                     <span data-morph-action-label data-morph-idle-label="寄送重設連結">寄送重設連結</span>
@@ -2044,7 +2045,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.17-registration.1";
+        const APP_RELEASE = "2026.10.17-reset.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2129,6 +2130,7 @@
         let passwordResetMaskedEmail = "";
         let passwordResetExpiresAt = "";
         let passwordResetErrorMessage = "";
+        let passwordResetRequestInFlight = false;
         let loginSubmitInFlight = false;
         let registerSubmitInFlight = false;
         let activeRegisterSubTab = "reg-leader";
@@ -4297,14 +4299,15 @@
 
         async function requestGas(action, payload, method = "POST", requestOptions = {}) {
             const isPublicRegistrationRead = action === 'getRegistrationOptions';
-            const isAuthAction = /^(login|logout|register|activate|reset|forgot)/i.test(action);
+            const isAuthAction = /^(login|logout|register|activate|reset|forgot)/i.test(action)
+                || /^(requestPasswordReset|previewPasswordReset)$/.test(action);
             if (!isPublicRegistrationRead && !isAuthAction && expiredSessionToken && expiredSessionToken === authSessionToken) {
                 showSessionExpiredNotice();
                 const error = new Error('登入已失效，請重新登入後再操作。');
                 error.sessionExpired = true;
                 throw error;
             }
-            const isIndependentMutation = !isPublicRegistrationRead && !/^(save|bootstrap|login|logout|register|activate|reset|forgot|health|setup)/i.test(action);
+            const isIndependentMutation = !isPublicRegistrationRead && !isAuthAction && !/^(save|bootstrap|health|setup)/i.test(action);
             const hasUnconfirmedChanges = remoteSaveTimer || pendingRemoteSave || remoteSaveInFlight || ["error", "conflict", "saving"].includes(saveFeedbackState);
             if ((isIndependentMutation || action === "bootstrap") && hasUnconfirmedChanges && !requestOptions.discardLocalChanges) {
                 throw new Error("UNSAVED_CHANGES: 頁面還有未確認的修改，請先完成上方的儲存或重試，再進行這項操作。");
@@ -12772,6 +12775,12 @@
             passwordResetExpiresAt = "";
             passwordResetErrorMessage = "";
 
+            const requestFeedback = document.getElementById('reset-request-feedback');
+            if (requestFeedback) {
+                requestFeedback.textContent = "";
+                requestFeedback.classList.add('hidden');
+            }
+
             const resetNextInput = document.getElementById('reset-password-next');
             const resetConfirmInput = document.getElementById('reset-password-confirm');
             if (resetNextInput) resetNextInput.value = "";
@@ -13412,7 +13421,9 @@
 
         async function handleRequestPasswordReset(e) {
             e.preventDefault();
+            if (passwordResetRequestInFlight) return;
             const emailInput = document.getElementById('reset-request-email');
+            const feedback = document.getElementById('reset-request-feedback');
             const submitButton = e.submitter || document.querySelector('#form-reset-request button[type="submit"]');
             const email = emailInput ? emailInput.value.trim() : "";
 
@@ -13426,6 +13437,11 @@
                 return;
             }
 
+            passwordResetRequestInFlight = true;
+            if (feedback) {
+                feedback.textContent = "正在安全建立重設連結並寄送，請稍候，不需要重複按下按鈕。";
+                feedback.classList.remove('hidden');
+            }
             try {
                 if (submitButton) {
                     setMorphActionButtonState(submitButton, "auth-submit", "loading", "寄送中…", {
@@ -13449,8 +13465,18 @@
                 );
             } catch (error) {
                 console.error("GAS 忘記密碼寄送失敗", error);
-                showToast(error.message || "寄送重設密碼信失敗，請稍後再試。", "error");
+                const reason = String(error && error.message || '');
+                const message = /SAVE_(SETUP_REQUIRED|PERMISSION_DENIED)/.test(reason)
+                    ? "雲端儲存服務需要管理者處理，這次沒有寄出重設信。您的信箱已保留，請聯絡形印組管理者。"
+                    : /SAVE_(NOT_CONFIRMED|RATE_LIMITED)/.test(reason)
+                        ? "雲端尚未成功建立重設連結，這次沒有寄出重設信。您的信箱已保留，請稍後重試。"
+                        : /REQUEST_TIMEOUT|AbortError|Failed to fetch/.test(reason)
+                            ? "目前尚未確認是否寄出，請先查看信箱與垃圾郵件；若未收到，再稍候重試。您的信箱已保留。"
+                            : (reason || "寄送重設密碼信失敗，請稍後再試。");
+                if (feedback) feedback.textContent = message;
+                showToast(message, "error");
             } finally {
+                passwordResetRequestInFlight = false;
                 if (submitButton) {
                     setMorphActionButtonState(submitButton, "auth-submit", "mail", "寄送重設連結", {
                         disabled: false,

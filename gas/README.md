@@ -1,5 +1,15 @@
 # GAS Backend
 
+## 2026.10.17-reset.1 儲存服務與重設密碼修復
+
+- `appsscript.json` 明確啟用 Sheets v4 進階服務，OAuth scopes 與 Web App 的存取設定不變。預設 Google Cloud 專案會在加入進階服務時自動啟用對應 API；若改用標準 Cloud 專案，仍須另外啟用 Sheets API。不要只同步 `Code.gs` 而漏掉 manifest。
+- 以 `health&checkServices=1` 可唯讀檢查 Sheets API 是否可讀與寄信額度是否可用；不讀取帳號內容、不寫入試算表、不寄信，也不回傳權杖。一般 `health` 不增加此項檢查。
+- `diagnoseCloudServices_()` 亦可由編輯器執行相同檢查。診斷記錄只包含 HTTP 狀態、錯誤類別與布林結果，不記錄儲存內容或密碼重設連結。
+- 保存失敗仍整批拒絕，不使用逐表寫入作為備援。服務未啟用、授權與配額問題各有可辨識的提示。
+- 密碼重設紀錄必須先確認保存，才寄出重設信；前端會阻擋寄送中的重複操作，保留失敗時的信箱，並區分「未寄出」與「連線逾時、結果未確認」。
+- `requestPasswordReset` 與 `previewPasswordReset` 明確視為公開驗證流程，不受過期的舊登入或未儲存工作台草稿阻擋；其他需要登入的操作仍維持原本限制。
+- 官方依據：[啟用進階服務與預設 Cloud 專案的 API](https://developers.google.com/apps-script/guides/services/advanced)。服務健康檢查成功不代表實際郵件已送達，真實寄送與收件仍須另行確認。
+
 ## 2026.09.12-order.1 上線前必做
 
 目前程式已修改並在本機隔離測試；不代表正式 Web App 已部署。

@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.17-registration.1';
+var APP_RELEASE = '2026.10.17-reset.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -383,7 +383,11 @@ function doGet(e) {
     var action = getAction_(e, {});
 
     if (action === 'health') {
-      return jsonResponse_(true, buildHealthPayload_());
+      var health = buildHealthPayload_();
+      if (String(e && e.parameter && e.parameter.checkServices || '') === '1') {
+        health.cloudServices = diagnoseCloudServices_();
+      }
+      return jsonResponse_(true, health);
     }
 
     if (action === 'getRegistrationOptions') {
@@ -1767,6 +1771,25 @@ function getAction_(e, payload) {
     (e && e.parameter && e.parameter.action) ||
     'bootstrap'
   ).trim();
+}
+
+function diagnoseCloudServices_() {
+  var config = getConfig_();
+  var response = UrlFetchApp.fetch('https://sheets.googleapis.com/v4/spreadsheets/'
+    + encodeURIComponent(config.spreadsheetId) + '?fields=spreadsheetId', {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+    });
+  var failure = parseSheetsApiFailure_(response);
+  var result = {
+    release: APP_RELEASE,
+    sheetsApiReady: response.getResponseCode() === 200,
+    sheetsHttpStatus: response.getResponseCode(),
+    sheetsErrorStatus: failure.status,
+    sheetsErrorReason: failure.reason,
+    mailQuotaAvailable: MailApp.getRemainingDailyQuota() > 0
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
 }
 
 function buildHealthPayload_() {
@@ -5306,8 +5329,39 @@ function commitTablesAtomically_(spreadsheet, tables) {
       payload: JSON.stringify({ requests: requests }), muteHttpExceptions: true
     });
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
-    throw new Error('SAVE_NOT_CONFIRMED: 雲端未確認這次儲存，請保留頁面並重試。管理者請檢查 Sheets API、權限或配額。');
+    throw buildSheetsSaveError_(response);
   }
+}
+
+function parseSheetsApiFailure_(response) {
+  var error = {};
+  try {
+    error = JSON.parse(response.getContentText()).error || {};
+  } catch (ignoreError) {}
+  var reasons = ensureArray_(error.details).concat(ensureArray_(error.errors)).map(function(detail) {
+    return String(detail && detail.reason || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 80);
+  }).filter(Boolean);
+  return {
+    status: String(error.status || '').replace(/[^A-Z_]/g, '').slice(0, 80),
+    reason: reasons.join(',').slice(0, 160)
+  };
+}
+
+function buildSheetsSaveError_(response) {
+  var code = response.getResponseCode();
+  var failure = parseSheetsApiFailure_(response);
+  // Never log the request body: it may contain password hashes or reset records.
+  Logger.log('SHEETS_WRITE_FAILED http=' + code + ' status=' + failure.status + ' reason=' + failure.reason);
+  if (/SERVICE_DISABLED|accessNotConfigured/.test(failure.reason)) {
+    return new Error('SAVE_SETUP_REQUIRED: 雲端儲存服務尚未完成設定，請聯絡形印組管理者。您的輸入仍保留。');
+  }
+  if (code === 429 || failure.status === 'RESOURCE_EXHAUSTED') {
+    return new Error('SAVE_RATE_LIMITED: 雲端服務目前繁忙，請稍候再試。您的輸入仍保留。');
+  }
+  if (code === 401 || code === 403) {
+    return new Error('SAVE_PERMISSION_DENIED: 雲端儲存權限需要管理者確認。您的輸入仍保留。');
+  }
+  return new Error('SAVE_NOT_CONFIRMED: 雲端未確認這次儲存，請保留頁面並重試。');
 }
 
 function readMetaSheet_(spreadsheet) {
