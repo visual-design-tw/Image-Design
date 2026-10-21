@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.17-stage-delete.1';
+var APP_RELEASE = '2026.10.21-upload-comments.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -710,6 +710,11 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'postDiscussionComment') {
+      result = withLock_(function() { return handlePostDiscussionComment_(payload); });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'processLargeUpload') {
       result = withLock_(function() {
         return processLargeUploadForm_(payload);
@@ -1051,7 +1056,38 @@ function processLargeUploadForm_(formObject) {
 // Each request carries one small base64 chunk, so a failed request can be
 // retried without sending the whole file again.
 function startResumableLargeUpload(payload) {
+  return withLock_(function() { return startResumableLargeUploadInternal_(payload); });
+}
+
+function startResumableLargeUploadInternal_(payload) {
+  payload = payload || {};
+  var existing = loadResumableUploadSession_(String(payload.sessionKey || '').trim());
+  if (existing && existing.status === 'completed' && existing.completedResult) {
+    verifyResumableUploadSession_(existing, payload);
+    var actor = requireSessionUser_(loadState_(), payload);
+    if (String(actor.User_ID) !== String(existing.userId)) throw new Error('FORBIDDEN: 無法確認其他使用者的上傳。');
+    ['mode', 'assignmentId', 'serviceOrderId', 'sourceFileName', 'fileSize', 'mimeType'].forEach(function(key) {
+      var value = key === 'mode' ? payload.uploadMode || payload.mode : payload[key];
+      if (key === 'sourceFileName') value = sanitizeDriveEntryName_(value, 'upload.bin');
+      if (String(existing[key] || '') !== String(value || '')) throw new Error('UPLOAD_CONTEXT_CHANGED: 請使用原本的檔案重試確認。');
+    });
+    ['stageId', 'groupKey', 'baseName', 'extension'].forEach(function(key) {
+      if (payload[key] && String(existing[key] || '') !== String(payload[key])) throw new Error('UPLOAD_CONTEXT_CHANGED: 請回原本的上傳位置確認。');
+    });
+    return buildCompletedResumableResult_(existing.completedResult);
+  }
   var preparation = buildResumableUploadPreparation_(payload);
+  if (existing) {
+    verifyResumableUploadSession_(existing, payload);
+    ['mode', 'userId', 'teamId', 'assignmentId', 'serviceOrderId', 'stageId', 'sourceFileName', 'fileSize', 'mimeType', 'baseName', 'extension', 'groupKey'].forEach(function(key) {
+      var expected = key === 'userId' ? preparation.currentUser.User_ID : preparation[key];
+      if (String(existing[key] || '') !== String(expected || '')) {
+        throw new Error('UPLOAD_CONTEXT_CHANGED: 這個上傳視窗只供原本的檔案使用，請回主頁重新選檔。');
+      }
+    });
+    return { status: 'started', mode: existing.mode, sessionKey: existing.sessionKey,
+      chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES, fileSize: existing.fileSize };
+  }
   var folderContext = getOrCreateNestedFolders_(
     DriveApp.getFolderById(getConfig_().driveRootFolderId),
     preparation.folderSegments
@@ -1110,7 +1146,7 @@ function uploadResumableLargeUploadChunk(payload) {
   verifyResumableUploadSession_(session, payload);
   requireSessionUser_(loadState_(), payload);
   if (session.status === 'completed' && session.completedResult) {
-    return session.completedResult;
+    return buildCompletedResumableResult_(session.completedResult);
   }
 
   var totalSize = Number(payload.totalSize || 0);
@@ -1194,26 +1230,42 @@ function uploadResumableLargeUploadChunk(payload) {
   var result;
   try {
     result = withLock_(function() {
+      // A timed-out final chunk may still finish before its retry acquires the lock.
+      var latestSession = loadResumableUploadSession_(sessionKey);
+      if (latestSession && latestSession.status === 'completed' && latestSession.completedResult) {
+        session = latestSession;
+        return buildCompletedResumableResult_(latestSession.completedResult);
+      }
+      var completed;
       if (session.mode === 'file') {
-        return handleLargeFileFormUpload_(finalizePayload, driveResult);
+        completed = handleLargeFileFormUpload_(finalizePayload, driveResult);
+      } else if (session.mode === 'assignment-asset') {
+        completed = handleLargeAssignmentAssetFormUpload_(finalizePayload, driveResult);
+      } else if (session.mode === 'assignment-resource') {
+        completed = handleLargeAssignmentResourceFormUpload_(finalizePayload, driveResult);
+      } else {
+        completed = handleLargeDesignServiceFormUpload_(finalizePayload, driveResult);
       }
-      if (session.mode === 'assignment-asset') {
-        return handleLargeAssignmentAssetFormUpload_(finalizePayload, driveResult);
-      }
-      if (session.mode === 'assignment-resource') {
-        return handleLargeAssignmentResourceFormUpload_(finalizePayload, driveResult);
-      }
-      return handleLargeDesignServiceFormUpload_(finalizePayload, driveResult);
+      completed = buildCompletedResumableResult_(completed);
+      session.status = 'completed';
+      session.completedResult = completed;
+      saveResumableUploadSession_(session, RESUMABLE_UPLOAD_SESSION_TTL_SECONDS);
+      return completed;
     });
   } catch (finalizeError) {
-    trashNewUploadAfterFailure_(driveResult);
+    if (session.status !== 'completed') trashNewUploadAfterFailure_(driveResult);
     throw finalizeError;
   }
 
-  session.status = 'completed';
-  session.completedResult = result;
-  saveResumableUploadSession_(session, 10 * 60);
   return result;
+}
+
+function buildCompletedResumableResult_(result) {
+  if (!result || result.status !== 'success' || !result.driveFileId || !result.fileName || !result.fileUrl
+    || (result.mode === 'assignment-asset' && !result.assetReceipt)) {
+    throw new Error('UPLOAD_NOT_CONFIRMED: 尚未取得完整的雲端附件確認，請保留此頁並重試。');
+  }
+  return Object.assign({}, result, { complete: true });
 }
 
 function buildResumableUploadPreparation_(payload) {
@@ -2427,6 +2479,71 @@ function mergeStudentDiscussionComments_(nextState, incomingState, actor) {
       priority: 'normal'
     });
   });
+}
+
+// Append against an authoritative snapshot under the dispatcher lock, not a client workbook copy.
+function handlePostDiscussionComment_(payload) {
+  payload = payload || {};
+  var previousState = loadState_({ fresh: true });
+  var actor = requireSessionUser_(previousState, payload);
+  var requestId = String(payload.requestId || '');
+  var refType = String(payload.refType || '');
+  var refId = String(payload.refId || '').trim();
+  var message = String(payload.message || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestId) || !refId) throw new Error('請重新開啟留言區後再試。');
+  if (!message || message.length > 5000) throw new Error('留言需為 1 至 5000 字。');
+  var reviewer = isShapePrintUser_(actor) && payload.workspace !== 'team';
+  if (!reviewer && !hasStudentTeamForUser_(actor)) throw new Error('FORBIDDEN: 請使用有權限的形印組或小組身分留言。');
+  var context;
+  var teamIds;
+  if (refType === 'assignment') {
+    context = previousState.Assignments.find(function(item) { return item.Assignment_ID === refId; });
+    if (!context || (!reviewer && !isAssignmentVisibleToTeam_(previousState, context, actor.Team_ID))) {
+      throw new Error('FORBIDDEN: 找不到可留言的繳交項目，請重新整理後確認。');
+    }
+    teamIds = getAssignmentTargetTeamIds_(previousState, context);
+  } else if (refType === 'file-group') {
+    context = getLatestFileForGroup_(previousState.Files, refId);
+    if (!context || (!reviewer && context.Team_ID !== actor.Team_ID)) throw new Error('FORBIDDEN: 無法在此檔案留言。');
+    teamIds = [context.Team_ID];
+  } else {
+    throw new Error('不支援這個留言位置。');
+  }
+  var authorRole = reviewer ? actor.Role : getStudentRoleForUser_(actor);
+  var commentId = 'CMT_' + String(actor.User_ID).length + '_' + actor.User_ID + '_' + requestId;
+  var existing = previousState.Discussion_Comments.find(function(item) { return item.Comment_ID === commentId; });
+  if (existing) {
+    if (existing.User_ID !== actor.User_ID || existing.Ref_Type !== refType || existing.Ref_ID !== refId
+      || existing.Message !== message || existing.Author_Role !== authorRole || existing.Kind !== 'comment') {
+      throw new Error('COMMENT_ALREADY_SENT: 前次留言已送出，請重新整理確認後再新增不同內容。');
+    }
+    return buildClientStateResultForUser_(previousState, actor, { requestId: requestId, comment: existing, alreadyPosted: true });
+  }
+  var nextState = cloneObject_(previousState);
+  var comment = hydrateDiscussionCommentRecord_({
+    Comment_ID: commentId, Ref_Type: refType, Ref_ID: refId,
+    User_ID: actor.User_ID, Team_ID: reviewer ? (refType === 'file-group' ? context.Team_ID : '') : actor.Team_ID,
+    Author_Name: actor.Name, Author_Role: authorRole, Kind: 'comment', Message: message, Created_At: nowString_()
+  });
+  nextState.Discussion_Comments.push(comment);
+  var recipientIds = reviewer ? teamIds.reduce(function(ids, teamId) {
+    return ids.concat(getActiveStudentRecipientsForTeam_(nextState, teamId).map(function(user) { return user.User_ID; }));
+  }, []) : nextState.Users.filter(function(user) { return user.Status === 'Active' && isShapePrintUser_(user); })
+    .map(function(user) { return user.User_ID; });
+  createNotifications_(nextState, {
+    type: 'discussion-comment', title: reviewer ? '審核註解更新' : '小組留言回覆',
+    message: '「' + (context.Title || context.File_Name || '繳交項目') + '」有新的留言。',
+    tab: 'files', refType: refType, refId: refId,
+    audience: { userIds: recipientIds, excludeUserIds: [actor.User_ID] },
+    createdAt: comment.Created_At, priority: reviewer ? 'high' : 'normal'
+  });
+  persistState_(nextState, { existingState: previousState, nextRevision: getStateRevision_(previousState) + 1 });
+  var saved = loadState_({ fresh: true });
+  var confirmed = saved.Discussion_Comments.find(function(item) { return item.Comment_ID === commentId; });
+  if (!confirmed || confirmed.Message !== message || confirmed.User_ID !== actor.User_ID) {
+    throw new Error('COMMENT_NOT_CONFIRMED: 尚未取得留言儲存確認，請保留內容並重試。');
+  }
+  return buildClientStateResultForUser_(saved, actor, { requestId: requestId, comment: confirmed, alreadyPosted: false });
 }
 
 function getAssetReceiptSecret_() {

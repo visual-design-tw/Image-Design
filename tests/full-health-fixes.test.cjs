@@ -299,7 +299,7 @@ async function browserAudit() {
         if(payload.action==='uploadResumableLargeUploadChunk') {
           chunks.push([payload.chunkStart,payload.chunkEnd]);
           if(chunks.length===1)return r.fulfill({contentType:'application/json',body:JSON.stringify({ok:false,error:{message:'Simulated transient connection failure'}})});
-          data=payload.chunkEnd+1===payload.totalSize?{complete:true,driveFileId:'FAKE_UPLOADED',fileName:'health.pdf'}:{complete:false,nextByte:payload.chunkEnd+1};
+          data=payload.chunkEnd+1===payload.totalSize?{complete:true,status:'success',mode:model.mode,sessionKey:model.sessionKey,assignmentId:model.assignmentId,assetReceipt:'HEALTH_SYNTHETIC_RECEIPT',driveFileId:'FAKE_UPLOADED',fileName:'health.pdf',fileUrl:'https://example.invalid/health.pdf'}:{complete:false,nextByte:payload.chunkEnd+1};
         }
         await r.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data})});
       });

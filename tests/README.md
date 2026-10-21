@@ -1,5 +1,17 @@
 # Stability Regression Tests
 
+## Upload Completion and Concurrent Comments
+
+`node tests/upload-comments.test.cjs` checks both upload pages, legacy and
+explicit completion responses, cached completion retry, final-chunk deduplication,
+missing receipts and progress acknowledgements, authenticated append-only comments,
+fresh reads under the server lock, lost-response retries, ownership boundaries,
+draft retention, pending animation and duplicate-click protection. Two isolated
+browser sessions also exercise the actual frontend request function against a
+shared mocked backend. Set `UPLOAD_COMMENTS_REPORT_PATH` and
+`UPLOAD_COMMENTS_SCREENSHOT_PATH` for the report and mobile retry screenshot.
+No production data, mail, Drive files or credentials are used.
+
 ## Stage Deletion
 
 `node tests/stage-delete.test.cjs` checks authoritative cache-bypassing reads,

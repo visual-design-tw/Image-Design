@@ -724,10 +724,24 @@
           return result;
         }
 
+        function isCompletedResumableResult(result) {
+          if (!result || result.status !== "success" || (result.complete !== undefined && result.complete !== true)
+            || result.mode !== model.mode || result.sessionKey !== model.sessionKey
+            || !result.driveFileId || !result.fileName || !result.fileUrl) return false;
+          if (model.mode === "assignment-asset") return result.assignmentId === model.assignmentId && Boolean(result.assetReceipt);
+          if (model.mode === "assignment-resource") return result.assignmentId === model.assignmentId && Boolean(result.resourceId);
+          if (model.mode === "design-service") return result.serviceOrderId === model.serviceOrderId;
+          return model.mode === "file" && Boolean(result.fileId);
+        }
+
         async function handleResumableSubmit(file) {
           setTransferProgress(2, "建立大檔上傳工作階段");
           setStatus("正在建立 Google Drive 分段上傳工作階段，請不要關閉此視窗。", "");
           const startResult = await requestGas("startResumableLargeUpload", buildUploadPayload(file), "POST");
+          if (isCompletedResumableResult(startResult)) {
+            setTransferProgress(100, "已確認前次上傳完成，正在通知主頁");
+            return startResult;
+          }
           const chunkSize = Number(startResult && startResult.chunkSize || Number(model.resumableChunkMb || 2) * 1024 * 1024);
           const totalSize = Number(file.size || 0);
           const totalChunks = Math.ceil(totalSize / chunkSize);
@@ -739,6 +753,7 @@
             const chunkEndExclusive = Math.min(totalSize, chunkStart + chunkSize);
             const chunkEnd = chunkEndExclusive - 1;
             chunkNumber += 1;
+            setStatus("正在傳送第 " + chunkNumber + " / " + totalChunks + " 段，請保留此頁。", "");
             setTransferProgress(Math.max(3, (chunkStart / totalSize) * 94), "正在讀取第 " + chunkNumber + " / " + totalChunks + " 段");
             const chunkBase64 = await readChunkAsBase64(file, chunkStart, chunkEndExclusive);
             let result = null;
@@ -765,12 +780,16 @@
               }
             }
             if (!result) throw lastError || new Error("大檔分段上傳失敗。");
-            if (result.complete === true) {
+            if (isCompletedResumableResult(result)) {
               setTransferProgress(100, "大檔已完成，正在通知主頁");
               return result;
             }
-            const reportedNextByte = Number(result.nextByte || 0);
-            nextByte = reportedNextByte > chunkStart ? reportedNextByte : chunkEndExclusive;
+            const reportedNextByte = Number(result.nextByte);
+            if (result.complete !== false || !Number.isSafeInteger(reportedNextByte)
+              || reportedNextByte <= chunkStart || reportedNextByte > totalSize) {
+              throw new Error("尚未取得這一段的完整上傳確認，請保留此頁並重試確認。");
+            }
+            nextByte = reportedNextByte;
             setTransferProgress(Math.min(98, (nextByte / totalSize) * 96 + 2), "已上傳 " + formatFileSize(nextByte) + " / " + formatFileSize(totalSize));
           }
 
@@ -825,7 +844,7 @@
             window.setTimeout(closeWindow, 900);
           } catch (error) {
             setStatus(error && error.message ? error.message : "上傳失敗，請稍後再試。", "error");
-            setUploadSubmitState("error", "重新上傳", false);
+            setUploadSubmitState("error", "重試確認上傳", false);
             isUploading = false;
           }
         }

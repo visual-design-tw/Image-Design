@@ -1530,7 +1530,7 @@
                         </div>
                     </div>
                     <div class="flex items-center justify-between gap-3">
-                        <p id="upload-large-file-note" class="text-[10px] text-[#5F6975]">18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。</p>
+                        <p id="upload-large-file-note" class="text-[10px] text-[#5F6975]">18 MB 內直傳；超過 18 MB 使用穩定分段上傳，最高 2 GB。</p>
                         <button type="button" id="upload-large-file-button" onclick="startStableFileUploadFlow()" class="px-4 py-2 rounded-xl bg-[#0066CC] text-white text-[11px] font-bold hover:opacity-95 transition shadow-sm">
                             上傳大檔
                         </button>
@@ -2046,7 +2046,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.17-stage-delete.1";
+        const APP_RELEASE = "2026.10.21-upload-comments.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2114,6 +2114,8 @@
         let saveConflictReloadArmed = false;
         let assignmentSubmitInFlight = false;
         const assignmentSubmitDrafts = new Map();
+        const discussionCommentDrafts = new Map();
+        let discussionCommentInFlight = false;
         let pendingRemoteSave = false;
         let remoteMutationInFlight = false;
         let pendingPurchaseDeletionIds = new Set();
@@ -4091,11 +4093,13 @@
             pendingStageDeleteContext = null;
             assignmentSubmitInFlight = false;
             assignmentSubmitDrafts.clear();
+            discussionCommentDrafts.clear();
+            discussionCommentInFlight = false;
             Object.keys(largeUploadSessions).forEach(function(key) { delete largeUploadSessions[key]; });
             pendingLargeAssignmentAssetUpload = null;
             try {
                 if (!options.preserveSubmissionDrafts) {
-                    Object.keys(sessionStorage).filter(function(key) { return key.startsWith('shapeprint_submission_draft:'); })
+                    Object.keys(sessionStorage).filter(function(key) { return key.startsWith('shapeprint_submission_draft:') || key.startsWith('shapeprint_discussion_draft:'); })
                         .forEach(function(key) { sessionStorage.removeItem(key); });
                 }
             } catch (error) {}
@@ -4327,7 +4331,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : action === 'postDiscussionComment' ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -5927,7 +5931,7 @@
         function needsResumableLargeUpload(file) {
             return isRemoteSyncEnabled()
                 && Boolean(file)
-                && getFileByteSize(file) > MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES
+                && getFileByteSize(file) > MAX_BROWSER_UPLOAD_SIZE_BYTES
                 && getFileByteSize(file) <= MAX_RESUMABLE_UPLOAD_SIZE_BYTES;
         }
 
@@ -5968,7 +5972,7 @@
             if (!file) {
                 return {
                     title: "等待選擇附件",
-                    detail: "18 MB 內直傳；18～50 MB 穩定上傳；超過 50 MB 自動分段上傳。",
+                    detail: "18 MB 內直傳；超過 18 MB 使用穩定分段上傳，最高 2 GB。",
                     badge: "待檢查",
                     tone: "muted"
                 };
@@ -5986,7 +5990,7 @@
             if (needsResumableLargeUpload(file)) {
                 return {
                     title: "將使用分段上傳",
-                    detail: "「" + file.name + "」超過 50 MB，會切成小段傳送至 Google Drive；單段失敗時只會重試該段。",
+                    detail: "「" + file.name + "」超過 18 MB，會切成小段傳送至 Google Drive；單段失敗時只會重試該段。",
                     badge: "分段上傳",
                     tone: "blue"
                 };
@@ -6572,7 +6576,7 @@
                                 ? buildRuleItem("fail", "檔案已超過分段上傳 2 GB 上限。", "這份檔案已超過分段上傳 2 GB 上限。")
                                 : canUseStableUpload
                                     ? (needsResumableLargeUpload(selectedFile)
-                                        ? buildRuleItem("fail", "檔案超過 50 MB，請先走分段上傳頁。", "檔案超過 50 MB，請先走分段上傳頁。")
+                                        ? buildRuleItem("fail", "檔案超過 18 MB，請先使用穩定分段上傳。", "檔案超過 18 MB，請先使用穩定分段上傳。")
                                         : buildRuleItem("fail", "檔案超過 18 MB，請改用穩定上傳頁。", "檔案超過 18 MB，請改用穩定上傳頁。"))
                                     : buildRuleItem("fail", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。"))
                     : buildRuleItem("pending", "等待檢查檔案大小。"),
@@ -6619,8 +6623,8 @@
                     largeFileNote.textContent = needsResumableLargeUpload(selectedFile)
                         ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。送出後會切成小段上傳，最高支援 2 GB。"
                         : shouldShowLargeFilePanel
-                            ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定上傳頁最高支援 50 MB。"
-                            : "18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。";
+                            ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定分段上傳最高支援 2 GB。"
+                            : "超過 18 MB 使用穩定分段上傳，最高 2 GB。";
                 }
                 if (largeFileButton) {
                     largeFileButton.textContent = needsResumableLargeUpload(selectedFile)
@@ -6702,7 +6706,7 @@
                                     ? buildRuleItem("fail", "檔案已超過分段上傳 2 GB 上限。", "這份檔案已超過分段上傳 2 GB 上限。")
                                     : canUseStableUpload
                                         ? (needsResumableLargeUpload(selectedFile)
-                                            ? buildRuleItem("fail", "檔案超過 50 MB，請先走分段上傳頁。", "檔案超過 50 MB，請先走分段上傳頁。")
+                                            ? buildRuleItem("fail", "檔案超過 18 MB，請先使用穩定分段上傳。", "檔案超過 18 MB，請先使用穩定分段上傳。")
                                             : buildRuleItem("fail", "檔案超過 18 MB，請先走穩定上傳頁。", "檔案超過 18 MB，請先走穩定上傳頁。"))
                                         : buildRuleItem("fail", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。", "目前尚未連上 GAS 雲端，只能先上傳 18 MB 內檔案。"))
                             : buildRuleItem("pending", "等待檢查檔案大小。")
@@ -6765,9 +6769,9 @@
                     } else if (selectedFile) {
                         largeUploadStatus.textContent = needsResumableLargeUpload(selectedFile)
                             ? "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。會切成小段上傳，最高支援 2 GB。"
-                            : "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定上傳頁最高支援 50 MB。";
+                            : "目前選擇：" + selectedFile.name + " ・ " + formatFileSize(selectedFile.size) + "。穩定分段上傳最高支援 2 GB。";
                     } else {
-                        largeUploadStatus.textContent = "18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。";
+                        largeUploadStatus.textContent = "超過 18 MB 使用穩定分段上傳，最高 2 GB。";
                     }
                 }
             }
@@ -8508,6 +8512,7 @@
 
         function buildDiscussionThreadMarkup(refType, refId, options = {}) {
             const comments = getDiscussionComments(refType, refId);
+            const draft = getDiscussionCommentDraft(refType, refId);
             const inputId = String(options.inputId || "");
             const submitAction = String(options.submitAction || "");
             const placeholder = String(options.placeholder || "留下審核註解、補充資訊或回覆。");
@@ -8541,11 +8546,12 @@
                         }).join('')}
                     </div>
                     <div class="space-y-2 border-t border-[#F2F2F7] pt-3">
-                        <textarea id="${inputId}" rows="3" class="w-full rounded-2xl border border-[#E8E8ED] px-4 py-3 text-xs resize-none focus:outline-none focus:border-[#0066CC]" placeholder="${escapeHtml(placeholder)}"></textarea>
+                        <textarea id="${inputId}" rows="3" maxlength="5000" data-discussion-ref-type="${escapeHtml(refType)}" data-discussion-ref-id="${escapeHtml(refId)}" data-discussion-draft-key="${escapeHtml(draft.key)}" oninput="updateDiscussionCommentDraft(this)" ${draft.inFlight ? 'disabled' : draft.unconfirmed ? 'readonly' : ''} class="w-full rounded-2xl border border-[#E8E8ED] px-4 py-3 text-xs resize-none focus:outline-none focus:border-[#0066CC]" placeholder="${escapeHtml(placeholder)}">${escapeHtml(draft.text)}</textarea>
+                        <p id="${inputId}-status" role="status" aria-live="polite" class="text-[11px] leading-relaxed text-[#5F6975]">${escapeHtml(draft.feedback || '確認雲端收到後才算送出；等候或重試時會保留文字。')}</p>
                         <div class="flex items-center justify-between gap-3">
                             <p class="text-[10px] text-[#86868B] leading-relaxed">送出後會同步顯示在同一份作業或檔案的協作紀錄中。</p>
-                            <button type="button" onclick="${submitAction}()" class="shrink-0 rounded-xl bg-[#1D1D1F] px-4 py-2 text-[11px] font-bold text-white transition hover:opacity-90">
-                                送出註解
+                            <button id="${inputId}-submit" type="button" onclick="${submitAction}()" ${draft.inFlight ? 'disabled' : ''} aria-busy="${draft.inFlight ? 'true' : 'false'}" class="shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#1D1D1F] px-4 py-2 text-[11px] font-bold text-white transition hover:opacity-90 disabled:opacity-60">
+                                ${getDiscussionCommentButtonMarkup(draft)}
                             </button>
                         </div>
                     </div>
@@ -8604,7 +8610,53 @@
             return comment;
         }
 
-        function postDiscussionComment(refType, refId, inputId) {
+        function getDiscussionCommentDraft(refType, refId) {
+            const key = 'shapeprint_discussion_draft:' + JSON.stringify([currentUser?.User_ID || '', activeWorkspace, refType, refId]);
+            if (!discussionCommentDrafts.has(key)) {
+                let saved;
+                try { saved = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (error) {}
+                discussionCommentDrafts.set(key, { key: key, text: String(saved?.text || ''), requestId: String(saved?.requestId || ''), requestMessage: String(saved?.requestMessage || ''), unconfirmed: Boolean(saved?.unconfirmed), feedback: saved?.inFlight ? '前次留言結果尚未確認，文字已保留。請按「重試確認」。' : String(saved?.feedback || ''), inFlight: false });
+            }
+            return discussionCommentDrafts.get(key);
+        }
+
+        function persistDiscussionCommentDraft(draft) {
+            try { sessionStorage.setItem(draft.key, JSON.stringify(draft)); } catch (error) {}
+        }
+
+        function updateDiscussionCommentDraft(input) {
+            if (!input || !currentUser) return;
+            const draft = getDiscussionCommentDraft(input.dataset.discussionRefType, input.dataset.discussionRefId);
+            draft.text = input.value;
+            persistDiscussionCommentDraft(draft);
+            const button = document.getElementById(input.id + '-submit');
+            if (button) button.innerHTML = getDiscussionCommentButtonMarkup(draft);
+        }
+
+        function getDiscussionCommentButtonMarkup(draft) {
+            return draft.inFlight
+                ? '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>正在確認送出…'
+                : draft.requestId && draft.requestMessage === draft.text.trim() ? (draft.unconfirmed ? '重試確認' : '重試送出') : '送出註解';
+        }
+
+        function refreshDiscussionCommentControls(inputId, draft) {
+            const input = document.getElementById(inputId);
+            if (!input || input.dataset.discussionDraftKey !== draft.key) return;
+            input.disabled = draft.inFlight;
+            input.readOnly = Boolean(draft.unconfirmed);
+            input.value = draft.text;
+            const button = document.getElementById(inputId + '-submit');
+            if (button) {
+                button.disabled = draft.inFlight;
+                button.setAttribute('aria-busy', String(draft.inFlight));
+                button.innerHTML = getDiscussionCommentButtonMarkup(draft);
+            }
+            const status = document.getElementById(inputId + '-status');
+            if (status) status.textContent = draft.feedback;
+        }
+
+        async function postDiscussionComment(refType, refId, inputId) {
+            if (discussionCommentInFlight) return;
             const resolvedRefId = String(refId || "").trim();
             const input = document.getElementById(inputId);
             if (!resolvedRefId || !input || !currentUser) {
@@ -8619,31 +8671,85 @@
                 return;
             }
 
-            createDiscussionComment({
-                refType: refType,
-                refId: resolvedRefId,
-                userId: currentUser.User_ID,
-                teamId: currentUser.Team_ID,
-                authorRole: getEffectiveRoleContext().effectiveRole,
-                message: message,
-                kind: "comment"
-            });
-
-            input.value = "";
-            if (refType === "assignment") {
-                renderAssignmentDetailModal();
-            } else if (refType === "file-group") {
-                renderFileVersionModal();
+            const draft = getDiscussionCommentDraft(refType, resolvedRefId);
+            if (draft.unconfirmed && draft.requestMessage !== message) {
+                showToast('請先確認前次留言結果，再編輯新的內容，避免重複新增。', 'warning');
+                refreshDiscussionCommentControls(inputId, draft);
+                return;
             }
-            showToast("留言已送出。", "success");
+            draft.text = input.value;
+            if (message.length > 5000) { showToast('留言最多為 5000 字，請縮短後再送出。', 'warning'); return; }
+            if (!isRemoteSyncEnabled() || !authSessionToken || remoteMutationInFlight) {
+                draft.feedback = remoteMutationInFlight ? '另一項操作仍在儲存，文字已保留，請稍候再送出。' : '尚未連上雲端，文字已保留；請連線並登入後再送出。';
+                persistDiscussionCommentDraft(draft);
+                refreshDiscussionCommentControls(inputId, draft);
+                showToast(draft.feedback, 'warning');
+                return;
+            }
+            if (!draft.requestId || draft.requestMessage !== message) {
+                draft.requestId = generateSequentialId('REQ', [], '');
+                draft.requestMessage = message;
+            }
+            const expectedEpoch = authEpoch;
+            const userId = currentUser.User_ID;
+            draft.inFlight = true;
+            draft.unconfirmed = true;
+            draft.feedback = '正在確認雲端收到留言，請稍候；文字會保留到確認成功。';
+            persistDiscussionCommentDraft(draft);
+            refreshDiscussionCommentControls(inputId, draft);
+            discussionCommentInFlight = true;
+            remoteMutationInFlight = true;
+            try {
+                const response = await requestGas('postDiscussionComment', {
+                    refType: refType, refId: resolvedRefId, message: message,
+                    requestId: draft.requestId, workspace: activeWorkspace
+                });
+                if (expectedEpoch !== authEpoch) return;
+                const confirmed = response?.data?.comment;
+                if (response?.data?.requestId !== draft.requestId || !confirmed?.Comment_ID
+                    || confirmed.User_ID !== userId || confirmed.Ref_Type !== refType || confirmed.Ref_ID !== resolvedRefId
+                    || confirmed.Message !== message || confirmed.Kind !== 'comment'
+                    || !ensureArray(response?.data?.state?.Discussion_Comments).some(function(item) { return item.Comment_ID === confirmed.Comment_ID && item.Message === message; })
+                    || !applyBackendStateResponse(response, { preferredUserId: userId, allowFallback: false, skipRender: true })) {
+                    throw new Error('尚未取得完整的留言確認。');
+                }
+                draft.text = '';
+                draft.requestId = '';
+                draft.requestMessage = '';
+                draft.unconfirmed = false;
+                draft.feedback = response.data.alreadyPosted ? '已確認前次留言成功，沒有重複新增。' : '留言已送出，雲端已確認收到。';
+                gasConnectionStatus = 'remote';
+                renderAll();
+                showToast(draft.feedback, 'success');
+            } catch (error) {
+                if (expectedEpoch !== authEpoch) return;
+                draft.unconfirmed = !/UNSAVED_CHANGES|FORBIDDEN|Unsupported|AUTH_REQUIRED|AUTH_EXPIRED/.test(String(error?.message || '')) && !error.sessionExpired;
+                draft.feedback = /Unsupported.*postDiscussionComment/.test(String(error?.message || ''))
+                    ? '雲端服務尚未更新，請通知管理者。留言未確認，文字已保留。'
+                    : (draft.unconfirmed
+                        ? '尚未確認留言成功，文字已保留。請按「重試確認」；確認後才能編輯新的留言，避免重複新增。'
+                        : '留言尚未送出，文字已保留。請先處理下方提示，再按「重試送出」。')
+                        + (/UNSAVED_CHANGES|FORBIDDEN|COMMENT_ALREADY_SENT/.test(String(error?.message || '')) ? ' ' + error.message : '');
+                if (!error.sessionExpired) showToast(draft.feedback, 'warning');
+            } finally {
+                if (expectedEpoch === authEpoch) {
+                    draft.inFlight = false;
+                    persistDiscussionCommentDraft(draft);
+                    discussionCommentInFlight = false;
+                    remoteMutationInFlight = false;
+                    refreshDiscussionCommentControls(inputId, draft);
+                    if (refType === 'assignment' && activeAssignmentId === resolvedRefId) renderAssignmentDetailModal();
+                    if (refType === 'file-group' && activeFileGroupKey === resolvedRefId) renderFileVersionModal();
+                }
+            }
         }
 
         function submitAssignmentDiscussionComment() {
-            postDiscussionComment("assignment", activeAssignmentId, "assignment-thread-input");
+            return postDiscussionComment("assignment", activeAssignmentId, "assignment-thread-input");
         }
 
         function submitFileGroupDiscussionComment() {
-            postDiscussionComment("file-group", activeFileGroupKey, "file-thread-input");
+            return postDiscussionComment("file-group", activeFileGroupKey, "file-thread-input");
         }
 
         function ensureReminderLogStore() {
@@ -11143,6 +11249,7 @@
             body.querySelector('[data-assignment-submit-intro]')?.remove();
             const secondary = document.getElementById('assignment-secondary-content');
             const details = document.createElement('details');
+            details.id = 'assignment-history-disclosure';
             details.className = 'rounded-2xl border border-[#E8E8ED] p-4 text-xs';
             const summary = document.createElement('summary');
             summary.className = 'cursor-pointer font-semibold text-[#0066CC]';
@@ -11245,6 +11352,8 @@
         function renderAssignmentDetailModal(options = {}) {
             const modalBody = document.getElementById('assignment-detail-modal-body');
             if (!modalBody || assignmentSubmitInFlight || assignmentGuideSaveInFlight) return;
+            const historyWasOpen = options.preserveInputs !== false && document.getElementById('assignment-history-disclosure')?.open
+                && document.getElementById('assignment-thread-input')?.dataset.discussionRefId === activeAssignmentId;
             const previousGuideForm = document.getElementById('assignment-guide-form');
             const guideDraft = options.preserveGuideInput !== false && options.preserveInputs !== false
                 && previousGuideForm?.dataset.assignmentId === activeAssignmentId && document.getElementById('assignment-guide-editor')?.open
@@ -11471,11 +11580,11 @@
                                         <i data-lucide="hard-drive-upload" class="w-4 h-4 text-[#0066CC] mt-0.5"></i>
                                         <div class="space-y-1">
                                             <p class="text-[11px] font-bold text-[#1D1D1F]">這份附件超過 18 MB，請改用穩定上傳頁</p>
-                                            <p id="assignment-large-upload-caption" class="text-[10px] text-[#5F6975] leading-relaxed">新視窗會直接把檔案送到你的 Google Drive；超過 50 MB 時會改用分段傳送，完成後回到這裡按一次「送出繳交」即可。</p>
+                                            <p id="assignment-large-upload-caption" class="text-[10px] text-[#5F6975] leading-relaxed">新視窗會以分段方式把檔案送到 Google Drive；完成後回到這裡按「送出繳交」，看到繳交成功才算完成。</p>
                                         </div>
                                     </div>
                                     <div class="flex items-center justify-between gap-3">
-                                        <p id="assignment-large-upload-status" class="text-[10px] text-[#5F6975]">18～50 MB 走穩定上傳；超過 50 MB 會改用分段上傳。</p>
+                                        <p id="assignment-large-upload-status" class="text-[10px] text-[#5F6975]">超過 18 MB 使用穩定分段上傳，最高 2 GB。</p>
                                         <button type="button" onclick="startStableAssignmentAssetUploadFlow()" class="px-4 py-2 rounded-xl bg-[#0066CC] text-white text-[11px] font-bold hover:opacity-95 transition shadow-sm">
                                             上傳大檔
                                         </button>
@@ -11547,6 +11656,7 @@
             if (canSubmit && !isExhibitionAdmin) {
                 if (previousFileInput?.files?.length) document.getElementById('assignment-submit-file')?.replaceWith(previousFileInput);
                 installAssignmentSubmissionWizard();
+                if (historyWasOpen) document.getElementById('assignment-history-disclosure').open = true;
             }
             if (guideDraft !== null && document.getElementById('assignment-guide-url')) {
                 document.getElementById('assignment-guide-editor').open = true;
@@ -12126,11 +12236,11 @@
                 ? (exceedsLargeUploadLimit(file)
                     ? "此檔案超過目前 2 GB 上限。"
                     : needsResumableLargeUpload(file)
-                        ? "此檔案超過 50 MB，會使用分段上傳頁。"
+                        ? "此檔案超過 18 MB，會使用穩定分段上傳頁。"
                         : needsStableLargeUpload(file)
-                            ? "此檔案將使用 18–50 MB 穩定上傳頁。"
+                            ? "此檔案將使用穩定分段上傳頁。"
                             : "此檔案符合 18 MB 直傳條件。")
-                : "18 MB 內直傳；18～50 MB 穩定上傳；超過 50 MB 分段上傳。";
+                : "18 MB 內直傳；超過 18 MB 使用穩定分段上傳，最高 2 GB。";
         }
 
         function openDesignServiceUploadModal(orderId) {
