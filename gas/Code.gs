@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.21-upload-comments.1';
+var APP_RELEASE = '2026.10.21-preview.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -449,6 +449,10 @@ function doPost(e) {
     if (action === 'heatmap') {
       result = handleHeatmap_(payload);
       return jsonResponse_(true, result);
+    }
+
+    if (action === 'getFilePreview') {
+      return jsonResponse_(true, handleGetFilePreview_(payload));
     }
 
     if (action === 'login') {
@@ -9485,6 +9489,78 @@ function handleClearNotifications_(payload) {
       return notification.User_ID === userId;
     })
   });
+}
+
+function handleGetFilePreview_(payload) {
+  var state = loadState_();
+  var actor = requireSessionUser_(state, payload);
+  var recordType = String(payload.recordType || '');
+  var recordId = String(payload.recordId || '').trim();
+  if (!isShapePrintUser_(actor) && !hasStudentTeamForUser_(actor)) {
+    throw new Error('PREVIEW_NOT_FOUND: 找不到可觀看的檔案，請確認所屬小組後再試。');
+  }
+  var definitions = {
+    file: ['Files', 'File_ID'],
+    'assignment-resource': ['Assignment_Resources', 'Resource_ID'],
+    'assignment-submission': ['Assignment_Submissions', 'Submission_ID'],
+    'design-service': ['Design_Service_Orders', 'Service_Order_ID']
+  };
+  var definition = Object.prototype.hasOwnProperty.call(definitions, recordType) ? definitions[recordType] : null;
+  if (!definition || !recordId || recordId.length > 200) {
+    throw new Error('PREVIEW_NOT_FOUND: 找不到可觀看的檔案，請重新整理項目後再試。');
+  }
+  // Resolve from the server's role-filtered records, never a client-supplied Drive ID or URL.
+  var visibleState = filterStateForUser_(state, actor);
+  var record = ensureArray_(visibleState[definition[0]]).find(function(item) {
+    return String(item[definition[1]] || '') === recordId;
+  });
+  var fileId = record && (String(record.Drive_File_ID || '').trim() || extractDriveFileId_(record.Google_Drive_URL));
+  if (!fileId || !/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) {
+    throw new Error('PREVIEW_NOT_FOUND: 找不到可觀看的檔案，請重新整理項目後再試。');
+  }
+  var file;
+  try {
+    file = getDriveFileInRoot_(fileId);
+    if (file.isTrashed()) throw new Error('trashed');
+  } catch (error) {
+    throw new Error('PREVIEW_UNAVAILABLE: 檔案目前無法讀取，可能已移動或刪除，請聯絡形印組確認。');
+  }
+  var originalLimit = 6 * 1024 * 1024;
+  var thumbnailLimit = 2 * 1024 * 1024;
+  var rasterTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp'];
+  var mimeType = String(file.getMimeType() || '').toLowerCase();
+  var fileSize = Number(file.getSize());
+  var blob = null;
+  var mode = 'thumbnail';
+  try {
+    if (rasterTypes.indexOf(mimeType) >= 0 && fileSize > 0 && fileSize <= originalLimit) {
+      blob = file.getBlob();
+      mode = 'original';
+    } else {
+      blob = file.getThumbnail();
+    }
+  } catch (error) {
+    throw new Error('PREVIEW_UNAVAILABLE: 圖片預覽暫時無法讀取，請稍後重試，或在 Drive 開啟。');
+  }
+  if (!blob) {
+    throw new Error('PREVIEW_UNAVAILABLE: Google 尚未提供這份檔案的預覽圖，請在 Drive 開啟原始檔案。');
+  }
+  mimeType = String(blob.getContentType() || '').toLowerCase();
+  var bytes = blob.getBytes();
+  if (rasterTypes.indexOf(mimeType) < 0 || !bytes.length
+      || bytes.length > (mode === 'original' ? originalLimit : thumbnailLimit)) {
+    throw new Error('PREVIEW_UNAVAILABLE: 這份圖片暫時無法在頁面內顯示，請在 Drive 開啟原始檔案。');
+  }
+  return {
+    recordType: recordType,
+    recordId: recordId,
+    driveFileId: fileId,
+    mimeType: mimeType,
+    contentBase64: Utilities.base64Encode(bytes),
+    byteLength: bytes.length,
+    previewMode: mode,
+    release: APP_RELEASE
+  };
 }
 
 function routeDriveFile_(driveUrl, stageName, teamName, targetFileName) {

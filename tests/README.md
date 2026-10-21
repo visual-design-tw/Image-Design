@@ -1,5 +1,16 @@
 # Stability Regression Tests
 
+## Authenticated Image Preview
+
+`node tests/file-preview.test.cjs` checks private raster decoding through the
+actual frontend request path and mocked Apps Script dispatch, record ownership,
+assignment target teams, staff access, expired sessions, root-folder and trash
+checks, bounded original/thumbnail responses, rejected active content, deliberate
+retry, corrupted responses, late completion, temporary-URL cleanup, version
+comparison, safe Drive fallback and mobile layout. Set `PREVIEW_ARTIFACT_DIR`
+for a JSON report and synthetic desktop/mobile screenshots. No real Drive
+permissions, production records or authenticated browser sessions are used.
+
 ## Upload Completion and Concurrent Comments
 
 `node tests/upload-comments.test.cjs` checks both upload pages, legacy and

@@ -2046,7 +2046,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.21-upload-comments.1";
+        const APP_RELEASE = "2026.10.21-preview.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2088,6 +2088,7 @@
         let notificationActionInFlight = false;
         let activeFileGroupKey = null;
         let activeFilePreviewContext = null;
+        const filePreviewReaders = new Map();
         let filePreviewReturnFocus = null;
         let assignmentGuideSaveInFlight = false;
         let activeFileCompareContext = null;
@@ -4083,6 +4084,7 @@
         }
 
         function clearStoredSession(options = {}) {
+            clearFilePreviewSurfaces();
             expiredSessionToken = '';
             document.getElementById('session-expired-modal')?.classList.add('hidden');
             authEpoch += 1;
@@ -4277,6 +4279,7 @@
         }
 
         function showSessionExpiredNotice() {
+            clearFilePreviewSurfaces();
             expiredSessionToken = authSessionToken;
             cancelQueuedRemoteStateSync();
             updateAssignmentDraftText();
@@ -4314,7 +4317,7 @@
                 error.sessionExpired = true;
                 throw error;
             }
-            const isIndependentMutation = !isPublicRegistrationRead && !isAuthAction && !/^(save|bootstrap|health|setup)/i.test(action);
+            const isIndependentMutation = action !== 'getFilePreview' && !isPublicRegistrationRead && !isAuthAction && !/^(save|bootstrap|health|setup)/i.test(action);
             const hasUnconfirmedChanges = remoteSaveTimer || pendingRemoteSave || remoteSaveInFlight || ["error", "conflict", "saving"].includes(saveFeedbackState);
             if ((isIndependentMutation || action === "bootstrap") && hasUnconfirmedChanges && !requestOptions.discardLocalChanges) {
                 throw new Error("UNSAVED_CHANGES: 頁面還有未確認的修改，請先完成上方的儲存或重試，再進行這項操作。");
@@ -9764,14 +9767,14 @@
         function getDriveFileIdFromRecord(record) {
             if (!record || typeof record !== "object") return "";
             const explicitId = String(record.Drive_File_ID || "").trim();
-            if (explicitId) return explicitId;
+            if (/^[A-Za-z0-9_-]{10,200}$/.test(explicitId)) return explicitId;
 
-            const url = String(record.Google_Drive_URL || "").trim();
-            if (!url) return "";
-            const directMatch = url.match(/\/d\/([^/?#]+)/);
-            if (directMatch && directMatch[1]) return directMatch[1];
-            const idMatch = url.match(/[?&]id=([^&#]+)/);
-            return idMatch && idMatch[1] ? decodeURIComponent(idMatch[1]) : "";
+            try {
+                const url = new URL(String(record.Google_Drive_URL || "").trim());
+                if (url.protocol !== 'https:' || url.hostname !== 'drive.google.com' || url.username || url.password || url.port) return '';
+                const candidate = url.pathname.match(/^\/file\/d\/([A-Za-z0-9_-]{10,200})(?:\/|$)/)?.[1] || url.searchParams.get('id') || '';
+                return /^[A-Za-z0-9_-]{10,200}$/.test(candidate) ? candidate : '';
+            } catch (error) { return ''; }
         }
 
         function getPreviewRecord(recordType, recordId) {
@@ -9805,12 +9808,14 @@
 
         function getGoogleDrivePreviewUrl(record) {
             const fileId = getDriveFileIdFromRecord(record);
-            return fileId ? "https://drive.google.com/file/d/" + encodeURIComponent(fileId) + "/preview" : "";
-        }
-
-        function getGoogleDriveImageUrl(record) {
-            const fileId = getDriveFileIdFromRecord(record);
-            return fileId ? "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(fileId) : "";
+            if (!fileId) return '';
+            let resourceKey = '';
+            try {
+                const source = new URL(String(record.Google_Drive_URL || ''));
+                if (source.protocol === 'https:' && source.hostname === 'drive.google.com') resourceKey = source.searchParams.get('resourcekey') || '';
+            } catch (error) {}
+            return "https://drive.google.com/file/d/" + encodeURIComponent(fileId) + "/preview"
+                + (/^[A-Za-z0-9_-]{1,200}$/.test(resourceKey) ? '?resourcekey=' + encodeURIComponent(resourceKey) : '');
         }
 
         function getRecordPreviewTitle(record) {
@@ -9825,8 +9830,9 @@
             const title = getRecordPreviewTitle(record);
             const kind = getFilePreviewKind(record);
             const previewUrl = getGoogleDrivePreviewUrl(record);
-            const imageUrl = getGoogleDriveImageUrl(record);
-            const openUrl = String(record.Google_Drive_URL || previewUrl || "").trim();
+            const openUrl = previewUrl ? previewUrl.replace(/\/preview(?=\?|$)/, '/view') : '';
+            const recordType = String(options.recordType || '');
+            const recordId = String(options.recordId || '');
             const compact = options.compact === true;
             const heightClass = compact ? "h-[360px]" : "h-[58vh] min-h-[360px]";
             const metadata = [
@@ -9835,10 +9841,10 @@
             ].filter(Boolean).join(" · ");
 
             let canvasMarkup = "";
-            if (kind === "image" && imageUrl) {
-                canvasMarkup = `<div class="${heightClass} flex items-center justify-center overflow-hidden rounded-2xl border border-[#E8E8ED] bg-[#F5F5F7] p-3"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" class="max-h-full max-w-full rounded-xl object-contain" loading="lazy"></div>`;
+            if (kind === "image" && previewUrl && recordType && recordId) {
+                canvasMarkup = `<div data-file-preview-reader data-record-type="${escapeHtml(recordType)}" data-record-id="${escapeHtml(recordId)}" data-drive-file-id="${escapeHtml(getDriveFileIdFromRecord(record))}" data-preview-title="${escapeHtml(title)}" class="${heightClass} flex flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border border-[#E8E8ED] bg-[#F5F5F7] p-4 text-center"></div>`;
             } else if (previewUrl && (kind === "pdf" || kind === "document")) {
-                canvasMarkup = `<iframe title="${escapeHtml(title)}" src="${escapeHtml(previewUrl)}" class="${heightClass} w-full rounded-2xl border border-[#E8E8ED] bg-white" loading="lazy" referrerpolicy="no-referrer"></iframe>`;
+                canvasMarkup = `<iframe title="${escapeHtml(title)}" src="${escapeHtml(previewUrl)}" class="${heightClass} w-full rounded-2xl border border-[#E8E8ED] bg-white" loading="lazy" referrerpolicy="no-referrer"></iframe><p class="text-xs leading-relaxed text-[#6E6E73]">若預覽空白、格式不支援或要求登入，請按「在 Drive 開啟」，並使用獲授權的 Google 帳號查看。系統不會自動公開檔案。</p>`;
             } else {
                 canvasMarkup = `<div class="${heightClass} flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#D9D9E3] bg-[#FBFBFD] px-6 text-center"><span class="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#E5E5EA] bg-white text-[#6E6E73]"><i data-lucide="file-text" class="h-5 w-5"></i></span><p class="mt-3 text-sm font-bold text-[#1D1D1F]">此格式無法直接預覽</p><p class="mt-1 max-w-sm text-xs leading-relaxed text-[#86868B]">可改用 Google Drive 開啟原始檔案，保留完整編輯與下載能力。</p></div>`;
             }
@@ -9852,6 +9858,107 @@
                     ${canvasMarkup}
                 </div>
             `;
+        }
+
+        function disposeFilePreviewReaders(root) {
+            filePreviewReaders.forEach(function(entry, node) {
+                if (root && !root.contains(node)) return;
+                clearTimeout(entry.timer);
+                if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+                filePreviewReaders.delete(node);
+                node.replaceChildren();
+            });
+        }
+
+        function clearFilePreviewSurfaces() {
+            disposeFilePreviewReaders();
+            activeFilePreviewContext = null;
+            activeFileCompareContext = null;
+            filePreviewReturnFocus = null;
+            ['file-preview-modal', 'file-compare-modal'].forEach(function(id) {
+                document.getElementById(id)?.classList.add('hidden');
+                document.getElementById(id + '-body')?.replaceChildren();
+            });
+        }
+
+        function setFilePreviewReaderStatus(node, phase, message) {
+            node.dataset.previewState = phase;
+            node.setAttribute('aria-busy', phase === 'loading' ? 'true' : 'false');
+            node.innerHTML = phase === 'loading'
+                ? '<span aria-hidden="true" class="h-7 w-7 shrink-0 rounded-full border-[3px] border-[#CFE3FF] border-t-[#0066CC] motion-safe:animate-spin"></span><p role="status" class="text-sm font-bold text-[#1D1D1F]">正在載入圖片…</p><p class="text-xs text-[#6E6E73]">正在確認觀看權限，不會公開原始檔案。</p>'
+                : '<p role="status" class="text-sm font-bold text-[#1D1D1F]">圖片暫時無法預覽</p><p class="max-w-md break-words text-xs leading-relaxed text-[#6E6E73]">' + escapeHtml(message) + '</p><button type="button" data-preview-retry class="rounded-xl bg-[#0066CC] px-4 py-2.5 text-xs font-bold text-white">重新載入圖片</button>';
+            node.querySelector('[data-preview-retry]')?.addEventListener('click', function() { loadFilePreviewImage(node); });
+        }
+
+        async function loadFilePreviewImage(node) {
+            if (!node.isConnected || filePreviewReaders.get(node)?.phase === 'loading') return;
+            disposeFilePreviewReaders(node);
+            const entry = { phase: 'loading', epoch: authEpoch, userId: currentUser?.User_ID, objectUrl: '', timer: null };
+            filePreviewReaders.set(node, entry);
+            const isCurrent = function() {
+                return filePreviewReaders.get(node) === entry && entry.phase === 'loading' && node.isConnected && entry.epoch === authEpoch
+                    && entry.userId === currentUser?.User_ID && !expiredSessionToken;
+            };
+            const fail = function(message) {
+                if (!isCurrent()) return;
+                clearTimeout(entry.timer);
+                if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+                entry.objectUrl = '';
+                entry.phase = 'error';
+                setFilePreviewReaderStatus(node, 'error', message);
+            };
+            setFilePreviewReaderStatus(node, 'loading');
+            try {
+                if (!currentUser || !authSessionToken || !isRemoteSyncEnabled()) throw new Error('請先登入並連線至雲端，再重新載入圖片。');
+                const response = await requestGas('getFilePreview', { recordType: node.dataset.recordType, recordId: node.dataset.recordId });
+                if (!isCurrent()) return;
+                const data = response.data;
+                const types = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp'];
+                if (!data || data.recordType !== node.dataset.recordType || data.recordId !== node.dataset.recordId
+                    || data.driveFileId !== node.dataset.driveFileId || !types.includes(data.mimeType)
+                    || !['original', 'thumbnail'].includes(data.previewMode) || typeof data.contentBase64 !== 'string'
+                    || data.contentBase64.length > 8 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data.contentBase64)) {
+                    throw new Error('雲端尚未提供可確認的圖片內容，請重試，或在 Drive 開啟。');
+                }
+                const binary = atob(data.contentBase64);
+                const limit = (data.previewMode === 'thumbnail' ? 2 : 6) * 1024 * 1024;
+                if (!binary.length || binary.length !== data.byteLength || binary.length > limit) throw new Error('圖片資料不完整，請重試，或在 Drive 開啟。');
+                const bytes = Uint8Array.from(binary, function(character) { return character.charCodeAt(0); });
+                entry.objectUrl = URL.createObjectURL(new Blob([bytes], { type: data.mimeType }));
+                const image = document.createElement('img');
+                image.alt = node.dataset.previewTitle;
+                image.className = 'min-h-0 max-h-full max-w-full rounded-xl object-contain';
+                image.onload = function() {
+                    if (!isCurrent()) return;
+                    if (!image.naturalWidth) { fail('圖片內容無法辨識，請在 Drive 開啟原始檔案。'); return; }
+                    clearTimeout(entry.timer);
+                    entry.phase = 'ready';
+                    node.dataset.previewState = 'ready';
+                    node.setAttribute('aria-busy', 'false');
+                    node.replaceChildren(image);
+                    if (data.previewMode === 'thumbnail') {
+                        const caption = document.createElement('p');
+                        caption.className = 'shrink-0 text-xs text-[#6E6E73]';
+                        caption.textContent = '目前顯示較小的預覽圖；原始檔案不受影響，可在 Drive 開啟查看。';
+                        node.appendChild(caption);
+                    }
+                };
+                image.onerror = function() { fail('圖片內容無法辨識或格式不支援，請重試，或在 Drive 開啟原始檔案。'); };
+                entry.timer = setTimeout(function() { fail('圖片載入較久，請重試，或在 Drive 開啟。'); }, 15000);
+                image.src = entry.objectUrl;
+            } catch (error) {
+                const message = String(error?.message || '');
+                fail(/Unsupported.*getFilePreview/.test(message)
+                    ? '圖片預覽服務尚未更新，請通知形印組發布新版雲端程式。'
+                    : /REQUEST_TIMEOUT|HTTP |Failed to fetch|NetworkError/.test(message)
+                        ? '雲端連線暫時中斷或等候較久，請重新載入圖片。'
+                        : /^PREVIEW_/.test(message) ? message.replace(/^PREVIEW_[A-Z_]+:\s*/, '')
+                            : '圖片目前無法載入，請確認登入與連線後重試，或在 Drive 開啟。');
+            }
+        }
+
+        function hydrateFilePreviewImages(root) {
+            root?.querySelectorAll('[data-file-preview-reader]').forEach(function(node) { loadFilePreviewImage(node); });
         }
 
         function openFilePreview(recordType, recordId) {
@@ -9876,6 +9983,7 @@
 
         function closeFilePreviewModal() {
             activeFilePreviewContext = null;
+            disposeFilePreviewReaders(document.getElementById('file-preview-modal-body'));
             document.getElementById('file-preview-modal-body')?.replaceChildren();
             const modal = document.getElementById("file-preview-modal");
             if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
@@ -9897,7 +10005,11 @@
             const context = activeFilePreviewContext;
             const record = context ? context.previewRecord || getPreviewRecord(context.recordType, context.recordId) : null;
             if (title) title.textContent = record ? getRecordPreviewTitle(record) : "檔案預覽";
-            if (body) body.innerHTML = context?.recordType.startsWith('assignment-guide') ? buildAssignmentGuidePreviewMarkup(record) : buildFilePreviewMarkup(record);
+            if (body) {
+                disposeFilePreviewReaders(body);
+                body.innerHTML = context?.recordType.startsWith('assignment-guide') ? buildAssignmentGuidePreviewMarkup(record) : buildFilePreviewMarkup(record, context || {});
+                hydrateFilePreviewImages(body);
+            }
             renderLucideIcons();
         }
 
@@ -9919,6 +10031,9 @@
 
         function closeFileCompareModal() {
             activeFileCompareContext = null;
+            const body = document.getElementById('file-compare-modal-body');
+            disposeFilePreviewReaders(body);
+            body?.replaceChildren();
             const modal = document.getElementById("file-compare-modal");
             if (modal) animateSurfaceClose(modal, modal.firstElementChild, { hideDelay: 180, toBlur: 8 });
         }
@@ -9939,6 +10054,7 @@
             const familyName = groupFiles[0] ? String(groupFiles[0].Base_File_Name || groupFiles[0].File_Name || "版本比較") : "版本比較";
             if (title) title.textContent = familyName;
             if (!body) return;
+            disposeFilePreviewReaders(body);
             if (!left || !right) {
                 body.innerHTML = `<div class="rounded-3xl border border-dashed border-[#D9D9E3] bg-[#FBFBFD] px-5 py-12 text-center text-xs text-[#86868B]">找不到可比較的檔案版本。</div>`;
                 return;
@@ -9952,12 +10068,12 @@
                     <section class="min-w-0 rounded-[22px] border border-[#E8E8ED] bg-[#FBFBFD] p-3">
                         <label class="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#86868B]">較舊版本</label>
                         <select onchange="setFileVersionComparisonSide('leftId', this.value)" class="w-full rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-xs font-bold text-[#1D1D1F] focus:border-[#0066CC] focus:outline-none">${options}</select>
-                        <div class="mt-3">${buildFilePreviewMarkup(left, { compact: true })}</div>
+                        <div class="mt-3">${buildFilePreviewMarkup(left, { compact: true, recordType: 'file', recordId: left.File_ID })}</div>
                     </section>
                     <section class="min-w-0 rounded-[22px] border border-[#CFE3FF] bg-[#F7FAFF] p-3">
                         <label class="mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-[#0066CC]">較新版本</label>
                         <select onchange="setFileVersionComparisonSide('rightId', this.value)" class="w-full rounded-xl border border-[#CFE3FF] bg-white px-3 py-2 text-xs font-bold text-[#1D1D1F] focus:border-[#0066CC] focus:outline-none">${options}</select>
-                        <div class="mt-3">${buildFilePreviewMarkup(right, { compact: true })}</div>
+                        <div class="mt-3">${buildFilePreviewMarkup(right, { compact: true, recordType: 'file', recordId: right.File_ID })}</div>
                     </section>
                 </div>
             `;
@@ -9967,6 +10083,7 @@
             if (selects[1]) selects[1].value = String(right.File_ID || "");
             enhanceNativeSoftSelects(body);
             renderLucideIcons();
+            hydrateFilePreviewImages(body);
         }
 
         function setAssignmentBrowserValue(key, value) {
@@ -11830,6 +11947,7 @@
 
         // 切換雙重身份工作情境 Workspace
         function toggleWorkspace(target) {
+            clearFilePreviewSurfaces();
             activeWorkspace = target;
             activeTab = "overview"; // 回到概覽
             
