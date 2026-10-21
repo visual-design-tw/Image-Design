@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.21-preview.1';
+var APP_RELEASE = '2026.10.21-claim.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -8536,25 +8536,44 @@ function handleRequestDesignService_(payload) {
   });
 }
 
-function handleClaimDesignServiceOrder_(payload) {
-  var state = loadState_();
-  var previousState = cloneObject_(state);
-  var actor = requireSessionUser_(state, payload, ['Admin']);
-  var settings = getDesignServiceSettings_(state);
-  if (settings.Enabled !== true) {
-    throw new Error('目前未開放新的形印代做接案。');
+function loadDesignServiceClaimState_() {
+  try {
+    return loadState_({ fresh: true });
+  } catch (error) {
+    throw new Error('CLAIM_NOT_CONFIRMED: 尚未取得最新接案資料，請重試確認接案結果。');
   }
-  if (getDesignServiceEligibleUserIds_(state, settings).indexOf(String(actor.User_ID || '')) === -1) {
-    throw new Error('目前尚未被組長指定為可接案的形印組員。');
-  }
+}
 
+function handleClaimDesignServiceOrder_(payload) {
+  // doPost holds the script lock through the fresh read, commit and confirmation.
+  var state = loadDesignServiceClaimState_();
+  var actor = requireSessionUser_(state, payload, ['Admin']);
   var order = getDesignServiceOrderById_(state, payload.serviceOrderId);
   if (!order) {
-    throw new Error('找不到指定的形印代做案件。');
+    throw new Error('CLAIM_UNAVAILABLE: 找不到這筆案件，可能已移除，請更新清單後再確認。');
   }
-  if (order.Status !== '待接案') {
-    throw new Error('這個案件已被其他人接案或已進入下一個流程。');
+  var ownerId = String(order.Responsible_User_ID || '');
+  if (ownerId === String(actor.User_ID || '') && ['製作中', '待審核', '退回修正', '已完成'].indexOf(order.Status) >= 0) {
+    return buildClientStateResultForUser_(state, actor, {
+      designServiceOrder: order, claimConfirmed: true, alreadyClaimed: true
+    }, { includeHeatmap: false });
   }
+  if (ownerId || order.Status !== '待接案') {
+    throw new Error('CLAIM_TAKEN: 這筆案件已被接下或已進入下一個流程，請查看最新負責人。');
+  }
+  var settings = getDesignServiceSettings_(state);
+  if (settings.Enabled !== true) {
+    throw new Error('CLAIM_CLOSED: 目前暫停新的形印代做接案，已接下的案件不受影響。');
+  }
+  if (getDesignServiceEligibleUserIds_(state, settings).indexOf(String(actor.User_ID || '')) === -1) {
+    throw new Error('CLAIM_FORBIDDEN: 你目前未被指定為可接案成員，請聯絡組長確認資格。');
+  }
+  try {
+    getDesignServiceAssignmentContext_(state, order.Assignment_ID, order.Team_ID);
+  } catch (contextError) {
+    throw new Error('CLAIM_UNAVAILABLE: 案件對應的作業、小組或會期需要確認，請聯絡組長後再接案。');
+  }
+  var previousState = cloneObject_(state);
 
   var claimedAt = nowString_();
   order.Responsible_User_ID = String(actor.User_ID || '');
@@ -8580,22 +8599,31 @@ function handleClaimDesignServiceOrder_(payload) {
     nextRevision: getStateRevision_(previousState) + 1,
     preserveDesignServiceState: false
   });
-  state = loadState_();
-  appendActivityLogEntries_([
-    createActivityLogEntry_(
-      actor,
-      '接案形印代做',
-      '已接下形印代做案件「' + order.Service_Order_ID + '」。',
-      'design-service',
-      order.Service_Order_ID,
-      'normal',
-      { source: 'claimDesignServiceOrder', teamId: order.Team_ID }
-    )
-  ]);
+  state = loadDesignServiceClaimState_();
+  var confirmed = getDesignServiceOrderById_(state, order.Service_Order_ID);
+  if (!confirmed || String(confirmed.Responsible_User_ID || '') !== String(actor.User_ID || '')
+      || confirmed.Status !== '製作中' || confirmed.Claimed_At !== claimedAt) {
+    throw new Error('CLAIM_NOT_CONFIRMED: 雲端尚未確認負責人，請重試確認；系統不會覆蓋其他人的接案。');
+  }
+  try {
+    appendActivityLogEntries_([
+      createActivityLogEntry_(
+        actor,
+        '接案形印代做',
+        '已接下形印代做案件「' + order.Service_Order_ID + '」。',
+        'design-service',
+        order.Service_Order_ID,
+        'normal',
+        { source: 'claimDesignServiceOrder', teamId: order.Team_ID }
+      )
+    ]);
+  } catch (logError) {
+    Logger.log('Claim committed; activity log confirmation pending.');
+  }
 
   return buildClientStateResultForUser_(state, actor, {
-    designServiceOrder: getDesignServiceOrderById_(state, order.Service_Order_ID)
-  });
+    designServiceOrder: confirmed, claimConfirmed: true, alreadyClaimed: false
+  }, { includeHeatmap: false });
 }
 
 function updateDesignServiceOrderWithDrive_(state, actor, order, driveResult) {

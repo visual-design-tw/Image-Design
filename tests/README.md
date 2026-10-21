@@ -1,5 +1,16 @@
 # Stability Regression Tests
 
+## Design-Service Claim Confirmation
+
+`node tests/design-service-claim.test.cjs` checks actual claim-button dispatch,
+pending animation, repeated-click prevention, fresh locked reads and confirmed
+state application, same-owner retry, lost responses, competing workers,
+permissions and closed settings, missing parents, unrelated edits, expiry,
+logout and mobile layout. Two isolated browser accounts exercise the real
+frontend request path against one shared mocked backend. Set `CLAIM_ARTIFACT_DIR`
+for JSON and synthetic loading-state screenshots. No production case is claimed,
+no real eligibility settings are changed, and notifications are fixture-only.
+
 ## Authenticated Image Preview
 
 `node tests/file-preview.test.cjs` checks private raster decoding through the

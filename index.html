@@ -2046,7 +2046,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.21-preview.1";
+        const APP_RELEASE = "2026.10.21-claim.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2182,6 +2182,8 @@
         let pendingLargeAssignmentResourceUpload = null;
         let assignmentResourceDeleteInFlight = false;
         let activeDesignServiceRequestAssignmentId = "";
+        let designServiceClaimInFlight = false;
+        const designServiceClaimFeedback = new Map();
         let activeDesignServiceReviewOrderId = "";
         let activeDesignServiceUploadOrderId = "";
         let calendarViewCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -4085,10 +4087,13 @@
 
         function clearStoredSession(options = {}) {
             clearFilePreviewSurfaces();
+            designServiceClaimInFlight = false;
+            designServiceClaimFeedback.clear();
             expiredSessionToken = '';
             document.getElementById('session-expired-modal')?.classList.add('hidden');
             authEpoch += 1;
             cancelQueuedRemoteStateSync();
+            remoteMutationInFlight = false;
             remoteSaveInFlight = false;
             remoteSavePromise = null;
             stageDeleteInFlight = false;
@@ -4334,7 +4339,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : action === 'postDiscussionComment' ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -12160,10 +12165,11 @@
                 throw new Error("形印代做需要連線 GAS 雲端後才能操作。");
             }
             const response = await requestGas(action, payload || {});
-            applyBackendStateResponse(response, {
+            const applied = applyBackendStateResponse(response, {
                 preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "",
                 allowFallback: false
             });
+            if (!applied) throw new Error('SERVICE_NOT_CONFIRMED: 雲端尚未確認這次操作，請保留內容並重試確認。');
             if (successMessage) showToast(successMessage, "success");
             return response;
         }
@@ -16830,19 +16836,87 @@
             }
         }
 
-        function claimDesignServiceOrder(orderId) {
-            submitDesignServiceAction("claimDesignServiceOrder", {
-                serviceOrderId: orderId
-            }, "已接案，這筆案件現在由你負責製作。" ).catch(function(error) {
-                showToast(error && error.message ? error.message : "接案失敗，請重新整理後再試。", "warning");
-            });
+        async function claimDesignServiceOrder(orderId) {
+            if (designServiceClaimInFlight) return;
+            const id = String(orderId || '');
+            const userId = String(currentUser?.User_ID || '');
+            const entry = { userId: userId, phase: 'pending', message: '正在確認最新案件與負責人，請稍候，不需要重複點擊。' };
+            if (!id || !getDesignServiceOrderById(id) || getEffectiveRoleContext().effectiveRole !== 'Admin') {
+                showToast('請以具接案資格的形印組員身分操作。', 'warning');
+                return;
+            }
+            if (remoteMutationInFlight) {
+                designServiceClaimFeedback.set(id, { userId: userId, phase: 'error', message: '另一項操作仍在處理，請稍候再接案。' });
+                renderAll();
+                return;
+            }
+            const expectedEpoch = authEpoch;
+            designServiceClaimInFlight = true;
+            remoteMutationInFlight = true;
+            designServiceClaimFeedback.set(id, entry);
+            renderAll();
+            try {
+                if (!isRemoteSyncEnabled() || !authSessionToken) throw new Error('CLAIM_OFFLINE: 請先登入並連線至雲端，再重試接案。');
+                const response = await requestGas('claimDesignServiceOrder', { serviceOrderId: id });
+                if (expectedEpoch !== authEpoch) return;
+                const data = response.data;
+                const order = data?.designServiceOrder;
+                const snapshot = ensureArray(data?.state?.Design_Service_Orders).find(function(item) { return item.Service_Order_ID === id; });
+                const accepted = ['製作中', '待審核', '退回修正', '已完成'];
+                if (data?.claimConfirmed !== true || order?.Service_Order_ID !== id || order.Responsible_User_ID !== userId
+                    || !accepted.includes(order.Status) || !order.Claimed_At || data.currentUser?.User_ID !== userId
+                    || snapshot?.Responsible_User_ID !== userId || snapshot.Status !== order.Status || snapshot.Claimed_At !== order.Claimed_At
+                    || !applyBackendStateResponse(response, { preferredUserId: userId, allowFallback: false, skipRender: true, keepExistingHeatmap: true })) {
+                    throw new Error('CLAIM_NOT_CONFIRMED: 雲端尚未確認負責人，請重試確認接案結果。');
+                }
+                entry.phase = 'success';
+                entry.message = data.alreadyClaimed ? '已確認前次接案成功，沒有重複接案。' : '接案成功，雲端已確認由你負責。';
+                showToast(entry.message, 'success');
+            } catch (error) {
+                if (expectedEpoch !== authEpoch) return;
+                if (error.sessionExpired) {
+                    entry.phase = 'unconfirmed';
+                    entry.message = '登入已失效，請重新登入後確認接案結果；系統不會自動替你重送。';
+                    return;
+                }
+                const message = String(error?.message || '');
+                const knownRejection = /CLAIM_(TAKEN|CLOSED|FORBIDDEN|UNAVAILABLE|OFFLINE)|FORBIDDEN|UNSAVED_CHANGES/.test(message);
+                entry.phase = knownRejection ? 'error' : 'unconfirmed';
+                entry.message = /UNSAVED_CHANGES/.test(message)
+                    ? '頁面還有未確認的修改，請先儲存或重試那些修改，再回來接案。'
+                    : /^CLAIM_(TAKEN|CLOSED|FORBIDDEN|UNAVAILABLE|OFFLINE):/.test(message)
+                        ? message.replace(/^CLAIM_[A-Z_]+:\s*/, '')
+                        : /FORBIDDEN/.test(message) ? '你目前沒有接案資格，請確認帳號與工作身分，或聯絡組長。'
+                            : /Unsupported.*claimDesignServiceOrder/.test(message) ? '雲端接案服務尚未更新，請通知形印組確認發布版本。'
+                                : '尚未確認接案結果。請按「重試確認」，系統會查證負責人，不會搶走其他人的案件。';
+                if (/CLAIM_TAKEN|CLAIM_UNAVAILABLE|CLAIM_CLOSED|CLAIM_FORBIDDEN/.test(message)) {
+                    try {
+                        const fresh = await requestGas('bootstrap', { fresh: true, includeHeatmap: false });
+                        if (expectedEpoch !== authEpoch) return;
+                        if (!applyBackendStateResponse(fresh, { preferredUserId: userId, allowFallback: false, skipRender: true, keepExistingHeatmap: true })) {
+                            throw new Error('refresh not applied');
+                        }
+                        entry.message += ' 已更新案件清單。';
+                    } catch (refreshError) {
+                        if (refreshError.sessionExpired || expectedEpoch !== authEpoch) return;
+                        entry.message += ' 最新清單尚未載入，請先確認未儲存內容，再重新同步。';
+                    }
+                }
+                showToast(entry.message, 'warning');
+            } finally {
+                if (expectedEpoch === authEpoch) {
+                    designServiceClaimInFlight = false;
+                    remoteMutationInFlight = false;
+                    renderAll();
+                }
+            }
         }
 
         function renderDesignServiceWorkbench(container, effectiveRole) {
             const settings = getDesignServiceSettings();
             const orders = getDesignServiceOrders().slice().sort(function(a, b) {
                 const statusRank = { "待審核": 0, "退回修正": 1, "製作中": 2, "待接案": 3, "已完成": 4 };
-                const rankDiff = (statusRank[a.Status] || 9) - (statusRank[b.Status] || 9);
+                const rankDiff = (statusRank[a.Status] ?? 9) - (statusRank[b.Status] ?? 9);
                 if (rankDiff !== 0) return rankDiff;
                 return String(b.Updated_At || b.Requested_At || "").localeCompare(String(a.Updated_At || a.Requested_At || ""));
             });
@@ -16874,16 +16948,20 @@
                             ${orders.length === 0 ? `<div class="rounded-2xl bg-[#F5F5F7] px-4 py-8 text-center text-xs text-[#86868B]">目前還沒有形印代做案件。</div>` : orders.map(function(order) {
                                 const assignment = state.Assignments.find(function(item) { return String(item.Assignment_ID || "") === String(order.Assignment_ID || ""); });
                                 const team = state.Teams.find(function(item) { return String(item.Team_ID || "") === String(order.Team_ID || ""); });
-                                const canClaim = effectiveRole === "Admin" && currentUserCanClaim && order.Status === "待接案";
+                                const claimFeedback = designServiceClaimFeedback.get(String(order.Service_Order_ID || ''));
+                                const feedback = claimFeedback?.userId === currentUser?.User_ID ? claimFeedback : null;
+                                const canClaim = settings.Enabled && effectiveRole === "Admin" && currentUserCanClaim && order.Status === "待接案";
+                                const canConfirmClaim = effectiveRole === 'Admin' && ['pending', 'unconfirmed'].includes(feedback?.phase);
+                                const claiming = feedback?.phase === 'pending';
                                 const isResponsible = effectiveRole === "Admin" && String(order.Responsible_User_ID || "") === String(currentUser && currentUser.User_ID || "");
-                                const canUpload = isResponsible && ["製作中", "退回修正"].includes(order.Status);
+                                const canUpload = isResponsible && ["製作中", "退回修正"].includes(order.Status) && !['pending', 'unconfirmed'].includes(feedback?.phase);
                                 const canReview = effectiveRole === "SuperAdmin" && order.Status === "待審核";
                                 const fileLink = order.Google_Drive_URL ? `<a href="${escapeAttributeUrl(order.Google_Drive_URL)}" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex max-w-full items-center gap-1 text-[10px] font-bold text-[#0066CC] hover:underline"><i data-lucide="external-link" class="h-3 w-3"></i><span class="truncate">${escapeHtml(order.File_Name || "開啟成果檔案")}</span></a>` : '';
                                 return `<article class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:-translate-y-0.5 hover:border-[#D5D5DD] hover:bg-white" data-service-card>
                                     <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                         <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-[#86868B]">${escapeHtml(order.Service_Order_ID)}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${getDesignServiceStatusClass(order.Status)}">${getDesignServiceStatusLabel(order.Status)}</span></div><h5 class="mt-2 text-sm font-bold text-[#1D1D1F]">${escapeHtml(assignment ? assignment.Title : order.Assignment_ID)}</h5><p class="mt-1 text-[11px] text-[#86868B]">申請小組：${escapeHtml(team ? team.Team_Name : order.Team_ID)} · 申請時間：${escapeHtml(formatCompactDateTimeLabel(order.Requested_At))}</p>${fileLink}</div>
-                                        <div class="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">${order.Responsible_Name ? `<span class="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-[#1D1D1F]">負責人：${escapeHtml(order.Responsible_Name)}</span>` : ''}${canClaim ? `<button type="button" onclick="claimDesignServiceOrder('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl bg-[#0066CC] px-3.5 py-2 text-[11px] font-bold text-white hover:opacity-90">接案</button>` : ''}${canUpload ? `<button type="button" onclick="openDesignServiceUploadModal('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC]">上傳成果</button>` : ''}${canReview ? `<button type="button" onclick="openDesignServiceReviewModal('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl bg-[#1D1D1F] px-3.5 py-2 text-[11px] font-bold text-white">審核成果</button>` : ''}</div>
-                                    </div>${order.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]">審核意見：${escapeHtml(order.Review_Note)}</div>` : ''}
+                                        <div class="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">${order.Responsible_Name ? `<span class="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-[#1D1D1F]">負責人：${escapeHtml(order.Responsible_Name)}</span>` : ''}${canClaim || canConfirmClaim ? `<button type="button" data-service-claim-id="${escapeHtml(order.Service_Order_ID)}" onclick="claimDesignServiceOrder('${escapeInlineJsString(order.Service_Order_ID)}')" ${designServiceClaimInFlight ? 'disabled' : ''} aria-busy="${claiming ? 'true' : 'false'}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0066CC] px-3.5 py-2 text-[11px] font-bold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-65">${claiming ? '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>接案中…' : canConfirmClaim ? '重試確認' : '接案'}</button>` : ''}${canUpload ? `<button type="button" onclick="openDesignServiceUploadModal('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC]">上傳成果</button>` : ''}${canReview ? `<button type="button" onclick="openDesignServiceReviewModal('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl bg-[#1D1D1F] px-3.5 py-2 text-[11px] font-bold text-white">審核成果</button>` : ''}</div>
+                                    </div>${feedback ? `<p role="status" aria-live="polite" data-service-claim-status class="mt-3 rounded-xl border ${feedback.phase === 'success' ? 'border-[#BDE8CD] bg-[#F2FBF5] text-[#197342]' : feedback.phase === 'pending' ? 'border-[#CFE3FF] bg-[#F4F8FF] text-[#0066CC]' : 'border-[#FFE0BE] bg-[#FFFBF6] text-[#915000]'} px-3 py-2 text-xs leading-relaxed">${escapeHtml(feedback.message)}</p>` : ''}${order.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]">審核意見：${escapeHtml(order.Review_Note)}</div>` : ''}
                                 </article>`;
                             }).join('')}
                         </div>
