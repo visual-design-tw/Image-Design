@@ -115,7 +115,7 @@ async function backendTests() {
     const c = context();
     assert.equal(c.buildCompletedResumableResult_(completed()).complete, true);
     assert.throws(() => c.buildCompletedResumableResult_(completed({ assetReceipt: '' })), /UPLOAD_NOT_CONFIRMED/);
-    c.loadResumableUploadSession_ = () => ({ status: 'completed', completedResult: completed() });
+    c.loadResumableUploadSession_ = () => ({ status: 'completed', userId: 'U03', completedResult: completed() });
     c.verifyResumableUploadSession_ = () => { throw new Error('AUTH_REQUIRED'); };
     assert.throws(() => c.uploadResumableLargeUploadChunk({}), /AUTH_REQUIRED/);
     c.verifyResumableUploadSession_ = () => {};
@@ -184,7 +184,8 @@ async function uploadPageTests() {
         buildUploadPayload: () => ({}), getFormUploadPayload: () => ({}),
         requestGas: server, callResumableServer: server,
         callChunkWithRetry: payload => server('uploadResumableLargeUploadChunk', payload),
-        handleSuccess: result => { c.success = result; }, window: { setTimeout: fn => fn() }
+        handleSuccess: result => { c.success = result; }, document: { getElementById: () => null },
+        window: { setTimeout: fn => fn(), setInterval: () => 1, clearInterval: () => {} }
       });
       vm.runInContext(source.slice(start, end), c);
       const result = await c.handleResumableSubmit({ size });

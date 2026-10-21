@@ -2058,7 +2058,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.21-motion.1";
+        const APP_RELEASE = "2026.10.22-upload-speed.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -6152,6 +6152,7 @@
 
             const url = new URL("large-upload.html", window.location.href);
             url.searchParams.set("gasEndpoint", endpoint);
+            url.searchParams.set("release", APP_RELEASE);
 
             Object.keys(params).forEach(function(key) {
                 const value = params[key];

@@ -1,5 +1,26 @@
 # GAS Backend
 
+## 2026.10.22-upload-speed.1 Large Upload Throughput
+
+- Each chunk reads only the live Users table through the existing Spreadsheet
+  service, rather than loading/initializing the full application state. Session
+  expiry, revocation, account status and upload-owner checks remain mandatory;
+  failed account reads do not use cached permissions. Finalization retains its
+  original full business-rule validation and lock.
+- The server accepts at most 8 MiB per chunk, with bounded base64 input and valid
+  256 KiB boundaries. Existing 2 MiB callers and in-progress uploads remain
+  compatible; no upload URL, cache schema, account permission or scope is exposed.
+- Both upload pages begin with 2 MiB, grow only after timely confirmations, and
+  reduce later chunks after slow transmission or retries. An in-flight retry
+  keeps identical bytes and offsets. Chunks remain sequential, never parallel.
+- Progress requires a valid Drive Range acknowledgement or a complete final
+  result. Confirmed capacity, elapsed time, effective average speed and approximate
+  remaining time are shown without advancing the bar while a response is pending.
+- New upload-window URLs include the release to avoid reusing an old cached page.
+- Publish both HTML pages, the frontend release label and the backend together.
+  No schema, OAuth, mail scheduling, sharing or registration settings change.
+  Synthetic request-count improvements do not establish production bandwidth.
+
 ## 2026.10.21-motion.1 Stateful Icon Rendering
 
 - Keep static fallbacks outside the custom element; only an empty, dedicated

@@ -1,5 +1,16 @@
 # Stability Regression Tests
 
+## Large Upload Throughput
+
+`node tests/upload-speed.test.cjs` checks bounded live-account reads, expired and
+revoked sessions, owner binding, legacy and new chunk sizes, pre-decode limits,
+Drive acknowledgement boundaries, adaptive 2-8 MiB transfers, identical-range
+retries, completion receipts, progress clocks and confirmed-byte speed/ETA.
+A real isolated browser sends a synthetic 50 MiB file to a mocked endpoint.
+The fast-link model uses 8 chunks instead of 25; this is a request-count
+comparison, not a measured production speed claim. Set `UPLOAD_SPEED_ARTIFACT_DIR`
+for the JSON report and mobile screenshot. No real account or Drive upload is used.
+
 ## Stateful Icons and Animation
 
 `node tests/animation-icons.test.cjs` exercises actual pinned Lucide 1.61.0,

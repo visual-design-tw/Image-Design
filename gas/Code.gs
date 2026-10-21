@@ -16,7 +16,7 @@ var ASSIGNMENT_RESOURCE_EXTENSIONS = SUPPORTED_UPLOAD_EXTENSIONS.concat([
 var MAX_BROWSER_UPLOAD_SIZE_BYTES = 18 * 1024 * 1024;
 var MAX_STABLE_WEBAPP_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
 var MAX_RESUMABLE_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
-var RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES = 2 * 1024 * 1024;
+var RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024;
 var RESUMABLE_UPLOAD_SESSION_TTL_SECONDS = 6 * 60 * 60;
 var RESUMABLE_UPLOAD_CACHE_PREFIX = 'ShapePrintResumableUpload:';
 var STATE_CACHE_PREFIX = 'ShapePrintState:v1:';
@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.21-motion.1';
+var APP_RELEASE = '2026.10.22-upload-speed.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -1140,6 +1140,24 @@ function startResumableLargeUploadInternal_(payload) {
   };
 }
 
+function loadResumableUploadAuthState_() {
+  // Validate the live account without loading or initializing every application table.
+  try {
+    var sheet = SpreadsheetApp.openById(getConfig_().spreadsheetId).getSheetByName('Users');
+    if (!sheet) throw new Error('Missing account table');
+    var values = sheet.getRange(1, 1, Math.max(1, sheet.getLastRow()), TABLE_SCHEMAS.Users.headers.length).getValues();
+    if (!Array.isArray(values) || !Array.isArray(values[0])
+        || ['User_ID', 'Status', 'Role'].some(function(key) {
+          return values[0].map(function(value) { return String(value || '').trim(); }).indexOf(key) === -1;
+        })) {
+      throw new Error('Invalid account table');
+    }
+    return { Users: tableValuesToRecords_('Users', values) };
+  } catch (error) {
+    throw new Error('UPLOAD_AUTH_UNAVAILABLE: 暫時無法確認上傳帳號，請保留此頁並重試。');
+  }
+}
+
 function uploadResumableLargeUploadChunk(payload) {
   payload = payload && typeof payload === 'object' ? payload : {};
   var sessionKey = String(payload.sessionKey || '').trim();
@@ -1148,7 +1166,10 @@ function uploadResumableLargeUploadChunk(payload) {
     throw new Error('大檔上傳工作階段已過期，請重新開始上傳。');
   }
   verifyResumableUploadSession_(session, payload);
-  requireSessionUser_(loadState_(), payload);
+  var actor = requireSessionUser_(loadResumableUploadAuthState_(), payload);
+  if (String(actor.User_ID || '') !== String(session.userId || '')) {
+    throw new Error('FORBIDDEN: 無法確認其他使用者的上傳。');
+  }
   if (session.status === 'completed' && session.completedResult) {
     return buildCompletedResumableResult_(session.completedResult);
   }
@@ -1158,10 +1179,10 @@ function uploadResumableLargeUploadChunk(payload) {
   var chunkEnd = Number(payload.chunkEnd);
   var totalChunks = Number(payload.totalChunks || 0);
   var chunkBase64 = String(payload.chunkBase64 || '').trim();
-  if (!Number.isFinite(totalSize) || totalSize !== Number(session.fileSize)) {
+  if (!Number.isSafeInteger(totalSize) || totalSize <= 0 || totalSize !== Number(session.fileSize)) {
     throw new Error('大檔上傳大小驗證失敗。');
   }
-  if (!Number.isFinite(chunkStart) || !Number.isFinite(chunkEnd)
+  if (!Number.isSafeInteger(chunkStart) || !Number.isSafeInteger(chunkEnd)
     || chunkStart < 0 || chunkEnd < chunkStart || chunkEnd >= totalSize) {
     throw new Error('大檔上傳分段範圍無效。');
   }
@@ -1172,13 +1193,21 @@ function uploadResumableLargeUploadChunk(payload) {
     throw new Error('大檔上傳缺少分段內容。');
   }
 
+  var expectedChunkSize = chunkEnd - chunkStart + 1;
+  if (expectedChunkSize > RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES
+      || chunkBase64.length > Math.ceil(RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES / 3) * 4) {
+    throw new Error('大檔上傳單段不可超過 ' + Math.round(RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES / 1024 / 1024) + ' MB。');
+  }
+  if (chunkStart % (256 * 1024) !== 0 || (chunkEnd < totalSize - 1 && expectedChunkSize % (256 * 1024) !== 0)) {
+    throw new Error('大檔上傳分段邊界無效。');
+  }
+
   var chunkBytes;
   try {
     chunkBytes = Utilities.base64Decode(chunkBase64);
   } catch (decodeError) {
     throw new Error('大檔上傳分段內容無法解析。');
   }
-  var expectedChunkSize = chunkEnd - chunkStart + 1;
   if (!chunkBytes || chunkBytes.length !== expectedChunkSize) {
     throw new Error('大檔上傳分段大小驗證失敗。');
   }
@@ -1196,7 +1225,11 @@ function uploadResumableLargeUploadChunk(payload) {
   );
   var responseCode = driveResponse.responseCode;
   if (responseCode === 308) {
-    var nextByte = getResumableNextByte_(driveResponse.headers, chunkEnd + 1);
+    var nextByte = getResumableNextByte_(driveResponse.headers, 0);
+    if (!Number.isSafeInteger(nextByte) || nextByte <= chunkStart || nextByte > chunkEnd + 1
+        || nextByte >= totalSize || nextByte % (256 * 1024) !== 0) {
+      throw new Error('UPLOAD_PROGRESS_NOT_CONFIRMED: 尚未取得此段的儲存確認，請保留此頁並重試。');
+    }
     return {
       status: 'progress',
       mode: session.mode,
@@ -1512,8 +1545,8 @@ function getHttpHeaderValue_(headers, name) {
 }
 
 function getResumableNextByte_(headers, fallback) {
-  var range = getHttpHeaderValue_(headers, 'Range');
-  var match = range.match(/-(\d+)$/);
+  var range = getHttpHeaderValue_(headers, 'Range').trim();
+  var match = range.match(/^bytes=0-(\d+)$/i);
   return match ? Number(match[1]) + 1 : Number(fallback || 0);
 }
 

@@ -402,6 +402,7 @@
               <span id="progress-value">0%</span>
             </div>
             <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+            <p id="transfer-statistics" class="helper" aria-live="off"></p>
           </div>
         </div>
 
@@ -666,6 +667,10 @@
         }
 
         function updateSelectionState() {
+          if (isUploading) return;
+          stopUploadStatistics();
+          uploadProgressMeter = null;
+          document.getElementById("transfer-statistics").textContent = "";
           const file = getSelectedFile();
           if (!file) {
             fileSelection.textContent = "尚未選擇檔案。";
@@ -774,66 +779,145 @@
           return model.mode === "file" && Boolean(result.fileId);
         }
 
-        async function handleResumableSubmit(file) {
-          setTransferProgress(2, "建立大檔上傳工作階段");
-          setStatus("正在建立 Google Drive 分段上傳工作階段，請不要關閉此視窗。", "");
-          const startResult = await requestGas("startResumableLargeUpload", buildUploadPayload(file), "POST");
-          if (isCompletedResumableResult(startResult)) {
-            setTransferProgress(100, "已確認前次上傳完成，正在通知主頁");
-            return startResult;
+        function getUploadChunkPlan(serverBytes, fallbackBytes) {
+          const supplied = serverBytes === undefined || serverBytes === null ? fallbackBytes : serverBytes;
+          const maximum = Number(supplied === undefined || supplied === null ? 2 * 1024 * 1024 : supplied);
+          if (!Number.isSafeInteger(maximum) || maximum < 256 * 1024 || maximum > 8 * 1024 * 1024 || maximum % (256 * 1024) !== 0) {
+            throw new Error("雲端分段設定無效，請回主頁重新開啟上傳頁。");
           }
-          const chunkSize = Number(startResult && startResult.chunkSize || Number(model.resumableChunkMb || 2) * 1024 * 1024);
-          const totalSize = Number(file.size || 0);
-          const totalChunks = Math.ceil(totalSize / chunkSize);
-          let nextByte = 0;
-          let chunkNumber = 0;
+          return { maximum: maximum, initial: Math.min(maximum, 2 * 1024 * 1024) };
+        }
 
-          while (nextByte < totalSize) {
-            const chunkStart = nextByte;
-            const chunkEndExclusive = Math.min(totalSize, chunkStart + chunkSize);
-            const chunkEnd = chunkEndExclusive - 1;
-            chunkNumber += 1;
-            setStatus("正在傳送第 " + chunkNumber + " / " + totalChunks + " 段，請保留此頁。", "");
-            setTransferProgress(Math.max(3, (chunkStart / totalSize) * 94), "正在讀取第 " + chunkNumber + " / " + totalChunks + " 段");
-            const chunkBase64 = await readChunkAsBase64(file, chunkStart, chunkEndExclusive);
-            let result = null;
-            let lastError = null;
-            for (let attempt = 0; attempt < 3; attempt += 1) {
-              try {
-                result = await requestGas("uploadResumableLargeUploadChunk", {
-                  sessionToken: model.sessionToken,
-                  sessionKey: model.sessionKey,
-                  chunkStart: chunkStart,
-                  chunkEnd: chunkEnd,
-                  totalSize: totalSize,
-                  totalChunks: totalChunks,
-                  chunkIndex: chunkNumber - 1,
-                  chunkBase64: chunkBase64
-                }, "POST");
-                break;
-              } catch (error) {
-                lastError = error;
-                if (attempt < 2) {
-                  setStatus("本段傳輸較慢，正在第 " + (attempt + 2) + " 次重試。", "");
-                  await new Promise(function(resolve) { window.setTimeout(resolve, 700 * (attempt + 1)); });
+        function getNextUploadChunkSize(current, maximum, elapsedMs, retried) {
+          const minimum = Math.min(maximum, 2 * 1024 * 1024);
+          if (retried || elapsedMs >= 30000) return Math.max(minimum, Math.floor(current / 2 / (256 * 1024)) * 256 * 1024);
+          if (elapsedMs <= 8000) return Math.min(maximum, current * 2);
+          return current;
+        }
+
+        function getUploadEstimate(startedAt, confirmed, total, now) {
+          const elapsedSeconds = Math.max(0, (now - startedAt) / 1000);
+          const confirmedBytes = Math.max(0, Math.min(total, confirmed));
+          const bytesPerSecond = elapsedSeconds >= 1 && confirmedBytes > 0 ? confirmedBytes / elapsedSeconds : 0;
+          return {
+            elapsedSeconds: elapsedSeconds, confirmedBytes: confirmedBytes, bytesPerSecond: bytesPerSecond,
+            remainingSeconds: bytesPerSecond > 0 ? Math.max(0, total - confirmedBytes) / bytesPerSecond : null
+          };
+        }
+
+        function formatUploadDuration(seconds) {
+          const value = Math.max(0, Math.ceil(seconds));
+          if (value < 60) return value + " 秒";
+          if (value < 3600) return Math.floor(value / 60) + " 分 " + value % 60 + " 秒";
+          return Math.floor(value / 3600) + " 小時 " + Math.floor(value % 3600 / 60) + " 分";
+        }
+
+        let uploadProgressMeter = null;
+
+        function renderUploadStatistics() {
+          const element = document.getElementById("transfer-statistics");
+          if (!element || !uploadProgressMeter) return;
+          const meter = uploadProgressMeter;
+          const estimate = getUploadEstimate(meter.startedAt, meter.confirmed, meter.total, Date.now());
+          element.textContent = "已確認 " + formatFileSize(estimate.confirmedBytes) + " / " + formatFileSize(meter.total)
+            + " · 已經過 " + formatUploadDuration(estimate.elapsedSeconds)
+            + (estimate.bytesPerSecond > 0 ? " · 平均 " + formatFileSize(estimate.bytesPerSecond) + "/秒 · 預估剩餘約 " + formatUploadDuration(estimate.remainingSeconds)
+              : " · 取得第一段確認後顯示速度與預估時間")
+            + "。百分比只在雲端確認後更新，預估時間會依傳送狀況調整。";
+        }
+
+        function startUploadStatistics(total) {
+          stopUploadStatistics();
+          uploadProgressMeter = { startedAt: Date.now(), confirmed: 0, total: total, timer: null };
+          uploadProgressMeter.timer = window.setInterval(renderUploadStatistics, 1000);
+          renderUploadStatistics();
+        }
+
+        function updateUploadStatistics(confirmed) {
+          if (uploadProgressMeter) uploadProgressMeter.confirmed = Math.max(uploadProgressMeter.confirmed, confirmed);
+          renderUploadStatistics();
+        }
+
+        function stopUploadStatistics() {
+          if (uploadProgressMeter && uploadProgressMeter.timer !== null) {
+            window.clearInterval(uploadProgressMeter.timer);
+            uploadProgressMeter.timer = null;
+            renderUploadStatistics();
+          }
+        }
+
+        async function handleResumableSubmit(file) {
+          startUploadStatistics(Number(file.size || 0));
+          try {
+            setTransferProgress(0, "建立大檔上傳工作階段");
+            setStatus("正在建立 Google Drive 分段上傳工作階段，請不要關閉此視窗。", "");
+            const startResult = await requestGas("startResumableLargeUpload", buildUploadPayload(file), "POST");
+            if (isCompletedResumableResult(startResult)) {
+              updateUploadStatistics(file.size);
+              setTransferProgress(100, "已確認前次上傳完成，正在通知主頁");
+              return startResult;
+            }
+            const plan = getUploadChunkPlan(startResult && startResult.chunkSize, Number(model.resumableChunkMb || 2) * 1024 * 1024);
+            let chunkSize = plan.initial;
+            const totalSize = Number(file.size || 0);
+            const totalChunks = Math.ceil(totalSize / chunkSize);
+            let nextByte = 0;
+            let chunkNumber = 0;
+
+            while (nextByte < totalSize) {
+              const chunkStart = nextByte;
+              const chunkEndExclusive = Math.min(totalSize, chunkStart + chunkSize);
+              const chunkEnd = chunkEndExclusive - 1;
+              chunkNumber += 1;
+              setStatus("正在傳送第 " + chunkNumber + " 段（本段 " + formatFileSize(chunkEndExclusive - chunkStart) + "），雲端確認後才會更新進度，請保留此頁。", "");
+              setTransferProgress(Math.min(99, chunkStart / totalSize * 100), "正在傳送第 " + chunkNumber + " 段");
+              const chunkStartedAt = Date.now();
+              const chunkBase64 = await readChunkAsBase64(file, chunkStart, chunkEndExclusive);
+              let result = null;
+              let lastError = null;
+              let retried = false;
+              for (let attempt = 0; attempt < 3; attempt += 1) {
+                try {
+                  result = await requestGas("uploadResumableLargeUploadChunk", {
+                    sessionToken: model.sessionToken,
+                    sessionKey: model.sessionKey,
+                    chunkStart: chunkStart,
+                    chunkEnd: chunkEnd,
+                    totalSize: totalSize,
+                    totalChunks: totalChunks,
+                    chunkIndex: chunkNumber - 1,
+                    chunkBase64: chunkBase64
+                  }, "POST");
+                  break;
+                } catch (error) {
+                  retried = true;
+                  lastError = error;
+                  if (attempt < 2) {
+                    setStatus("本段傳輸較慢，正在第 " + (attempt + 2) + " 次重試。", "");
+                    await new Promise(function(resolve) { window.setTimeout(resolve, 700 * (attempt + 1)); });
+                  }
                 }
               }
+              if (!result) throw lastError || new Error("大檔分段上傳失敗。");
+              if (isCompletedResumableResult(result)) {
+                updateUploadStatistics(totalSize);
+                setTransferProgress(100, "大檔已完成，正在通知主頁");
+                return result;
+              }
+              const reportedNextByte = Number(result.nextByte);
+              if (result.complete !== false || !Number.isSafeInteger(reportedNextByte)
+                || reportedNextByte <= chunkStart || reportedNextByte > chunkEndExclusive || reportedNextByte >= totalSize
+                || reportedNextByte % (256 * 1024) !== 0) {
+                throw new Error("尚未取得這一段的完整上傳確認，請保留此頁並重試確認。");
+              }
+              nextByte = reportedNextByte;
+              updateUploadStatistics(nextByte);
+              chunkSize = getNextUploadChunkSize(chunkSize, plan.maximum, Date.now() - chunkStartedAt, retried);
+              setTransferProgress(Math.min(99, nextByte / totalSize * 100), "已確認 " + formatFileSize(nextByte) + " / " + formatFileSize(totalSize));
             }
-            if (!result) throw lastError || new Error("大檔分段上傳失敗。");
-            if (isCompletedResumableResult(result)) {
-              setTransferProgress(100, "大檔已完成，正在通知主頁");
-              return result;
-            }
-            const reportedNextByte = Number(result.nextByte);
-            if (result.complete !== false || !Number.isSafeInteger(reportedNextByte)
-              || reportedNextByte <= chunkStart || reportedNextByte > totalSize) {
-              throw new Error("尚未取得這一段的完整上傳確認，請保留此頁並重試確認。");
-            }
-            nextByte = reportedNextByte;
-            setTransferProgress(Math.min(98, (nextByte / totalSize) * 96 + 2), "已上傳 " + formatFileSize(nextByte) + " / " + formatFileSize(totalSize));
-          }
 
-          throw new Error("大檔上傳尚未完成，請重新開始上傳。");
+            throw new Error("大檔上傳尚未完成，請重新開始上傳。");
+          } finally { stopUploadStatistics(); }
         }
 
         function notifyOpener(result) {
@@ -867,6 +951,7 @@
           }
 
           isUploading = true;
+          fileInput.disabled = true;
           const uploadLabel = size <= Number(model.maxDirectMb || 18) * 1024 * 1024 ? "上傳中…" : "分段上傳中…";
           setUploadSubmitState("loading", uploadLabel, true);
           try {
@@ -886,6 +971,7 @@
             setStatus(error && error.message ? error.message : "上傳失敗，請稍後再試。", "error");
             setUploadSubmitState("error", "重試確認上傳", false);
             isUploading = false;
+            fileInput.disabled = false;
           }
         }
 
@@ -898,7 +984,7 @@
             ? ".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt"
             : ".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip";
           document.getElementById("direct-hint").textContent = "建議用於 " + (model.maxDirectMb || 18) + " MB 內檔案，流程較快。";
-          document.getElementById("resumable-hint").textContent = "超過 " + (model.maxDirectMb || 18) + " MB 會自動分段傳送，最高支援 " + (model.maxResumableGb || 2) + " GB。";
+          document.getElementById("resumable-hint").textContent = "超過 " + (model.maxDirectMb || 18) + " MB 會依速度調整分段，最高每段 " + (model.resumableChunkMb || 2) + " MB，檔案最高 " + (model.maxResumableGb || 2) + " GB。";
           loadingState.classList.add("hidden");
           panel.classList.remove("is-loading");
           form.classList.remove("hidden");
@@ -907,6 +993,7 @@
         }
 
         window.addEventListener("large-upload-morphicons-module-ready", initializeUploadMorphicons);
+        window.addEventListener("pagehide", stopUploadStatistics);
         initializeUploadMorphicons();
         fileInput.addEventListener("change", updateSelectionState);
         form.addEventListener("submit", handleSubmit);

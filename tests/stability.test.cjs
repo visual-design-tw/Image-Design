@@ -44,6 +44,7 @@ function backend() {
   c.getConfig_ = () => ({timeZone:'Asia/Taipei'});
   c.db = c.normalizeState_(fixture());
   c.loadState_ = () => clone(c.db);
+  c.loadResumableUploadAuthState_ = () => ({ Users: clone(c.db.Users) });
   c.persistState_ = state => { c.db = c.normalizeState_(clone(state)); };
   c.requireSessionUser_ = (state,payload) => state.Users.find(u => u.User_ID === (payload.auditUser || 'U03'));
   c.buildClientStateResultForUser_ = (state,actor,extra) => ({state:c.filterStateForUser_(state,actor),currentUser:actor,...extra});
