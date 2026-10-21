@@ -257,6 +257,11 @@ async function browserChecks() {
     });
     await test('mobile impact list scrolls while confirmation actions remain reachable', async () => {
       await reset(); await page.setViewportSize({ width: 390, height: 500 });
+      // Dynamic viewport units settle after the resize acknowledgement.
+      await page.waitForFunction(() => {
+        const rect = document.getElementById('stage-delete-modal-confirm').getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= innerHeight;
+      }, null, { timeout: 5000 });
       const size = await page.locator('#stage-delete-modal-confirm').boundingBox();
       assert.ok(size.y >= 0 && size.y + size.height <= 500);
       const body = await page.locator('#stage-delete-modal [role="dialog"] > div').first().evaluate(el => ({ scroll: el.scrollHeight, client: el.clientHeight }));

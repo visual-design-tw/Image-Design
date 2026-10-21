@@ -1,5 +1,19 @@
 # GAS Backend
 
+## 2026.10.21-motion.1 Stateful Icon Rendering
+
+- Keep static fallbacks outside the custom element; only an empty, dedicated
+  Morphicons renderer owns its canonical SVG path. Multi-part Lucide fallbacks
+  must not be adopted as if they were a single-path server render.
+- Loading uses one independent CSS ring. Entering or leaving loading replaces
+  the visual atomically rather than morphing and rotating old icon geometry.
+- Repeated hydration is idempotent. Late modules, failed transitions and reduced
+  motion retain usable button labels and do not append a second visual.
+- Lucide and Anime.js CDN URLs are pinned to the actual tested versions.
+- Publish both HTML pages together. Backend business logic, scopes, data schema,
+  eligibility, upload protocol and notification settings are unchanged; only
+  the backend release label changes to keep deployment diagnostics consistent.
+
 ## 2026.10.21-claim.1 接案確認與等待狀態
 
 - `claimDesignServiceOrder` 保持原本只限具資格的啟用中形印組員；不替組長、教師或其他小組開放接案，不變更任何資格設定。

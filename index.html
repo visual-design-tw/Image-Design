@@ -7,7 +7,7 @@
     <!-- 引入 Tailwind CSS 確保極簡、優雅的高級質感 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 Lucide 圖標庫 -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@1.61.0/dist/umd/lucide.js"></script>
     <!-- 將有狀態切換的 Lucide 圖示轉為流暢的 SVG 形變動畫 -->
     <script type="module">
         try {
@@ -22,7 +22,7 @@
         }
     </script>
     <!-- 引入 Anime.js 讓登入 / 彈窗 / 選單動效更細緻 -->
-    <script src="https://cdn.jsdelivr.net/npm/animejs/dist/bundles/anime.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js"></script>
     <!-- 引入 Google Inter 字體提升排版呼吸感 -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
@@ -40,7 +40,7 @@
             background-color: #F5F5F7;
             color: #1D1D1F;
         }
-        morph-icon[data-morph-icon] {
+        [data-morph-icon] {
             display: inline-flex;
             width: var(--morph-icon-size, 1em);
             height: var(--morph-icon-size, 1em);
@@ -51,16 +51,22 @@
             color: inherit;
             line-height: 1;
         }
-        morph-icon[data-morph-icon] > svg {
-            width: var(--morph-icon-size, 1rem) !important;
-            height: var(--morph-icon-size, 1rem) !important;
+        [data-morph-icon] > svg,
+        [data-morph-renderer],
+        [data-morph-renderer] > svg {
+            display: inline-flex;
+            width: 100% !important;
+            height: 100% !important;
             flex: 0 0 auto;
         }
-        morph-icon[data-morph-icon] > svg,
-        morph-icon[data-morph-icon] > svg * {
-            vector-effect: non-scaling-stroke;
-        }
-        morph-icon[data-morph-icon].morph-icon-is-spinning > svg {
+        .managed-icon-spinner {
+            display: block;
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
             animation: morph-icon-spin 840ms linear infinite;
             transform-origin: 50% 50%;
         }
@@ -68,7 +74,7 @@
             to { transform: rotate(360deg); }
         }
         @media (prefers-reduced-motion: reduce) {
-            morph-icon[data-morph-icon].morph-icon-is-spinning > svg {
+            .managed-icon-spinner {
                 animation: none;
             }
         }
@@ -921,6 +927,12 @@
             }
         }
         @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
             .boot-loader *,
             .auth-submit-button__spinner::after {
                 animation: none !important;
@@ -1017,7 +1029,7 @@
                     </div>
                 </div>
                 <button id="topbar-menu-toggle" type="button" onclick="toggleTopbarMenu()" class="topbar-menu-toggle" aria-label="開啟選單" aria-expanded="false">
-                    <morph-icon id="topbar-menu-morph-icon" data-morph-icon="topbar-menu" data-morph-icon-state="menu" class="w-4 h-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="menu" class="w-4 h-4"></i></morph-icon>
+                    <span id="topbar-menu-morph-icon" data-morph-icon="topbar-menu" data-morph-icon-state="menu" class="w-4 h-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="menu" class="w-4 h-4"></i></span>
                 </button>
             </div>
 
@@ -1047,7 +1059,7 @@
                         <i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i> 繳交專區
                     </button>
                     <button id="topbar-refresh-button" onclick="handleManualCloudRefresh()" class="topbar-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#64D2FF] bg-[#64D2FF]/10 border border-[#64D2FF]/20 hover:bg-[#64D2FF]/15 transition">
-                        <morph-icon id="topbar-refresh-morph-icon" data-morph-icon="cloud-refresh" data-morph-icon-state="idle" class="w-3.5 h-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></morph-icon>
+                        <span id="topbar-refresh-morph-icon" data-morph-icon="cloud-refresh" data-morph-icon-state="idle" class="w-3.5 h-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></span>
                         <span id="topbar-refresh-label" data-morph-action-label data-morph-idle-label="重新同步">重新同步</span>
                     </button>
                     <button onclick="handleLogout()" class="topbar-action-button topbar-mobile-only-action inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#FF8A80] bg-[#FF453A]/10 border border-[#FF453A]/15 hover:bg-[#FF453A]/15 transition">
@@ -1116,7 +1128,7 @@
                     <div class="relative">
                         <input type="password" id="login-password" required autocomplete="current-password" class="auth-input w-full px-4 pr-12 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="輸入密碼">
                         <button id="btn-toggle-login-password" type="button" onclick="toggleLoginPasswordVisibility()" class="auth-password-toggle absolute inset-y-0 right-0 flex w-12 items-center justify-center" aria-label="顯示密碼" title="顯示密碼">
-                            <morph-icon id="login-password-eye-icon" data-morph-icon="password-visibility" data-morph-icon-state="eye" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="eye" class="h-4 w-4"></i></morph-icon>
+                            <span id="login-password-eye-icon" data-morph-icon="password-visibility" data-morph-icon-state="eye" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="eye" class="h-4 w-4"></i></span>
                         </button>
                     </div>
                 </div>
@@ -1130,7 +1142,7 @@
                     </button>
                 </div>
                 <button id="btn-login-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                    <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="login" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="log-in" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-icon="auth-submit" data-morph-icon-state="login" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="log-in" class="h-4 w-4"></i></span>
                     <span id="btn-login-label" class="auth-submit-button__label">登入</span>
                 </button>
                 <p class="text-[11px] leading-relaxed text-[#86868B]">密碼可由瀏覽器的密碼管理員保存，本網站不會記錄您的原始密碼。</p>
@@ -1170,7 +1182,7 @@
                         <input type="password" id="reg-leader-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="密碼最少為 8 碼">
                     </div>
                     <button id="btn-register-leader-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
+                        <span data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></span>
                         <span id="btn-register-leader-label" class="auth-submit-button__label">建立新組別並註冊為組長</span>
                     </button>
                 </form>
@@ -1195,7 +1207,7 @@
                         <input type="password" id="reg-member-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="設定至少 8 碼的登入密碼">
                     </div>
                     <button id="btn-register-member-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
+                        <span data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></span>
                         <span id="btn-register-member-label" class="auth-submit-button__label">加入該組並註冊</span>
                     </button>
                 </form>
@@ -1218,7 +1230,7 @@
                         <input type="password" id="reg-pending-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-sm" placeholder="設定至少 8 碼的首次登入密碼">
                     </div>
                     <button id="btn-register-pending-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
+                        <span data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></span>
                         <span id="btn-register-pending-label" class="auth-submit-button__label">確認設定並激活帳號</span>
                     </button>
                 </form>
@@ -1241,7 +1253,7 @@
                         <input type="password" id="reg-shape-pwd" required minlength="8" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="設定至少 8 碼的登入密碼">
                     </div>
                     <button id="btn-register-shape-print-submit" type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></morph-icon>
+                        <span data-morph-icon="auth-submit" data-morph-icon-state="register" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="user-plus" class="h-4 w-4"></i></span>
                         <span id="btn-register-shape-print-label" class="auth-submit-button__label">加入形印組並建立帳號</span>
                     </button>
                 </form>
@@ -1259,7 +1271,7 @@
                 </div>
                 <p id="reset-request-feedback" class="hidden rounded-xl border border-[#E8E8ED] bg-[#F5F5F7] p-3 text-xs leading-relaxed text-[#6E6E73]" role="status" aria-live="polite"></p>
                 <button type="submit" class="auth-submit-button w-full bg-[#1D1D1F] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition active:scale-[0.99] shadow-sm">
-                    <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="mail" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="mail" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-icon="auth-submit" data-morph-icon-state="mail" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="mail" class="h-4 w-4"></i></span>
                     <span data-morph-action-label data-morph-idle-label="寄送重設連結">寄送重設連結</span>
                 </button>
                 <button type="button" onclick="returnToLoginFromReset()" class="w-full border border-[#E8E8ED] text-[#1D1D1F] py-3 rounded-xl font-semibold text-sm hover:bg-[#F5F5F7] transition">
@@ -1282,7 +1294,7 @@
                         <input type="password" id="reset-password-confirm" class="w-full px-4 py-3 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] transition text-sm" placeholder="再次輸入新密碼">
                     </div>
                     <button id="btn-reset-password-submit" type="submit" class="auth-submit-button w-full bg-[#0066CC] text-white py-3 rounded-xl font-semibold text-sm hover:opacity-95 transition active:scale-[0.99] shadow-sm">
-                        <morph-icon data-morph-icon="auth-submit" data-morph-icon-state="key" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="key-round" class="h-4 w-4"></i></morph-icon>
+                        <span data-morph-icon="auth-submit" data-morph-icon-state="key" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="key-round" class="h-4 w-4"></i></span>
                         <span data-morph-action-label data-morph-idle-label="更新密碼">更新密碼</span>
                     </button>
                 </div>
@@ -1623,11 +1635,11 @@
             <div class="flex justify-end gap-2">
                 <button type="button" onclick="closeAssignmentReviewModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button>
                 <button type="button" id="assignment-review-reject-button" onclick="submitAssignmentReview('退回修正')" class="inline-flex items-center gap-1.5 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B]">
-                    <morph-icon data-morph-icon="review-decision" data-morph-icon-state="reject" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="undo-2" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-icon="review-decision" data-morph-icon-state="reject" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="undo-2" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="退回修正">退回修正</span>
                 </button>
                 <button type="button" id="assignment-review-approve-button" onclick="submitAssignmentReview('通過')" class="inline-flex items-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white">
-                    <morph-icon data-morph-icon="review-decision" data-morph-icon-state="approve" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="check" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-icon="review-decision" data-morph-icon-state="approve" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="check" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="通過">通過</span>
                 </button>
             </div>
@@ -1852,13 +1864,13 @@
             </div>
             <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
                 <button id="calendar-event-delete" type="button" onclick="deleteCalendarEvent()" class="hidden inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">
-                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="刪除事件">刪除事件</span>
                 </button>
                 <span id="calendar-event-delete-spacer" class="flex-1"></span>
                 <button type="button" onclick="closeCalendarEventModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
                 <button id="calendar-event-save" type="button" onclick="saveCalendarEvent()" class="inline-flex items-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">
-                    <morph-icon data-morph-icon="calendar-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="calendar-check" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-icon="calendar-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="calendar-check" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="儲存事件">儲存事件</span>
                 </button>
             </div>
@@ -1915,13 +1927,13 @@
             </div>
             <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
                 <button id="work-item-delete" type="button" onclick="deleteWorkItem()" class="hidden inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">
-                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="刪除工作">刪除工作</span>
                 </button>
                 <span id="work-item-delete-spacer" class="flex-1"></span>
                 <button type="button" onclick="closeWorkItemModal()" class="rounded-xl border border-[#E5E5EA] px-4 py-2 text-xs font-semibold text-[#6E6E73] transition hover:bg-[#F5F5F7]">取消</button>
                 <button id="work-item-save" type="button" onclick="saveWorkItem()" class="inline-flex items-center gap-1.5 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white transition hover:opacity-90">
-                    <morph-icon data-morph-icon="work-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="list-plus" class="h-3.5 w-3.5"></i></morph-icon>
+                    <span data-morph-icon="work-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="list-plus" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="建立工作">建立工作</span>
                 </button>
             </div>
@@ -1968,7 +1980,7 @@
                     取消
                 </button>
                 <button type="button" id="stage-delete-modal-confirm" onclick="confirmStageDelete()" class="inline-flex min-h-[52px] items-center justify-center gap-1.5 border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
-                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-4 w-4"></i></span>
                     <span data-morph-action-label data-morph-idle-label="刪除">刪除</span>
                 </button>
             </div>
@@ -1991,7 +2003,7 @@
                     取消
                 </button>
                 <button type="button" id="assignment-delete-modal-confirm" onclick="confirmAssignmentDelete()" class="inline-flex min-h-[52px] items-center justify-center gap-1.5 border-l border-[rgba(15,23,42,0.05)] px-4 text-[16px] font-medium text-[#1D1D1F] transition hover:bg-[rgba(29,29,31,0.025)] focus:outline-none disabled:cursor-wait disabled:opacity-45">
-                    <morph-icon data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-4 w-4"></i></morph-icon>
+                    <span data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-4 w-4" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-4 w-4"></i></span>
                     <span data-morph-action-label data-morph-idle-label="刪除">刪除</span>
                 </button>
             </div>
@@ -2046,7 +2058,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.21-claim.1";
+        const APP_RELEASE = "2026.10.21-motion.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2568,8 +2580,70 @@
             return icons[definition.lucideName] || window.lucide[definition.lucideName] || null;
         }
 
+        const managedIconStates = new WeakMap();
+
+        function renderManagedIcon(element, icon, options) {
+            const current = managedIconStates.get(element);
+            const intact = current && current.visual.parentNode === element && element.children.length === 1;
+            // Loading never adopts or morphs a multi-part Lucide fallback.
+            if (options.state === "loading") {
+                if (!intact || current.kind !== "loading") {
+                    const spinner = document.createElement("span");
+                    spinner.className = "managed-icon-spinner";
+                    spinner.setAttribute("aria-hidden", "true");
+                    element.replaceChildren(spinner);
+                    managedIconStates.set(element, { kind: "loading", visual: spinner });
+                }
+                element.dataset.morphVisual = "loading";
+                return true;
+            }
+            if (options.ready && icon && window.customElements?.get("morph-icon")) {
+                try {
+                    let renderer = intact && current.kind === "morph" ? current.visual : null;
+                    if (!renderer) {
+                        renderer = document.createElement("morph-icon");
+                        renderer.dataset.morphRenderer = "true";
+                        renderer.style.display = "inline-flex";
+                        renderer.reducedMotion = "user";
+                        renderer.set(icon);
+                        element.replaceChildren(renderer);
+                    } else if (current.state !== options.state || current.icon !== icon) {
+                        if (options.animate === false) renderer.set(icon);
+                        else renderer.morphTo(icon, options.spring || "snappy");
+                    }
+                    managedIconStates.set(element, { kind: "morph", visual: renderer, state: options.state, icon: icon });
+                    element.dataset.morphVisual = "morph";
+                    return true;
+                } catch (error) {
+                    console.warn("Icon transition unavailable; using a static icon.", error);
+                }
+            }
+            if (intact && current.kind === "fallback" && current.state === options.state && current.icon === icon) return false;
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("fill", "none");
+            svg.setAttribute("stroke", "currentColor");
+            svg.setAttribute("stroke-width", "2");
+            svg.setAttribute("stroke-linecap", "round");
+            svg.setAttribute("stroke-linejoin", "round");
+            svg.setAttribute("aria-hidden", "true");
+            svg.dataset.morphIconFallback = "true";
+            if (Array.isArray(icon)) {
+                icon.forEach(function(node) {
+                    if (!Array.isArray(node) || !["path", "circle", "rect", "line", "polyline", "polygon", "ellipse"].includes(node[0])) return;
+                    const shape = document.createElementNS("http://www.w3.org/2000/svg", node[0]);
+                    Object.entries(node[1] || {}).forEach(function(entry) { shape.setAttribute(entry[0], String(entry[1])); });
+                    svg.appendChild(shape);
+                });
+            }
+            element.replaceChildren(svg);
+            managedIconStates.set(element, { kind: "fallback", visual: svg, state: options.state, icon: icon });
+            element.dataset.morphVisual = "fallback";
+            return false;
+        }
+
         function isMorphIconElement(element) {
-            return Boolean(element) && String(element.tagName || "").toLowerCase() === "morph-icon";
+            return Boolean(element && element.matches?.("[data-morph-icon]"));
         }
 
         function renderMorphIconMarkup(purpose, stateName, className) {
@@ -2582,75 +2656,25 @@
             const fallbackMarkup = needsFallback
                 ? `<i data-morph-icon-fallback="true" data-lucide="${escapeHtml(fallbackName)}" class="${safeClassName}"></i>`
                 : "";
-            return `<morph-icon${semanticAttribute} data-morph-icon="${escapeHtml(String(purpose || ""))}" data-morph-icon-state="${escapeHtml(String(stateName || ""))}" class="${safeClassName}" style="--morph-icon-size: ${iconSize}" aria-hidden="true">${fallbackMarkup}</morph-icon>`;
-        }
-
-        function updateMorphIconFallback(element, targetState) {
-            const definition = getMorphIconDefinition(element && element.dataset.morphIcon, targetState);
-            if (!element || !definition || element.dataset.morphFallbackState === targetState) return;
-
-            const fallback = document.createElement("i");
-            fallback.dataset.morphIconFallback = "true";
-            fallback.setAttribute("data-lucide", definition.fallbackName);
-            fallback.className = String(element.className || "");
-            if (targetState === "loading") {
-                fallback.classList.add("animate-spin");
-            }
-            Array.from(element.children).forEach(function(child) {
-                child.remove();
-            });
-            element.appendChild(fallback);
-            element.dataset.morphFallbackState = targetState;
-
-            if (typeof lucide !== "undefined" && typeof lucide.createIcons === "function") {
-                lucide.createIcons({ root: element });
-            }
+            return `<span${semanticAttribute} data-morph-icon="${escapeHtml(String(purpose || ""))}" data-morph-icon-state="${escapeHtml(String(stateName || ""))}" class="${safeClassName}" style="--morph-icon-size: ${iconSize}" aria-hidden="true">${fallbackMarkup}</span>`;
         }
 
         function setMorphIconState(element, nextState, options = {}) {
             if (!isMorphIconElement(element)) return false;
-
-            const previousState = String(element.dataset.morphIconState || "");
             const purpose = String(element.dataset.morphIcon || "");
             const targetState = String(nextState || "");
             const targetIcon = getMorphIconInput(purpose, targetState);
             element.dataset.morphIconState = targetState;
-            element.classList.toggle(
-                "morph-icon-is-spinning",
-                options.spinning === true || (options.spinning !== false && targetState === "loading")
-            );
-
-            if (!window.__morphiconsReady || !targetIcon) {
-                updateMorphIconFallback(element, targetState);
-                return false;
-            }
-
-            try {
-                element.reducedMotion = "user";
-                if (element.dataset.morphIconInitialized !== "true") {
-                    if (typeof element.set === "function") {
-                        element.set(targetIcon);
-                    } else {
-                        element.icon = targetIcon;
-                    }
-                    element.dataset.morphIconInitialized = "true";
-                    return true;
-                }
-
-                if (previousState !== targetState && typeof element.morphTo === "function") {
-                    element.morphTo(targetIcon, options.spring || "snappy");
-                }
-                return true;
-            } catch (error) {
-                console.warn("Morphicons 圖示轉場失敗，保留目前圖示。", error);
-                return false;
-            }
+            return renderManagedIcon(element, targetIcon, {
+                state: targetState, ready: window.__morphiconsReady,
+                animate: options.animate, spring: options.spring
+            });
         }
 
         function setMorphActionButtonState(button, purpose, stateName, label, options = {}) {
             if (!button) return false;
 
-            const icon = button.querySelector('morph-icon[data-morph-icon="' + purpose + '"]');
+            const icon = button.querySelector('[data-morph-icon="' + purpose + '"]');
             const labelElement = button.querySelector("[data-morph-action-label], .auth-submit-button__label");
             const nextLabel = label === undefined && stateName === "idle" && labelElement
                 ? labelElement.dataset.morphIdleLabel
@@ -2673,15 +2697,16 @@
         }
 
         function hydrateMorphIcons(root) {
-            if (!window.__morphiconsReady) return;
             const scope = root && typeof root.querySelectorAll === "function" ? root : document;
-            scope.querySelectorAll("morph-icon[data-morph-icon]").forEach(function(element) {
+            const elements = Array.from(scope.querySelectorAll("[data-morph-icon]"));
+            if (isMorphIconElement(scope)) elements.unshift(scope);
+            elements.forEach(function(element) {
                 setMorphIconState(element, element.dataset.morphIconState || "", { animate: false });
             });
         }
 
         function scheduleMorphIconHydration() {
-            if (!window.__morphiconsReady || morphIconHydrationQueued) return;
+            if (morphIconHydrationQueued) return;
             morphIconHydrationQueued = true;
             requestAnimationFrame(function() {
                 morphIconHydrationQueued = false;

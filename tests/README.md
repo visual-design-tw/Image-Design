@@ -1,5 +1,17 @@
 # Stability Regression Tests
 
+## Stateful Icons and Animation
+
+`node tests/animation-icons.test.cjs` exercises actual pinned Lucide 1.61.0,
+Morphicons 1.7.1 and Anime.js 4.5.0, rather than replacing their renderers with
+stubs. It checks every configured icon state, repeated hydration, fast toggles,
+single loading rings, late/failed modules, reduced motion, modal lifecycles,
+desktop/mobile geometry and the actual standalone chunk-upload button against
+a held mocked request. No production session, upload or account is used.
+Set `MOTION_ASSET_DIR` to a directory containing verified `lucide.js`, `morph.js`,
+`anime.js`, and `tailwind.js` fixtures; otherwise the public dependency sources
+are fetched. Set `MOTION_ARTIFACT_DIR` for JSON and synthetic screenshots.
+
 ## Design-Service Claim Confirmation
 
 `node tests/design-service-claim.test.cjs` checks actual claim-button dispatch,

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <title>穩定上傳</title>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@1.61.0/dist/umd/lucide.js"></script>
     <script type="module">
       try {
         const { defineMorphIcon } = await import("https://esm.sh/morphicons@1.7.1/element?bundle");
@@ -87,7 +87,7 @@
         animation: status-pulse 1.8s ease-in-out infinite;
       }
 
-      morph-icon[data-morph-icon] {
+      [data-morph-icon] {
         display: inline-flex;
         width: var(--morph-icon-size, 1em);
         height: var(--morph-icon-size, 1em);
@@ -99,13 +99,23 @@
         line-height: 1;
       }
 
-      morph-icon[data-morph-icon] > svg {
-        width: var(--morph-icon-size, 1rem) !important;
-        height: var(--morph-icon-size, 1rem) !important;
+      [data-morph-icon] > svg,
+      [data-morph-renderer],
+      [data-morph-renderer] > svg {
+        display: inline-flex;
+        width: 100% !important;
+        height: 100% !important;
         flex: 0 0 auto;
       }
 
-      morph-icon[data-morph-icon].morph-icon-is-spinning > svg {
+      .managed-icon-spinner {
+        display: block;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
         animation: morph-icon-spin 840ms linear infinite;
         transform-origin: 50% 50%;
       }
@@ -113,7 +123,7 @@
       @keyframes morph-icon-spin { to { transform: rotate(360deg); } }
 
       @media (prefers-reduced-motion: reduce) {
-        morph-icon[data-morph-icon].morph-icon-is-spinning > svg { animation: none; }
+        .managed-icon-spinner { animation: none; }
       }
 
       @keyframes status-pulse {
@@ -352,6 +362,7 @@
         *, *::before, *::after {
           animation-duration: 0.001ms !important;
           animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
           scroll-behavior: auto !important;
         }
       }
@@ -364,7 +375,7 @@
       <p class="subtitle" id="page-subtitle">正在確認上傳工作階段。</p>
 
       <div class="loading-state" id="loading-state" role="status" aria-live="polite">
-        <morph-icon id="upload-loading-icon" data-morph-icon="large-upload" data-morph-icon-state="loading" class="h-7 w-7" style="--morph-icon-size: 1.75rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="loader-circle" class="h-7 w-7"></i></morph-icon>
+        <span id="upload-loading-icon" data-morph-icon="large-upload" data-morph-icon-state="loading" class="h-7 w-7" style="--morph-icon-size: 1.75rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="loader-circle" class="h-7 w-7"></i></span>
         <span class="loading-copy">
           <strong class="loading-label">正在讀取上傳設定</strong>
           <span class="loading-detail">連線至雲端服務<span class="loading-dots" aria-hidden="true"></span></span>
@@ -408,7 +419,7 @@
         <div class="actions">
           <button type="button" class="btn-secondary" id="cancel-button">取消</button>
           <button type="submit" id="submit-button" class="btn-primary" disabled>
-            <morph-icon id="upload-submit-icon" data-morph-icon="large-upload" data-morph-icon-state="ready" class="h-4 w-4" style="--morph-icon-size: 1rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="upload" class="h-4 w-4"></i></morph-icon>
+            <span id="upload-submit-icon" data-morph-icon="large-upload" data-morph-icon-state="ready" class="h-4 w-4" style="--morph-icon-size: 1rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="upload" class="h-4 w-4"></i></span>
             <span id="submit-label">開始上傳</span>
           </button>
         </div>
@@ -456,6 +467,68 @@
         };
         let uploadMorphiconsReady = false;
 
+        const managedIconStates = new WeakMap();
+
+        function renderManagedIcon(element, icon, options) {
+            const current = managedIconStates.get(element);
+            const intact = current && current.visual.parentNode === element && element.children.length === 1;
+            // Loading never adopts or morphs a multi-part Lucide fallback.
+            if (options.state === "loading") {
+                if (!intact || current.kind !== "loading") {
+                    const spinner = document.createElement("span");
+                    spinner.className = "managed-icon-spinner";
+                    spinner.setAttribute("aria-hidden", "true");
+                    element.replaceChildren(spinner);
+                    managedIconStates.set(element, { kind: "loading", visual: spinner });
+                }
+                element.dataset.morphVisual = "loading";
+                return true;
+            }
+            if (options.ready && icon && window.customElements?.get("morph-icon")) {
+                try {
+                    let renderer = intact && current.kind === "morph" ? current.visual : null;
+                    if (!renderer) {
+                        renderer = document.createElement("morph-icon");
+                        renderer.dataset.morphRenderer = "true";
+                        renderer.style.display = "inline-flex";
+                        renderer.reducedMotion = "user";
+                        renderer.set(icon);
+                        element.replaceChildren(renderer);
+                    } else if (current.state !== options.state || current.icon !== icon) {
+                        if (options.animate === false) renderer.set(icon);
+                        else renderer.morphTo(icon, options.spring || "snappy");
+                    }
+                    managedIconStates.set(element, { kind: "morph", visual: renderer, state: options.state, icon: icon });
+                    element.dataset.morphVisual = "morph";
+                    return true;
+                } catch (error) {
+                    console.warn("Icon transition unavailable; using a static icon.", error);
+                }
+            }
+            if (intact && current.kind === "fallback" && current.state === options.state && current.icon === icon) return false;
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("fill", "none");
+            svg.setAttribute("stroke", "currentColor");
+            svg.setAttribute("stroke-width", "2");
+            svg.setAttribute("stroke-linecap", "round");
+            svg.setAttribute("stroke-linejoin", "round");
+            svg.setAttribute("aria-hidden", "true");
+            svg.dataset.morphIconFallback = "true";
+            if (Array.isArray(icon)) {
+                icon.forEach(function(node) {
+                    if (!Array.isArray(node) || !["path", "circle", "rect", "line", "polyline", "polygon", "ellipse"].includes(node[0])) return;
+                    const shape = document.createElementNS("http://www.w3.org/2000/svg", node[0]);
+                    Object.entries(node[1] || {}).forEach(function(entry) { shape.setAttribute(entry[0], String(entry[1])); });
+                    svg.appendChild(shape);
+                });
+            }
+            element.replaceChildren(svg);
+            managedIconStates.set(element, { kind: "fallback", visual: svg, state: options.state, icon: icon });
+            element.dataset.morphVisual = "fallback";
+            return false;
+        }
+
         function getUploadMorphIconInput(stateName) {
           const definition = UPLOAD_MORPH_ICON_CONFIG[String(stateName || "")];
           if (!definition || !window.lucide) return null;
@@ -469,45 +542,12 @@
           }
         }
 
-        function updateUploadMorphIconFallback(element, stateName) {
-          const definition = UPLOAD_MORPH_ICON_CONFIG[String(stateName || "")];
-          if (!element || !definition || element.dataset.morphFallbackState === stateName) return;
-          const fallback = document.createElement("i");
-          fallback.dataset.morphIconFallback = "true";
-          fallback.setAttribute("data-lucide", definition.fallbackName);
-          fallback.className = String(element.className || "");
-          const existing = element.querySelector("[data-morph-icon-fallback]");
-          if (existing) existing.replaceWith(fallback);
-          else element.appendChild(fallback);
-          element.dataset.morphFallbackState = stateName;
-          renderUploadLucideIcons(element);
-        }
-
         function setUploadMorphIconState(element, stateName) {
           if (!element) return;
-          const previousState = String(element.dataset.morphIconState || "");
           const targetState = String(stateName || "");
           const targetIcon = getUploadMorphIconInput(targetState);
           element.dataset.morphIconState = targetState;
-          element.classList.toggle("morph-icon-is-spinning", targetState === "loading");
-
-          if (!uploadMorphiconsReady || !targetIcon) {
-            updateUploadMorphIconFallback(element, targetState);
-            return;
-          }
-
-          try {
-            element.reducedMotion = "user";
-            if (element.dataset.morphIconInitialized !== "true") {
-              if (typeof element.set === "function") element.set(targetIcon);
-              else element.icon = targetIcon;
-              element.dataset.morphIconInitialized = "true";
-            } else if (previousState !== targetState && typeof element.morphTo === "function") {
-              element.morphTo(targetIcon, "snappy");
-            }
-          } catch (error) {
-            console.warn("Morphicons 初始化失敗，將保留 Lucide 靜態圖示。", error);
-          }
+          return renderManagedIcon(element, targetIcon, { state: targetState, ready: uploadMorphiconsReady });
         }
 
         function initializeUploadMorphicons() {
