@@ -1,5 +1,15 @@
 # Stability Regression Tests
 
+## Design-Service Review Confirmation
+
+`node tests/design-service-review.test.cjs` exercises the actual approval and
+rejection buttons, one pending spinner, retained notes and explicit confirmation
+retries, fresh locked reads, competing reviewers and changed deliverables,
+permission boundaries, missing receipts, expiry, logout and mobile geometry.
+Set `REVIEW_ARTIFACT_DIR` for fixture-only screenshots and the JSON result.
+`REVIEW_BACKEND_ONLY=1` skips browser checks. No real case is reviewed and no
+production notifications, files or student data are changed.
+
 ## Large Upload Throughput
 
 `node tests/upload-speed.test.cjs` checks bounded live-account reads, expired and

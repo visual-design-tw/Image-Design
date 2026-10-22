@@ -1669,11 +1669,12 @@
     </div>
 
     <!-- 形印代做成果審核 Modal -->
-    <div id="design-service-review-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceReviewModal()">
-        <div class="w-full max-w-md space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
-            <div class="flex items-start justify-between gap-4"><div class="flex items-center gap-2 text-[#5E5CE6]"><i data-lucide="clipboard-check" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">審核形印代做成果</h3><p id="design-service-review-title" class="mt-0.5 text-[10px] text-[#86868B]">請確認成果檔案。</p></div></div><button type="button" onclick="closeDesignServiceReviewModal()" class="text-[#86868B] hover:text-[#1D1D1F]"><i data-lucide="x" class="h-5 w-5"></i></button></div>
-            <div><label class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">審核意見</label><textarea id="design-service-review-note" rows="4" class="w-full resize-none rounded-2xl border border-[#E8E8ED] px-4 py-3 text-xs focus:border-[#0066CC] focus:outline-none" placeholder="通過可留下補充說明；退回修正時請填寫具體修改方向。"></textarea></div>
-            <div class="flex justify-end gap-2"><button type="button" onclick="closeDesignServiceReviewModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><button type="button" onclick="submitDesignServiceReview('退件')" class="rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B]">退回修正</button><button type="button" onclick="submitDesignServiceReview('通過')" class="rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white">通過</button></div>
+    <div id="design-service-review-modal" role="dialog" aria-modal="true" aria-labelledby="design-service-review-heading" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceReviewModal()">
+        <div class="w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
+            <div class="flex items-start justify-between gap-4"><div class="flex items-center gap-2 text-[#5E5CE6]"><i data-lucide="clipboard-check" class="h-5 w-5"></i><div><h3 id="design-service-review-heading" class="font-bold text-base text-[#1D1D1F]">審核形印代做成果</h3><p id="design-service-review-title" class="mt-0.5 text-[10px] text-[#86868B]">請確認成果檔案。</p></div></div><button type="button" aria-label="關閉審核" onclick="closeDesignServiceReviewModal()" class="text-[#86868B] hover:text-[#1D1D1F] disabled:opacity-50"><i data-lucide="x" class="h-5 w-5"></i></button></div>
+            <div><label for="design-service-review-note" class="mb-1.5 block text-xs font-semibold text-[#1D1D1F]">審核意見</label><textarea id="design-service-review-note" rows="4" class="w-full resize-none rounded-2xl border border-[#E8E8ED] px-4 py-3 text-xs focus:border-[#0066CC] focus:outline-none" placeholder="通過可留下補充說明；退回修正時請填寫具體修改方向。"></textarea></div>
+            <p id="design-service-review-feedback" role="status" aria-live="polite" class="hidden rounded-2xl bg-[#F4F8FF] px-4 py-3 text-xs leading-relaxed text-[#0066CC]"></p>
+            <div class="flex flex-wrap justify-end gap-2"><button type="button" onclick="closeDesignServiceReviewModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7] disabled:opacity-50">取消</button><button type="button" data-service-review-decision="退件" onclick="submitDesignServiceReview('退件')" class="inline-flex items-center justify-center gap-2 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-4 py-2 text-xs font-bold text-[#C9342B] disabled:cursor-wait disabled:opacity-60">退回修正</button><button type="button" data-service-review-decision="通過" onclick="submitDesignServiceReview('通過')" class="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1D1D1F] px-4 py-2 text-xs font-bold text-white disabled:cursor-wait disabled:opacity-60">通過</button></div>
         </div>
     </div>
 
@@ -2058,7 +2059,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.22-upload-speed.1";
+        const APP_RELEASE = "2026.10.22-review.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2197,6 +2198,8 @@
         let designServiceClaimInFlight = false;
         const designServiceClaimFeedback = new Map();
         let activeDesignServiceReviewOrderId = "";
+        let designServiceReviewContext = null;
+        let designServiceReviewInFlight = false;
         let activeDesignServiceUploadOrderId = "";
         let calendarViewCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
         let activeCalendarEventId = "";
@@ -4114,6 +4117,10 @@
             clearFilePreviewSurfaces();
             designServiceClaimInFlight = false;
             designServiceClaimFeedback.clear();
+            designServiceReviewInFlight = false;
+            designServiceReviewContext = null;
+            activeDesignServiceReviewOrderId = "";
+            document.getElementById('design-service-review-modal')?.classList.add('hidden');
             expiredSessionToken = '';
             document.getElementById('session-expired-modal')?.classList.add('hidden');
             authEpoch += 1;
@@ -4364,7 +4371,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -12335,6 +12342,7 @@
         }
 
         function openDesignServiceReviewModal(orderId) {
+            if (designServiceReviewInFlight) return;
             if (!canManageDesignServiceSettings()) {
                 showToast("只有形印組組長可以審核形印代做成果。", "warning");
                 return;
@@ -12344,35 +12352,140 @@
             const title = document.getElementById("design-service-review-title");
             const note = document.getElementById("design-service-review-note");
             if (!order || !modal) return;
+            if (order.Status !== '待審核') {
+                showToast('這筆案件目前不是待審核狀態，請確認最新案件清單。', 'info');
+                return;
+            }
             activeDesignServiceReviewOrderId = String(order.Service_Order_ID || "");
+            designServiceReviewContext = {
+                userId: String(currentUser.User_ID || ''),
+                driveFileId: String(order.Drive_File_ID || ''),
+                submittedAt: String(order.Submitted_At || ''),
+                pendingDecision: '', pendingNote: '', phase: 'idle', message: ''
+            };
             if (title) title.textContent = "審核「" + (order.File_Name || order.Service_Order_ID) + "」";
             if (note) note.value = order.Review_Note || "";
             modal.classList.remove("hidden");
+            renderDesignServiceReviewState();
             renderLucideIcons();
         }
 
         function closeDesignServiceReviewModal() {
+            if (designServiceReviewInFlight) return;
             const modal = document.getElementById("design-service-review-modal");
             if (modal) modal.classList.add("hidden");
             activeDesignServiceReviewOrderId = "";
+            designServiceReviewContext = null;
+        }
+
+        function renderDesignServiceReviewState() {
+            const modal = document.getElementById('design-service-review-modal');
+            if (!modal) return;
+            const context = designServiceReviewContext;
+            const confirming = context?.phase === 'unconfirmed';
+            modal.setAttribute('aria-busy', String(designServiceReviewInFlight));
+            const feedback = document.getElementById('design-service-review-feedback');
+            if (feedback) {
+                feedback.textContent = context?.message || '';
+                feedback.classList.toggle('hidden', !context?.message);
+            }
+            const note = document.getElementById('design-service-review-note');
+            if (note) note.readOnly = designServiceReviewInFlight || confirming;
+            modal.querySelectorAll('button').forEach(function(button) {
+                const decision = button.dataset.serviceReviewDecision;
+                const selected = decision && decision === context?.pendingDecision;
+                button.disabled = designServiceReviewInFlight || Boolean(confirming && decision && !selected);
+                if (!decision) return;
+                button.setAttribute('aria-busy', String(designServiceReviewInFlight && selected));
+                button.innerHTML = designServiceReviewInFlight && selected
+                    ? '<span data-review-spinner aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-current border-r-transparent motion-safe:animate-spin"></span>儲存中…'
+                    : confirming && selected ? '重試確認' : decision === '通過' ? '通過' : '退回修正';
+            });
         }
 
         async function submitDesignServiceReview(decision) {
-            if (!activeDesignServiceReviewOrderId) return;
-            const note = document.getElementById("design-service-review-note");
-            if (decision === "退件" && !String(note && note.value || "").trim()) {
-                showToast("退回修正前請先填寫審核意見。", "warning");
+            if (designServiceReviewInFlight) return;
+            const context = designServiceReviewContext;
+            if (!activeDesignServiceReviewOrderId || !context) {
+                showToast('請重新開啟要審核的案件後再確認。', 'warning');
                 return;
             }
+            const note = document.getElementById("design-service-review-note");
+            if (context.phase === 'unconfirmed' && decision !== context.pendingDecision) return;
+            const reviewNote = context.phase === 'unconfirmed' ? context.pendingNote : String(note?.value || '').trim();
+            if (decision === "退件" && !reviewNote) {
+                context.message = '退回修正前請先填寫審核意見。';
+                renderDesignServiceReviewState();
+                note?.focus();
+                return;
+            }
+            if (!canManageDesignServiceSettings() || context.userId !== String(currentUser?.User_ID || '')) {
+                context.message = '請以形印組長或指導教師身分重新開啟審核。';
+                renderDesignServiceReviewState();
+                return;
+            }
+            if (remoteMutationInFlight) {
+                context.message = '另一項操作仍在處理，審核意見已保留，請稍候再送出。';
+                renderDesignServiceReviewState();
+                return;
+            }
+            const orderId = activeDesignServiceReviewOrderId;
+            const expectedEpoch = authEpoch;
+            context.pendingDecision = decision;
+            context.pendingNote = reviewNote;
+            context.phase = 'pending';
+            context.message = '正在儲存審核結果，雲端確認後才會完成，請勿重複點擊。';
+            designServiceReviewInFlight = true;
+            remoteMutationInFlight = true;
+            renderDesignServiceReviewState();
             try {
-                await submitDesignServiceAction("reviewDesignServiceOrder", {
-                    serviceOrderId: activeDesignServiceReviewOrderId,
+                if (!isRemoteSyncEnabled() || !authSessionToken) throw new Error('REVIEW_OFFLINE: 請先登入並連線雲端後再審核。');
+                const response = await requestGas("reviewDesignServiceOrder", {
+                    serviceOrderId: orderId,
                     status: decision,
-                    reviewNote: String(note && note.value || "").trim()
-                }, decision === "通過" ? "形印代做成果已通過審核。" : "已退回形印代做成果，並通知負責人修正。");
-                closeDesignServiceReviewModal();
+                    reviewNote: reviewNote,
+                    expectedDriveFileId: context.driveFileId,
+                    expectedSubmittedAt: context.submittedAt
+                });
+                if (expectedEpoch !== authEpoch) return;
+                const data = response.data;
+                const order = data?.designServiceOrder;
+                const snapshot = ensureArray(data?.state?.Design_Service_Orders).find(function(item) { return item.Service_Order_ID === orderId; });
+                const nextStatus = decision === '通過' ? '已完成' : '退回修正';
+                const matches = function(item) {
+                    return item?.Service_Order_ID === orderId && item.Status === nextStatus
+                        && item.Drive_File_ID === context.driveFileId && item.Submitted_At === context.submittedAt
+                        && item.Reviewed_By_User_ID === context.userId && Boolean(item.Reviewed_At) && item.Review_Note === reviewNote;
+                };
+                if (data?.reviewConfirmed !== true || data.currentUser?.User_ID !== context.userId
+                    || !matches(order) || !matches(snapshot) || snapshot.Reviewed_At !== order.Reviewed_At
+                    || !applyBackendStateResponse(response, { preferredUserId: context.userId, allowFallback: false, skipRender: true, keepExistingHeatmap: true })) {
+                    throw new Error('REVIEW_NOT_CONFIRMED: 雲端尚未確認審核結果。');
+                }
+                context.phase = 'success';
+                showToast(data.alreadyReviewed ? '已確認前次審核成功，沒有重複送出。'
+                    : decision === '通過' ? '形印代做成果已通過審核。' : '已退回形印代做成果，並通知負責人修正。', 'success');
             } catch (error) {
-                showToast(error && error.message ? error.message : "形印代做審核失敗。", "warning");
+                if (expectedEpoch !== authEpoch) return;
+                const message = String(error?.message || '');
+                const rejected = /REVIEW_(CHANGED|UNAVAILABLE|NOTE_REQUIRED|OFFLINE)|FORBIDDEN|UNSAVED_CHANGES/.test(message);
+                context.phase = rejected ? 'error' : 'unconfirmed';
+                context.message = error.sessionExpired ? '登入已失效，審核意見已保留。請重新登入後確認結果，系統不會自動重送。'
+                    : /UNSAVED_CHANGES/.test(message) ? '頁面還有未確認的修改，請先完成儲存或重試，審核意見已保留。'
+                        : /^REVIEW_(CHANGED|UNAVAILABLE|NOTE_REQUIRED|OFFLINE):/.test(message) ? message.replace(/^REVIEW_[A-Z_]+:\s*/, '')
+                            : /FORBIDDEN/.test(message) ? '目前帳號沒有審核權限，請確認工作身分後再試。'
+                                : '尚未確認審核結果，意見已保留。請按「重試確認」查證原本決定，不會重複通知或覆蓋其他人的審核。';
+                if (!error.sessionExpired) showToast(context.message, 'warning');
+            } finally {
+                if (expectedEpoch === authEpoch) {
+                    designServiceReviewInFlight = false;
+                    remoteMutationInFlight = false;
+                    renderDesignServiceReviewState();
+                    if (context.phase === 'success') {
+                        closeDesignServiceReviewModal();
+                        renderAll();
+                    }
+                }
             }
         }
 

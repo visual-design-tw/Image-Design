@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.22-upload-speed.1';
+var APP_RELEASE = '2026.10.22-review.1';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -8766,28 +8766,54 @@ function handleUploadDesignServiceDeliverable_(payload) {
   });
 }
 
+function loadDesignServiceReviewState_() {
+  try {
+    return loadState_({ fresh: true });
+  } catch (error) {
+    throw new Error('REVIEW_NOT_CONFIRMED: 尚未取得最新審核資料，請保留意見並重試確認。');
+  }
+}
+
 function handleReviewDesignServiceOrder_(payload) {
-  var state = loadState_();
-  var previousState = cloneObject_(state);
+  // doPost holds the lock through the fresh read, write and confirmation.
+  var state = loadDesignServiceReviewState_();
   var reviewer = requireSessionUser_(state, payload, ['SuperAdmin']);
   var order = getDesignServiceOrderById_(state, payload.serviceOrderId);
   var decision = String(payload.status || '').trim();
   var reviewNote = String(payload.reviewNote || payload.comment || '').trim();
   if (!order) {
-    throw new Error('找不到指定的形印代做案件。');
+    throw new Error('REVIEW_UNAVAILABLE: 找不到這筆案件，請保留意見並更新清單後確認。');
   }
   if (['通過', '退件'].indexOf(decision) === -1) {
     throw new Error('請選擇通過或退回修正。');
   }
-  if (order.Status !== '待審核') {
-    throw new Error('只有待審核的形印代做成果可以進行審核。');
+  if (decision === '退件' && !reviewNote) {
+    throw new Error('REVIEW_NOTE_REQUIRED: 退回修正前請先填寫審核意見。');
   }
+  if (!order.Drive_File_ID || !order.Submitted_At) {
+    throw new Error('REVIEW_UNAVAILABLE: 尚未取得完整成果檔案，請更新清單後確認。');
+  }
+  if ((typeof payload.expectedDriveFileId !== 'undefined' && String(payload.expectedDriveFileId) !== order.Drive_File_ID)
+      || (typeof payload.expectedSubmittedAt !== 'undefined' && String(payload.expectedSubmittedAt) !== order.Submitted_At)) {
+    throw new Error('REVIEW_CHANGED: 成果檔案已更新，這次沒有審核；請重新開啟最新成果後確認。');
+  }
+  var nextStatus = decision === '通過' ? '已完成' : '退回修正';
+  if (order.Status === nextStatus && order.Reviewed_By_User_ID === String(reviewer.User_ID || '')
+      && order.Reviewed_At && order.Review_Note === reviewNote) {
+    return buildClientStateResultForUser_(state, reviewer, {
+      designServiceOrder: order, reviewConfirmed: true, alreadyReviewed: true
+    }, { includeHeatmap: false });
+  }
+  if (order.Status !== '待審核') {
+    throw new Error('REVIEW_CHANGED: 案件已由其他操作更新，這次沒有覆蓋結果；請重新確認最新狀態。');
+  }
+  var previousState = cloneObject_(state);
 
   var reviewedAt = nowString_();
-  order.Status = decision === '通過' ? '已完成' : '退回修正';
+  order.Status = nextStatus;
   order.Reviewed_By_User_ID = String(reviewer.User_ID || '');
   order.Reviewed_At = reviewedAt;
-  order.Review_Note = decision === '退件' ? (reviewNote || '請依形印組長意見修正後重新上傳。') : reviewNote;
+  order.Review_Note = reviewNote;
   order.Updated_At = reviewedAt;
 
   createNotifications_(state, {
@@ -8812,22 +8838,32 @@ function handleReviewDesignServiceOrder_(payload) {
     nextRevision: getStateRevision_(previousState) + 1,
     preserveDesignServiceState: false
   });
-  state = loadState_();
-  appendActivityLogEntries_([
-    createActivityLogEntry_(
-      reviewer,
-      decision === '通過' ? '通過形印代做審核' : '退回形印代做成果',
-      '已將形印代做案件「' + order.Service_Order_ID + '」標記為「' + order.Status + '」。',
-      'design-service',
-      order.Service_Order_ID,
-      decision === '通過' ? 'normal' : 'warning',
-      { source: 'reviewDesignServiceOrder', decision: decision, reviewNote: order.Review_Note }
-    )
-  ]);
+  state = loadDesignServiceReviewState_();
+  var confirmed = getDesignServiceOrderById_(state, order.Service_Order_ID);
+  if (!confirmed || confirmed.Status !== nextStatus || confirmed.Drive_File_ID !== order.Drive_File_ID
+      || confirmed.Submitted_At !== order.Submitted_At || confirmed.Reviewed_By_User_ID !== reviewer.User_ID
+      || confirmed.Reviewed_At !== reviewedAt || confirmed.Review_Note !== reviewNote) {
+    throw new Error('REVIEW_NOT_CONFIRMED: 雲端尚未確認審核結果，請保留此頁並重試確認。');
+  }
+  try {
+    appendActivityLogEntries_([
+      createActivityLogEntry_(
+        reviewer,
+        decision === '通過' ? '通過形印代做審核' : '退回形印代做成果',
+        '已將形印代做案件「' + order.Service_Order_ID + '」標記為「' + order.Status + '」。',
+        'design-service',
+        order.Service_Order_ID,
+        decision === '通過' ? 'normal' : 'warning',
+        { source: 'reviewDesignServiceOrder', decision: decision, reviewNote: order.Review_Note }
+      )
+    ]);
+  } catch (logError) {
+    Logger.log('Review committed; activity log confirmation pending.');
+  }
 
   return buildClientStateResultForUser_(state, reviewer, {
-    designServiceOrder: getDesignServiceOrderById_(state, order.Service_Order_ID)
-  });
+    designServiceOrder: confirmed, reviewConfirmed: true, alreadyReviewed: false
+  }, { includeHeatmap: false });
 }
 
 function handleLargeFileFormUpload_(payload, resumableDriveResult) {
