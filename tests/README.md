@@ -1,5 +1,24 @@
 # Stability Regression Tests
 
+## Notification Center
+
+`node tests/notification-center.test.cjs` checks grouped inbox rows, per-user
+visibility, overlapping important/assignment categories, continuous search and
+IME composition, advanced filters, explicit selection mode, scoped select-all,
+pending read feedback and failure recovery, preserved delete confirmations,
+related-assignment navigation, date boundaries, escaped text and mobile layouts.
+Set `NOTIFICATION_ARTIFACT_DIR` for synthetic screenshots and JSON results.
+Notification writes are mocked and no production messages are read or removed.
+
+## Assignment Detail Navigation
+
+`node tests/assignment-detail.test.cjs` checks the manager's review-first tabs,
+pending-first group cards, collapsed history and management controls, keyboard
+navigation, retained comment/guide drafts, assignment switching, returned-work
+status, mobile overflow, and the student's existing three-step submission flow.
+Set `DETAIL_ARTIFACT_DIR` for synthetic screenshots and results. The test blocks
+production requests and opens review/delete confirmations without committing them.
+
 ## Design-Service Review Confirmation
 
 `node tests/design-service-review.test.cjs` exercises the actual approval and

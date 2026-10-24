@@ -203,11 +203,14 @@ async function main() {
       assert.equal(await page.evaluate(() => assignmentWizardStep), 1);
       assert.equal(await page.evaluate(() => document.getElementById('assignment-submit-file').files.length), 0);
     });
-    await test('teacher review retains its existing non-wizard interface', async () => {
+    await test('teacher opens the review tab, with requirements available separately', async () => {
       await page.evaluate(() => window.__reset('text', 'U01'));
       assert.equal(await page.locator('#assignment-wizard-nav').count(), 0);
       assert.equal(await visible('assignment-secondary-content'), true);
+      assert.equal(await visible('assignment-wizard-requirements'), false);
+      await page.getByRole('tab', { name: '說明與附件' }).click();
       assert.equal(await visible('assignment-wizard-requirements'), true);
+      assert.equal(await visible('assignment-secondary-content'), false);
     });
     await test('submitted student with no resubmission sees records, not another submission wizard', async () => {
       await page.evaluate(() => {

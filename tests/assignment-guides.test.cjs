@@ -220,6 +220,7 @@ async function browserChecks() {
     pass('real publish form saves the guide through the mocked Apps Script dispatch and schema');
 
     await page.evaluate(id => openAssignmentDetailModal(id), created.Assignment_ID);
+    await page.getByRole('tab', { name: '說明與附件' }).click();
     await page.locator('#assignment-guide-editor summary').click();
     await page.locator('#assignment-guide-url').fill(shared);
     await page.evaluate(() => renderAssignmentDetailModal());
