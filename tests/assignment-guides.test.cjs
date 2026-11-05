@@ -80,7 +80,7 @@ function backendChecks() {
   const bad = clone(c.db);
   bad.Assignments.push({ ...bad.Assignments[0], Assignment_ID: 'BAD', Guide_URL: invalid[0] });
   assert.throws(() => c.handleSaveState_({ auditUser: 'U01', state: bad, stateRevision: 2 }), /Google/);
-  assert.deepEqual(c.db, before);
+  assert.equal(JSON.stringify(c.db), JSON.stringify(before));
   pass('invalid guide on publish rejects the entire save without partial data');
 
   const legacy = clone(c.db);
@@ -110,7 +110,7 @@ function backendChecks() {
   ]) {
     const snapshot = clone(c.db);
     assert.throws(() => c.handleUpdateAssignmentGuide_(payload));
-    assert.deepEqual(c.db, snapshot);
+    assert.equal(JSON.stringify(c.db), JSON.stringify(snapshot));
   }
   pass('stale revisions, students, expired login, invalid links and deleted items cannot change guides');
   const studentState = c.filterStateForUser_(c.db, c.db.Users[2]);

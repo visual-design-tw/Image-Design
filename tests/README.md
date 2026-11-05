@@ -86,16 +86,13 @@ shared mocked backend. Set `UPLOAD_COMMENTS_REPORT_PATH` and
 `UPLOAD_COMMENTS_SCREENSHOT_PATH` for the report and mobile retry screenshot.
 No production data, mail, Drive files or credentials are used.
 
-## Stage Deletion
+## Single-Project Mode
 
-`node tests/stage-delete.test.cjs` checks authoritative cache-bypassing reads,
-locked refresh, revision and role guards, unrelated updates, changed content
-requiring explicit reconfirmation, unsaved edits, double clicks, expiry,
-timeout recovery, complete impact counts, and mobile scrolling and toast
-occlusion. Set `STAGE_DELETE_REPORT_PATH` for JSON and
-`STAGE_DELETE_SCREENSHOT_PATH` for an isolated mobile screenshot. Network,
-accounts, deletion, recycle-bin records, and Drive cleanup are mocked; the
-suite never deletes production data.
+`node tests/stage-delete.test.cjs` checks that legacy stage activation and
+deletion APIs are disabled, old navigation routes stay hidden, all clients
+normalize to the single project title, fresh reads still bypass stale caches,
+and desktop/mobile layouts remain usable. It uses isolated fixtures and never
+changes production data.
 
 ## Password Reset and Storage Service
 

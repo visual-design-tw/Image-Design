@@ -41,7 +41,7 @@ function runBackendChecks() {
   for (const assignmentIds of [['A03', 'A03', 'A02'], ['A03', 'A01'], ['A03', 'A01', 'A02', 'UNKNOWN']]) {
     const before = clone(context.db);
     assert.throws(() => context.handleReorderAssignments_({ auditUser: 'U01', assignmentIds, stateRevision: 2 }), /STATE_CONFLICT/);
-    assert.deepEqual(context.db, before);
+    assert.equal(JSON.stringify(context.db), JSON.stringify(before));
   }
   pass('duplicate, incomplete, and unknown IDs cannot partially change the order');
   assert.throws(() => context.handleReorderAssignments_({ auditUser: 'U01', assignmentIds: ['A01', 'A02', 'A03'], stateRevision: 1 }), /STATE_CONFLICT/);

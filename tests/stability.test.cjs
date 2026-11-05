@@ -45,7 +45,17 @@ function backend() {
   c.db = c.normalizeState_(fixture());
   c.loadState_ = () => clone(c.db);
   c.loadResumableUploadAuthState_ = () => ({ Users: clone(c.db.Users) });
-  c.persistState_ = state => { c.db = c.normalizeState_(clone(state)); };
+  c.activityLogs = [];
+  c.driveTrashQueue = [];
+  c.loadActivityLogs_ = () => clone(c.activityLogs);
+  c.loadDeferredDriveTrashQueue_ = () => clone(c.driveTrashQueue);
+  c.saveDeferredDriveTrashQueue_ = queue => { c.driveTrashQueue = clone(queue); };
+  c.loadStoredProjectStageRows_ = () => clone(c.db.Config_Stages);
+  c.persistState_ = (state, options={}) => {
+    c.lastPersistOptions=options;
+    c.db = c.normalizeState_(clone(state));
+    if(options.additionalTables&&Array.isArray(options.additionalTables.Activity_Logs)) c.activityLogs=clone(options.additionalTables.Activity_Logs);
+  };
   c.requireSessionUser_ = (state,payload) => state.Users.find(u => u.User_ID === (payload.auditUser || 'U03'));
   c.buildClientStateResultForUser_ = (state,actor,extra) => ({state:c.filterStateForUser_(state,actor),currentUser:actor,...extra});
   return c;
@@ -66,6 +76,77 @@ async function backendTests() {
     const c=backend(), first=c.generateSequentialId_('A',[],'Assignment_ID');
     const second=c.generateSequentialId_('A',[],'Assignment_ID');
     assert.notEqual(first,second);
+  });
+  await test('legacy review stages normalize to one fixed graduation project', () => {
+    const c=backend();
+    const normalized=c.normalizeState_({Config_Stages:[
+      {Stage_ID:'S01',Stage_Name:'First review',Budget_Allocated:150000,Is_Active:false},
+      {Stage_ID:'S02',Stage_Name:'Second review',Budget_Allocated:200000,Is_Active:true},
+      {Stage_ID:'S03',Stage_Name:'Final review',Budget_Allocated:350000,Is_Active:false}
+    ]});
+    assert.deepEqual(JSON.parse(JSON.stringify(normalized.Config_Stages)),[
+      {Stage_ID:'S02',Stage_Name:'116級 畢業製作',Budget_Allocated:200000,Is_Active:true}
+    ]);
+    assert.throws(()=>c.handleActivateStage_({}),/SINGLE_PROJECT_MODE/);
+    assert.throws(()=>c.handleDeleteStage_({}),/SINGLE_PROJECT_MODE/);
+  });
+  await test('project reset clears business records while preserving accounts, settings and Drive files', () => {
+    const c=backend(), s=c.db;
+    s.Config_Stages=[
+      {Stage_ID:'S01',Stage_Name:'First review',Budget_Allocated:150000,Is_Active:false},
+      {Stage_ID:'S02',Stage_Name:'Second review',Budget_Allocated:200000,Is_Active:true}
+    ];
+    s.Purchase_Items=[{Item_ID:'PI_1'}];
+    s.Assignments=[{Assignment_ID:'A_OLD',Stage_ID:'S01',Title:'Old'}];
+    s.Assignment_Resources=[{Resource_ID:'AR_1'}];
+    s.Assignment_Submissions=[{Submission_ID:'SUB_1'}];
+    s.Files=[{File_ID:'F_1',Drive_File_ID:'drive-original'}];
+    s.Notifications=[{Notification_ID:'N_1'}];
+    s.Discussion_Comments=[{Comment_ID:'C_1'}];
+    s.Design_Service_Settings=[{Settings_ID:'DSS_1',Enabled:true,Eligible_User_IDs:['U01']}];
+    s.Design_Service_Orders=[{Service_Order_ID:'DS_1'}];
+    s.Calendar_Events=[{Event_ID:'CE_1'}];
+    s.Work_Items=[{Work_Item_ID:'WI_1'}];
+    s.Recycle_Bin=[{Recycle_ID:'RB_1'}];
+    s.Meta.AssignmentReminderSettings={offsetsHours:[72,24,6]};
+    s.Meta.AssignmentReminderLog={'A_OLD|72':{assignmentId:'A_OLD'}};
+    c.activityLogs=[{Log_ID:'AL_OLD_1'},{Log_ID:'AL_OLD_2'}];
+    c.driveTrashQueue=[{fileId:'drive-original',attempts:0}];
+    const beforeUsers=clone(s.Users), beforeTeams=clone(s.Teams), beforeSettings=clone(c.normalizeState_(clone(s)).Design_Service_Settings);
+    const payload={auditUser:'U01',requestId:'RESET_request_116_00001',confirmation:c.PROJECT_BUSINESS_DATA_RESET_CONFIRMATION,stateRevision:s.Meta.State_Revision};
+    const result=c.handleClearProjectBusinessData_(payload);
+    assert.equal(result.projectBusinessDataReset.alreadyCleared,false);
+    assert.equal(result.projectBusinessDataReset.driveFilesDeleted,0);
+    assert.equal(result.projectBusinessDataReset.removedStageRows,2);
+    assert.deepEqual(JSON.parse(JSON.stringify(c.db.Users)),beforeUsers);
+    assert.deepEqual(JSON.parse(JSON.stringify(c.db.Teams)),beforeTeams);
+    assert.deepEqual(JSON.parse(JSON.stringify(c.db.Design_Service_Settings)),beforeSettings);
+    assert.deepEqual(JSON.parse(JSON.stringify(c.db.Config_Stages)),[
+      {Stage_ID:'S116',Stage_Name:'116級 畢業製作',Budget_Allocated:200000,Is_Active:true}
+    ]);
+    for(const key of c.PROJECT_BUSINESS_DATA_COLLECTIONS) assert.equal(c.db[key].length,0,key);
+    assert.deepEqual(JSON.parse(JSON.stringify(c.db.Meta.AssignmentReminderSettings)),{offsetsHours:[72,24,6]});
+    assert.equal(c.db.Meta.AssignmentReminderLog,undefined);
+    assert.equal(c.activityLogs.length,1);
+    assert.equal(c.activityLogs[0].Action,'清除舊專案業務資料');
+    assert.deepEqual(c.driveTrashQueue,[]);
+    const retry=c.handleClearProjectBusinessData_(payload);
+    assert.equal(retry.projectBusinessDataReset.alreadyCleared,true);
+    assert.equal(c.activityLogs.length,1);
+    const duplicateWithNewRequest=c.handleClearProjectBusinessData_({...payload,requestId:'RESET_request_116_00003'});
+    assert.equal(duplicateWithNewRequest.projectBusinessDataReset.alreadyCleared,true);
+    assert.equal(c.activityLogs.length,1);
+    const visibleMeta=c.filterStateForUser_(c.db,c.db.Users[0]).Meta;
+    assert.equal(visibleMeta.ProjectBusinessDataReset.Completed_At,'2026-09-05 12:00');
+  });
+  await test('project reset rejects unconfirmed, unauthorized and stale requests without changes', () => {
+    const c=backend(), before=clone(c.db);
+    const base={requestId:'RESET_request_116_00002',stateRevision:c.db.Meta.State_Revision};
+    assert.throws(()=>c.handleClearProjectBusinessData_({...base,auditUser:'U01',confirmation:'wrong'}),/RESET_CONFIRMATION_REQUIRED/);
+    assert.throws(()=>c.handleClearProjectBusinessData_({...base,auditUser:'U03',confirmation:c.PROJECT_BUSINESS_DATA_RESET_CONFIRMATION}),/FORBIDDEN/);
+    assert.throws(()=>c.handleClearProjectBusinessData_({...base,auditUser:'U01',stateRevision:0,confirmation:c.PROJECT_BUSINESS_DATA_RESET_CONFIRMATION}),/STATE_CONFLICT/);
+    assert.deepEqual(JSON.parse(JSON.stringify(c.db)),JSON.parse(JSON.stringify(before)));
+    assert.deepEqual(c.driveTrashQueue,[]);
   });
   await test('legacy cross-team submission ID collision is not dropped', () => {
     const c=backend(), s=c.db;
@@ -137,6 +218,19 @@ async function backendTests() {
     assert.equal(s.Calendar_Events.length+s.Work_Items.length+s.Recycle_Bin.length,0);
     assert.ok(s.Users.every(u=>u.Team_ID==='T02'&&!u.Password));
   });
+  await test('purchase records and activity are only returned to shape-print accounts', () => {
+    const c=backend();
+    c.db.Purchase_Items=[{Item_ID:'PI_1',Stage_ID:'S01',Item_Name:'Private print order',Vendor_Price:8500,Quantity:2,Subtotal:17000}];
+    const student=c.filterStateForUser_(c.db,c.db.Users[2]);
+    const member=c.filterStateForUser_(c.db,c.db.Users[3]);
+    const leader=c.filterStateForUser_(c.db,c.db.Users[0]);
+    assert.equal(student.Purchase_Items.length,0);
+    assert.equal(c.filterStateForUser_(c.db,c.db.Users[1]).Purchase_Items.length,0);
+    assert.equal(c.buildHeatmapSourceStateForUser_(c.db,c.db.Users[2]).Purchase_Items.length,0);
+    assert.equal(c.buildHeatmapSourceStateForUser_(c.db,c.db.Users[1]).Purchase_Items.length,0);
+    assert.equal(member.Purchase_Items[0].Subtotal,17000);
+    assert.equal(leader.Purchase_Items[0].Subtotal,17000);
+  });
 }
 
 async function browserTests() {
@@ -173,10 +267,94 @@ async function browserTests() {
     },fixture());
     await test('all main desktop views render without errors',async()=>{
       await page.evaluate(()=>state.Config_Stages.push({...state.Config_Stages[0],Stage_ID:generateSequentialId('S',[],'Stage_ID'),Is_Active:false}));
-      for(const tab of ['overview','notifications','files','calendar','work-items','design-service','purchase','teams','stages','recycle']) {
+      for(const tab of ['overview','notifications','files','calendar','work-items','design-service','purchase','teams','recycle']) {
         await page.evaluate(tab=>{activeTab=tab;renderAll();},tab);
         assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,tab);
       }
+    });
+    await test('single-project navigation and forms hide all phase controls',async()=>{
+      const result=await page.evaluate(()=>{
+        window.__reset();
+        state.Config_Stages=[
+          {Stage_ID:'S01',Stage_Name:'First review',Budget_Allocated:150000,Is_Active:false},
+          {Stage_ID:'S02',Stage_Name:'Second review',Budget_Allocated:200000,Is_Active:true}
+        ];
+        normalizeStateSchema();
+        const stageCount=state.Config_Stages.length;
+        const stageName=state.Config_Stages[0].Stage_Name;
+        const stageMenu=getNavigationMenusForRole(getEffectiveRoleContext().effectiveRole).some(menu=>menu.id==='stages');
+        const pageName=document.getElementById('dashboard-section').innerText.includes('116級 畢業製作');
+        switchTab('stages');
+        const legacyRouteBlocked=activeTab!=='stages';
+        activeTab='stages';renderAll();
+        const legacyPageHidden=activeTab==='overview'&&!document.getElementById('main-view-container').innerText.includes('新增會審期數');
+        openAssignmentPostModal();
+        const assignmentStageHidden=document.getElementById('assignment-post-stage')?.type==='hidden';
+        closeAssignmentPostModal();
+        openCalendarEventModal();
+        const calendarStageHidden=document.getElementById('calendar-event-stage')?.type==='hidden';
+        document.getElementById('calendar-event-stage').value='S01';
+        const calendarPayloadUsesProject=getCalendarModalPayload().stageId==='S02';
+        closeCalendarEventModal(true);
+        openWorkItemModal();
+        const workStageHidden=document.getElementById('work-item-stage')?.type==='hidden';
+        document.getElementById('work-item-stage').value='S01';
+        const workPayloadUsesProject=getWorkItemModalPayload().stageId==='S02';
+        closeWorkItemModal(true);
+        return {stageCount,stageName,stageMenu,pageName,legacyRouteBlocked,legacyPageHidden,assignmentStageHidden,calendarStageHidden,calendarPayloadUsesProject,workStageHidden,workPayloadUsesProject};
+      });
+      assert.deepEqual(result,{stageCount:1,stageName:'116級 畢業製作',stageMenu:false,pageName:true,legacyRouteBlocked:true,legacyPageHidden:true,assignmentStageHidden:true,calendarStageHidden:true,calendarPayloadUsesProject:true,workStageHidden:true,workPayloadUsesProject:true});
+    });
+    await test('business reset is SuperAdmin-only, requires typed confirmation, and hides after completion',async()=>{
+      const manager=await page.evaluate(async()=>{
+        window.__reset('U01');activeTab='teams';renderAll();
+        const input=document.getElementById('project-business-reset-confirmation');
+        const visible=Boolean(input);
+        const disabledInitially=document.getElementById('project-business-reset-submit')?.disabled;
+        input.value=PROJECT_RESET_CONFIRMATION_LABEL;updateProjectBusinessResetButton();
+        const enabledAfterTyping=document.getElementById('project-business-reset-submit')?.disabled===false;
+        let captured=null;
+        requestGas=async(action,payload)=>{
+          captured={action,payload};
+          const next=JSON.parse(JSON.stringify(state));
+          next.Meta.ProjectBusinessDataReset={Completed_At:'2026-11-06 12:00'};
+          return {ok:true,data:{state:next,currentUser:JSON.parse(JSON.stringify(currentUser)),stateRevision:2,release:APP_RELEASE,projectBusinessDataReset:{alreadyCleared:false}}};
+        };
+        await clearProjectBusinessData({preventDefault(){}});
+        return {visible,disabledInitially,enabledAfterTyping,action:captured?.action,typedConfirmation:captured?.payload?.confirmation,revision:captured?.payload?.stateRevision,completed:document.getElementById('project-business-reset-panel')?.innerText.includes('舊專案資料已整理')};
+      });
+      assert.deepEqual(manager,{visible:true,disabledInitially:true,enabledAfterTyping:true,action:'clearProjectBusinessData',typedConfirmation:'CLEAR_116_PROJECT_BUSINESS_DATA',revision:1,completed:true});
+      const member=await page.evaluate(()=>{window.__reset('U02');activeTab='teams';renderAll();return document.getElementById('project-business-reset-panel')===null;});
+      assert.equal(member,true);
+    });
+    await test('purchase management is hidden from student teams and available to shape-print roles',async()=>{
+      for(const id of ['U02','U03']) {
+        const student=await page.evaluate(id=>{
+          window.__reset(id);
+          state.Purchase_Items=[{Item_ID:'PI_1',Stage_ID:'S01',Item_Name:'Private print order',Vendor_Price:8500,Quantity:2,Subtotal:17000}];
+          const menuVisible=getNavigationMenusForRole(getEffectiveRoleContext().effectiveRole).some(menu=>menu.id==='purchase');
+          switchTab('purchase');
+          const stayedOnOverview=activeTab==='overview';
+          activeTab='purchase';renderAll();
+          return {menuVisible,stayedOnOverview,blocked:document.getElementById('main-view-container').innerText.includes('此功能僅提供形印組使用'),itemLeaked:document.getElementById('main-view-container').innerText.includes('Private print order')};
+        },id);
+        assert.deepEqual(student,{menuVisible:false,stayedOnOverview:true,blocked:true,itemLeaked:false});
+      }
+      const member=await page.evaluate(()=>{
+        window.__reset('U04');
+        state.Purchase_Items=[{Item_ID:'PI_1',Stage_ID:'S01',Item_Name:'Private print order',Vendor_Price:8500,Quantity:2,Subtotal:17000}];
+        const menuVisible=getNavigationMenusForRole(getEffectiveRoleContext().effectiveRole).some(menu=>menu.id==='purchase');
+        switchTab('purchase');
+        return {menuVisible,opened:activeTab==='purchase'};
+      });
+      assert.deepEqual(member,{menuVisible:true,opened:true});
+      const leader=await page.evaluate(()=>{
+        window.__reset('U01');
+        const menuVisible=getNavigationMenusForRole(getEffectiveRoleContext().effectiveRole).some(menu=>menu.id==='purchase');
+        switchTab('purchase');
+        return {menuVisible,opened:activeTab==='purchase'};
+      });
+      assert.deepEqual(leader,{menuVisible:true,opened:true});
     });
     await test('untrusted names render only as text and unsafe URLs are blocked',async()=>{
       await page.evaluate(()=>{

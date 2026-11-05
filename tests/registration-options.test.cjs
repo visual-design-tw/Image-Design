@@ -81,14 +81,14 @@ function backendChecks() {
   for (const id of ['U02', 'U03', 'U04', 'EXPIRED']) {
     const before = clone(c.db);
     assert.throws(() => update(c, allClosed, id), /FORBIDDEN|AUTH_EXPIRED/);
-    assert.deepEqual(c.db, before);
+    assert.equal(JSON.stringify(c.db), JSON.stringify(before));
   }
   update(c, allClosed, 'TEACHER');
   pass('only shape-print leader and teacher roles can save; staff members, students and expired sessions cannot');
   const before = clone(c.db);
   for (const options of [null, [], { leader: true }, { ...allOpen, member: 'false' }, { ...allOpen, extra: true }]) {
     assert.throws(() => update(c, options), /四種/);
-    assert.deepEqual(c.db, before);
+    assert.equal(JSON.stringify(c.db), JSON.stringify(before));
   }
   for (const revision of [undefined, null, -1, '2', 0.5]) {
     assert.throws(() => c.handleUpdateRegistrationOptions_({ auditUser: 'U01', registrationOptions: allOpen, registrationOptionsRevision: revision }), /SETTINGS_CONFLICT/);
@@ -118,7 +118,7 @@ function backendChecks() {
     const result = dispatch(c, { action, ...payload });
     assert.equal(result.ok, false);
     assert.match(result.error.message, /REGISTRATION_CLOSED/);
-    assert.deepEqual(c.db, before);
+    assert.equal(JSON.stringify(c.db), JSON.stringify(before));
   }
   pass('all four closed registration actions reject direct requests before account, team or invitation changes');
   update(c, allOpen);

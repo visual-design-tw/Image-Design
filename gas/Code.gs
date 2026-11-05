@@ -39,7 +39,16 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.10.24-interface.1';
+var APP_RELEASE = '2026.11.06-single-project.3';
+var PROJECT_DISPLAY_NAME = '116級 畢業製作';
+var PROJECT_FALLBACK_STAGE_ID = 'S116';
+var PROJECT_DEFAULT_BUDGET = 200000;
+var PROJECT_BUSINESS_DATA_COLLECTIONS = [
+  'Purchase_Items', 'Assignments', 'Assignment_Resources', 'Assignment_Submissions',
+  'Files', 'Notifications', 'Discussion_Comments', 'Design_Service_Orders',
+  'Calendar_Events', 'Work_Items', 'Recycle_Bin'
+];
+var PROJECT_BUSINESS_DATA_RESET_CONFIRMATION = 'CLEAR_116_PROJECT_BUSINESS_DATA';
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
@@ -580,6 +589,13 @@ function doPost(e) {
       return jsonResponse_(true, result);
     }
 
+    if (action === 'clearProjectBusinessData') {
+      result = withLock_(function() {
+        return handleClearProjectBusinessData_(payload);
+      });
+      return jsonResponse_(true, result);
+    }
+
     if (action === 'submitAssignment') {
       result = withLock_(function() {
         return handleSubmitAssignment_(payload);
@@ -588,10 +604,7 @@ function doPost(e) {
     }
 
     if (action === 'activateStage') {
-      result = withLock_(function() {
-        return handleActivateStage_(payload);
-      });
-      return jsonResponse_(true, result);
+      throw new Error('SINGLE_PROJECT_MODE: 系統已改為單一專案，不再支援切換會審期數。');
     }
 
     if (action === 'deletePurchaseItem') {
@@ -623,10 +636,7 @@ function doPost(e) {
     }
 
     if (action === 'deleteStage') {
-      result = withLock_(function() {
-        return handleDeleteStage_(payload);
-      });
-      return jsonResponse_(true, result);
+      throw new Error('SINGLE_PROJECT_MODE: 系統已改為單一專案，不再支援刪除會審期數。');
     }
 
     if (action === 'restoreRecycleBinItem') {
@@ -2093,14 +2103,17 @@ function persistState_(inputState, options) {
   var config = getConfig_();
   var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
 
-  writeStateTables_(spreadsheet, state, existingState);
+  var additionalTables = options.additionalTables && typeof options.additionalTables === 'object'
+    ? options.additionalTables
+    : {};
+  writeStateTables_(spreadsheet, state, existingState, additionalTables);
 
   // Never announce an assignment that has not been committed.
   var committedState = cloneObject_(state);
   try {
     assignmentEmailNotifications = sendPendingAssignmentAnnouncementEmails_(state);
     if (JSON.stringify(committedState) !== JSON.stringify(state)) {
-      writeStateTables_(spreadsheet, state, committedState);
+      writeStateTables_(spreadsheet, state, committedState, additionalTables);
     }
   } catch (notificationError) {
     Logger.log('Data committed; announcement confirmation pending: ' + notificationError);
@@ -2770,6 +2783,7 @@ function mergeClientStateForActor_(existingState, incomingState, actor) {
 
   if (String(actor.Role || '') === 'SuperAdmin') {
     nextState = incoming;
+    nextState.Config_Stages = cloneObject_(existing.Config_Stages);
     preserveDesignServiceState_(nextState, existing);
     nextState.Meta = cloneServerMeta_(existing);
     return nextState;
@@ -2874,10 +2888,154 @@ function handleSubmitAssignment_(payload) {
   return buildClientStateResultForUser_(savedState, actor, { submission: confirmed, alreadySubmitted: false });
 }
 
+function handleClearProjectBusinessData_(payload) {
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var previousState = loadState_({ fresh: true });
+  var actor = requireSessionUser_(previousState, payload, ['SuperAdmin']);
+  if (String(actor.Role || '') !== 'SuperAdmin') {
+    throw new Error('FORBIDDEN: 只有系統最高管理者可以執行專案資料清理。');
+  }
+
+  var requestId = String(payload.requestId || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) {
+    throw new Error('請重新載入管理畫面後再執行資料清理。');
+  }
+  if (String(payload.confirmation || '') !== PROJECT_BUSINESS_DATA_RESET_CONFIRMATION) {
+    throw new Error('RESET_CONFIRMATION_REQUIRED: 確認文字不符，資料沒有變更。');
+  }
+
+  var priorReset = previousState.Meta && previousState.Meta.ProjectBusinessDataReset;
+  if (priorReset && priorReset.Completed_At) {
+    return buildClientStateResultForUser_(previousState, actor, {
+      projectBusinessDataReset: {
+        alreadyCleared: true,
+        completedAt: String(priorReset.Completed_At || ''),
+        removedRecordCounts: cloneObject_(priorReset.Removed_Record_Counts || {}),
+        removedStageRows: Number(priorReset.Removed_Stage_Rows || 0),
+        cancelledPendingDriveTrash: Number(priorReset.Cancelled_Pending_Drive_Trash || 0),
+        driveFilesDeleted: 0,
+        accountsPreserved: true,
+        systemSettingsPreserved: true
+      }
+    });
+  }
+
+  assertExpectedStateRevision_(payload, previousState);
+  var storedStageRows = loadStoredProjectStageRows_();
+
+  var removedRecordCounts = {};
+  PROJECT_BUSINESS_DATA_COLLECTIONS.forEach(function(name) {
+    removedRecordCounts[name] = ensureArray_(previousState[name]).length;
+  });
+  var previousActivityLogs = loadActivityLogs_();
+  removedRecordCounts.Activity_Logs = ensureArray_(previousActivityLogs).length;
+  var reminderLog = getAssignmentReminderLog_(previousState);
+  var removedReminderCount = Object.keys(reminderLog).length;
+  var pendingDriveTrash = loadDeferredDriveTrashQueue_();
+
+  // Older deletes could still be queued to trash original Drive files; cancelling the queue honors preservation.
+  saveDeferredDriveTrashQueue_([]);
+
+  var currentStage = ensureArray_(previousState.Config_Stages).find(function(stage) {
+    return stage && stage.Is_Active === true;
+  }) || ensureArray_(previousState.Config_Stages)[0] || {};
+  var budget = Number(currentStage.Budget_Allocated);
+  var nextState = cloneObject_(previousState);
+  nextState.Config_Stages = [{
+    Stage_ID: PROJECT_FALLBACK_STAGE_ID,
+    Stage_Name: PROJECT_DISPLAY_NAME,
+    Budget_Allocated: isFinite(budget) && budget >= 0 ? budget : PROJECT_DEFAULT_BUDGET,
+    Is_Active: true
+  }];
+  PROJECT_BUSINESS_DATA_COLLECTIONS.forEach(function(name) {
+    nextState[name] = [];
+  });
+  nextState.Meta = nextState.Meta && typeof nextState.Meta === 'object' ? nextState.Meta : {};
+  delete nextState.Meta[ASSIGNMENT_REMINDER_LOG_META_KEY];
+
+  var completedAt = nowString_();
+  var resetSummary = {
+    Request_ID: requestId,
+    Completed_At: completedAt,
+    Removed_Record_Counts: removedRecordCounts,
+    Removed_Stage_Rows: ensureArray_(storedStageRows).length,
+    Removed_Reminder_Entries: removedReminderCount,
+    Cancelled_Pending_Drive_Trash: ensureArray_(pendingDriveTrash).length,
+    Drive_Files_Deleted: 0
+  };
+  nextState.Meta.ProjectBusinessDataReset = resetSummary;
+
+  var auditLog = createActivityLogEntry_(
+    actor,
+    '清除舊專案業務資料',
+    '已清除舊業務紀錄與會審標記；保留帳號、系統設定及 Google Drive 原始檔案。',
+    'system',
+    'project-business-data-reset',
+    'warning',
+    {
+      removedRecordCounts: removedRecordCounts,
+      removedStageRows: resetSummary.Removed_Stage_Rows,
+      removedReminderEntries: removedReminderCount,
+      cancelledPendingDriveTrash: resetSummary.Cancelled_Pending_Drive_Trash,
+      driveFilesDeleted: 0
+    }
+  );
+  auditLog.Log_ID = generateSequentialId_('AL', [], 'Log_ID');
+
+  persistState_(nextState, {
+    existingState: previousState,
+    nextRevision: getStateRevision_(previousState) + 1,
+    preserveDesignServiceState: false,
+    preserveAssignmentResourceState: false,
+    preserveCalendarEventState: false,
+    preserveWorkItemState: false,
+    preserveRecycleBinState: false,
+    additionalTables: { Activity_Logs: [auditLog] }
+  });
+
+  var confirmedState = loadState_({ fresh: true });
+  var remainingRecords = {};
+  PROJECT_BUSINESS_DATA_COLLECTIONS.forEach(function(name) {
+    remainingRecords[name] = ensureArray_(confirmedState[name]).length;
+  });
+  var remainingActivityLogs = loadActivityLogs_();
+  remainingRecords.Activity_Logs = ensureArray_(remainingActivityLogs).length;
+  if (Object.keys(remainingRecords).some(function(name) { return remainingRecords[name] !== (name === 'Activity_Logs' ? 1 : 0); })
+    || ensureArray_(confirmedState.Config_Stages).length !== 1
+    || String(ensureArray_(confirmedState.Config_Stages)[0].Stage_ID || '') !== PROJECT_FALLBACK_STAGE_ID
+    || String(ensureArray_(confirmedState.Config_Stages)[0].Stage_Name || '') !== PROJECT_DISPLAY_NAME) {
+    throw new Error('RESET_NOT_CONFIRMED: 清理已送出但回讀結果未完全符合；請勿重複操作，先重新同步確認。');
+  }
+
+  return buildClientStateResultForUser_(confirmedState, actor, {
+    projectBusinessDataReset: {
+      alreadyCleared: false,
+      completedAt: completedAt,
+      removedRecordCounts: removedRecordCounts,
+      removedStageRows: resetSummary.Removed_Stage_Rows,
+      removedReminderEntries: removedReminderCount,
+      cancelledPendingDriveTrash: resetSummary.Cancelled_Pending_Drive_Trash,
+      driveFilesDeleted: 0,
+      remainingRecordCounts: remainingRecords,
+      accountsPreserved: true,
+      teamsPreserved: true,
+      systemSettingsPreserved: true
+    }
+  });
+}
+
+function loadStoredProjectStageRows_() {
+  setupSheets_();
+  var config = getConfig_();
+  var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+  return readTable_(spreadsheet, 'Config_Stages');
+}
+
 // Switch the active review stage in one server-side transaction. This avoids
 // relying on the browser's generic state save, which can be stale or rejected
 // for a role that is not allowed to replace the entire configuration table.
 function handleActivateStage_(payload) {
+  throw new Error('SINGLE_PROJECT_MODE: 系統已改為單一專案，不再支援切換會審期數。');
   var previousState = loadState_();
   var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
   assertExpectedStateRevision_(payload, previousState);
@@ -3979,6 +4137,7 @@ function handleDeleteWorkItem_(payload) {
 // server transaction. This avoids a stale browser snapshot restoring data
 // after the interface has already removed it optimistically.
 function handleDeleteStage_(payload) {
+  throw new Error('SINGLE_PROJECT_MODE: 系統已改為單一專案，不再支援刪除會審期數。');
   // The caller holds the script lock; never compare a destructive write to a cached revision.
   var previousState = loadState_({ fresh: true });
   var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
@@ -4956,7 +5115,7 @@ function ensureShapePrintTeam_(state) {
   return team;
 }
 
-function writeStateTables_(spreadsheet, state, previousState) {
+function writeStateTables_(spreadsheet, state, previousState, additionalTables) {
   var tables = {};
   ['Config_Stages', 'Users', 'Teams', 'Purchase_Items', 'Assignments',
     'Assignment_Resources', 'Assignment_Submissions', 'Files', 'Notifications',
@@ -4971,6 +5130,10 @@ function writeStateTables_(spreadsheet, state, previousState) {
       return { Key: key, Value: state.Meta[key] };
     });
   }
+  Object.keys(additionalTables || {}).forEach(function(name) {
+    if (!TABLE_SCHEMAS[name]) throw new Error('Unknown data table: ' + name);
+    tables[name] = additionalTables[name];
+  });
   commitTablesAtomically_(spreadsheet, tables);
   cacheState_(state);
 }
@@ -5195,6 +5358,11 @@ function filterStateForUser_(state, user) {
   var safeState = sanitizeStateForClient_(state);
   if (isShapePrintUser_(user)) {
     safeState.Meta = { State_Revision: getStateRevision_(state) };
+    if (String(user.Role || '') === 'SuperAdmin' && state.Meta && state.Meta.ProjectBusinessDataReset && state.Meta.ProjectBusinessDataReset.Completed_At) {
+      safeState.Meta.ProjectBusinessDataReset = {
+        Completed_At: String(state.Meta.ProjectBusinessDataReset.Completed_At || '')
+      };
+    }
     return safeState;
   }
 
@@ -5220,11 +5388,8 @@ function filterStateForUser_(state, user) {
     stage.Budget_Allocated = 0;
     return stage;
   });
-  safeState.Purchase_Items = safeState.Purchase_Items.map(function(item) {
-    item.Vendor_Price = 0;
-    item.Subtotal = 0;
-    return item;
-  });
+  // 發包品項屬形印組內部管理資料，不回傳給一般畢製小組帳號。
+  safeState.Purchase_Items = [];
   safeState.Assignments = visibleAssignments;
   safeState.Assignment_Resources = safeState.Assignment_Resources.filter(function(resource) {
     return visibleAssignmentIds[String(resource.Assignment_ID || '')];
@@ -5280,6 +5445,7 @@ function buildHeatmapSourceStateForUser_(state, user) {
   sourceState.Assignment_Submissions = sourceState.Assignment_Submissions.filter(function(submission) {
     return String(submission && submission.Team_ID || '') === teamId;
   });
+  sourceState.Purchase_Items = [];
   return sourceState;
 }
 
@@ -5637,12 +5803,26 @@ function serializeValue_(value, type) {
   return value === null || typeof value === 'undefined' ? '' : String(value);
 }
 
+function normalizeProjectStages_(stages) {
+  var stageList = ensureArray_(stages);
+  var sourceStage = stageList.find(function(stage) {
+    return stage && stage.Is_Active === true;
+  }) || stageList[0] || {};
+  var budget = Number(sourceStage.Budget_Allocated);
+  return [{
+    Stage_ID: String(sourceStage.Stage_ID || PROJECT_FALLBACK_STAGE_ID),
+    Stage_Name: PROJECT_DISPLAY_NAME,
+    Budget_Allocated: isFinite(budget) && budget >= 0 ? budget : PROJECT_DEFAULT_BUDGET,
+    Is_Active: true
+  }];
+}
+
 function normalizeState_(state) {
   if (!state || typeof state !== 'object') {
     state = {};
   }
 
-  state.Config_Stages = ensureArray_(state.Config_Stages);
+  state.Config_Stages = normalizeProjectStages_(state.Config_Stages);
   state.Users = ensureArray_(state.Users).map(function(user) {
     var nextUser = user && typeof user === 'object' ? user : {};
     var studentRole = String(nextUser.Student_Role || '');
@@ -10295,9 +10475,7 @@ function jsonResponse_(ok, data, error) {
 function buildDemoState_() {
   return normalizeState_({
     Config_Stages: [
-      { Stage_ID: 'S01', Stage_Name: '第一次會審', Budget_Allocated: 150000, Is_Active: false },
-      { Stage_ID: 'S02', Stage_Name: '第二次會審', Budget_Allocated: 200000, Is_Active: true },
-      { Stage_ID: 'S03', Stage_Name: '第三次總會審', Budget_Allocated: 350000, Is_Active: false }
+      { Stage_ID: 'S02', Stage_Name: PROJECT_DISPLAY_NAME, Budget_Allocated: PROJECT_DEFAULT_BUDGET, Is_Active: true }
     ],
     Users: [
       { User_ID: 'U01', Email: 'boss@test.com', Password: '123', Name: '許安迪', Team_ID: 'T00', Role: 'SuperAdmin', Status: 'Active' },

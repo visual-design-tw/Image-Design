@@ -1,5 +1,13 @@
 # GAS Backend
 
+## 2026.11.06-single-project.3 單一專案初始化
+
+- 專案統一顯示為「116級 畢業製作」，不再切換、新增或刪除會審期數；舊版的啟用／刪除期數 API 會拒絕操作。
+- `clearProjectBusinessData` 僅供形印組長執行一次。它清除舊繳交、通知、發包、代做案件、行事曆、工作事項、檔案索引、回收桶及舊操作紀錄，並將期數表重建為單一專案；留下本次清理稽核紀錄。
+- 帳號、小組與權限、系統／註冊設定、形印代做設定及 Google Drive 原始檔案都保留。清空待執行的 Drive 垃圾桶佇列，避免舊佇列在清理後刪到保留中的檔案。
+- 清理以 Sheets API 批次寫入，要求有效管理者登入、明確確認文字及最新 `stateRevision`。第一次完成後，後續請求只回報既有結果，不會再次清除。
+- 這是一次性管理操作，不會在部署時自動執行；需確認正式網站與 GAS 均已更新，再由形印組長於「小組與成員」的管理設定區完成確認。
+
 ## 2026.10.22-upload-speed.1 Large Upload Throughput
 
 - Each chunk reads only the live Users table through the existing Spreadsheet
@@ -148,6 +156,7 @@
   - `action=getShapePrintInvite` / `registerShapePrintMember`：驗證受邀連結並立即建立形印組員帳號
   - `action=joinStudentTeam` / `createStudentTeam`：讓既有形印組員保留原身分，同時加入或建立畢製小組
   - `action=saveState`：以 `stateRevision` 防止舊畫面覆蓋其他人的新資料
+  - `action=clearProjectBusinessData`：由形印組長一次性清理舊專案業務資料，保留帳號、系統設定及 Drive 原始檔案
   - `action=reorderAssignments`：由形印組管理者以長按拖動後儲存繳交項目順序
 - `action=uploadFile`：接收瀏覽器直傳檔案，建立/續版繳交紀錄，並自動存到 `會審 / 小組` 資料夾
 - `action=uploadAssignmentAsset`：接收公告作業直傳檔案，並自動存到 `會審 / 小組 / 公告作業 / 作業標題` 資料夾

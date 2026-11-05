@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>畢展形印組管理系統</title>
+    <title>116級 畢業製作</title>
     <!-- 引入 Tailwind CSS 確保極簡、優雅的高級質感 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 Lucide 圖標庫 -->
@@ -1131,7 +1131,7 @@
                 <div class="topbar-status-meta">
                     <span class="topbar-status-title text-[11px] font-bold tracking-[0.18em] text-white uppercase">系統狀態列</span>
                     <div class="topbar-status-pills">
-                        <span id="topbar-stage-badge" class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/5 text-white/85 border border-white/10">會審載入中</span>
+                        <span id="topbar-stage-badge" class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/5 text-white/85 border border-white/10">116級 畢業製作</span>
                         <span id="topbar-data-source-badge" class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/5 text-white/85 border border-white/10">本機模式</span>
                         <span id="topbar-auth-badge" class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/5 text-white/85 border border-white/10">尚未登入</span>
                     </div>
@@ -1446,9 +1446,9 @@
                     <i data-lucide="layers" class="w-6 h-6"></i>
                 </div>
                 <div>
-                    <h1 class="text-xl font-bold text-[#1D1D1F] tracking-tight">畢展形印組預算與繳交管理</h1>
+                    <h1 class="text-xl font-bold text-[#1D1D1F] tracking-tight">116級 畢業製作</h1>
                     <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                        <p class="text-xs text-[#86868B]">目前會審期數：<span id="active-stage-title-header" class="font-bold text-[#1D1D1F]">第二次會審</span></p>
+                        <p class="text-xs text-[#86868B]">畢業製作專案工作台</p>
                         <span id="header-data-source-status" class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#E8E8ED] text-[#86868B]">本機模式</span>
                     </div>
                 </div>
@@ -1473,11 +1473,10 @@
             <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                 <div>
                     <div class="flex items-center gap-2">
-                        <h2 class="text-lg font-bold text-[#1D1D1F] tracking-tight">會審總預算控盤 (形印組專用資訊)</h2>
-                        <span class="text-[10px] bg-[#F2F2F7] text-[#1D1D1F] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider" id="budget-card-stage-badge">第二次會審</span>
+                        <h2 class="text-lg font-bold text-[#1D1D1F] tracking-tight">畢業製作總預算（形印組專用）</h2>
                     </div>
                     <p class="text-xs text-[#86868B] mt-1.5 max-w-2xl leading-relaxed">
-                        此預算為會長撥給形印組之整包發包費用，不流向個別小組。形印組需嚴格監控防止預算超支。
+                        此預算為會長撥給形印組的整包發包費用，不流向個別小組。形印組可在此追蹤專案支出。
                     </p>
                 </div>
                 <div class="text-left lg:text-right min-w-[240px]">
@@ -1498,7 +1497,7 @@
                     <div>
                         <h4 class="font-bold text-xs text-[#FF3B30]">⚠️ 預算超支警告！</h4>
                         <p class="text-[11px] text-[#FF3B30] text-opacity-90 mt-0.5 leading-relaxed">
-                            本會審累計發包金額已超出總預算限制！請形印組長在 <span class="font-bold underline">3 天內</span>調整各發包品項之單價或印製數量，使額度回歸安全水平。
+                            畢業製作累計發包金額已超出總預算限制，請形印組確認各品項單價與數量。
                         </p>
                     </div>
                 </div>
@@ -1956,10 +1955,7 @@
                             <option value="reminder">提醒</option>
                         </select>
                     </div>
-                    <div>
-                        <label for="calendar-event-stage" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">關聯會期</label>
-                        <select id="calendar-event-stage" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"></select>
-                    </div>
+                    <input id="calendar-event-stage" type="hidden" value="">
                 </div>
                 <label class="flex items-center gap-2.5 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-3.5 py-3 text-xs font-semibold text-[#1D1D1F]">
                     <input id="calendar-event-all-day" type="checkbox" class="h-4 w-4 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]">
@@ -2001,7 +1997,7 @@
                 <div class="rounded-2xl border border-[#DCE8F8] bg-[#F7FAFF] px-3.5 py-3 text-[11px] leading-relaxed text-[#5F6975]">可先開放給組員認養，也可以直接指定負責人；建立後仍可由組長或指導教師重新分配。</div>
                 <div>
                     <label for="work-item-title" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">工作事項名稱</label>
-                    <input id="work-item-title" type="text" maxlength="120" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-sm font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]" placeholder="例如：整理第二次會審送印檔案">
+                    <input id="work-item-title" type="text" maxlength="120" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-sm font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]" placeholder="例如：整理畢業製作送印檔案">
                 </div>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div class="sm:col-span-1">
@@ -2018,10 +2014,7 @@
                         <label for="work-item-priority" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">優先程度</label>
                         <select id="work-item-priority" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="高">高</option><option value="一般">一般</option><option value="低">低</option></select>
                     </div>
-                    <div>
-                        <label for="work-item-stage" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">關聯會期</label>
-                        <select id="work-item-stage" data-soft-select-portal="true" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-3 py-3 text-xs font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]"><option value="">不指定會期</option></select>
-                    </div>
+                    <input id="work-item-stage" type="hidden" value="">
                 </div>
                 <div>
                     <label for="work-item-assignee" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">負責方式</label>
@@ -2166,7 +2159,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.10.24-interface.1";
+        const APP_RELEASE = "2026.11.06-single-project.3";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2182,7 +2175,7 @@
         let fileBrowserState = {
             query: "",
             status: "all",
-            stage: "active",
+            stage: "all",
             team: "all",
             sortBy: "newest",
             versionScope: "latest"
@@ -2288,6 +2281,8 @@
         let logoutInFlight = false;
         let authSessionToken = "";
         let remoteStateRevision = 0;
+        let projectBusinessDataResetInFlight = false;
+        let projectBusinessDataResetFeedback = '';
         let activityLogs = [];
         let activityLogStatus = "idle";
         let activityLogErrorMessage = "";
@@ -2320,18 +2315,21 @@
         let workItemSaveInFlight = false;
         let workItemDeleteArmed = false;
         let workItemActionInFlight = false;
+        const PROJECT_DISPLAY_NAME = "116級 畢業製作";
+        const PROJECT_RESET_CONFIRMATION_LABEL = "116級 畢業製作";
+        const PROJECT_BUSINESS_DATA_RESET_CONFIRMATION = "CLEAR_116_PROJECT_BUSINESS_DATA";
+        const PROJECT_BUSINESS_DATA_RESET_SESSION_KEY = "shapeprint_project_data_reset_request:";
         const NAVIGATION_MENU_CONFIGS = [
-            { id: "overview", name: "會審總覽", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
+            { id: "overview", name: "專案總覽", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "notifications", name: "通知中心", icon: "bell", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "files", name: "繳交專區", icon: "clipboard-list", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "calendar", name: "工作行事曆", icon: "calendar-days", roles: ["SuperAdmin", "Admin"] },
             { id: "work-items", name: "工作事項", icon: "list-checks", roles: ["SuperAdmin", "Admin"] },
             { id: "design-service", name: "形印代做", icon: "briefcase", roles: ["SuperAdmin", "Admin"] },
-            { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
+            { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin"] },
             { id: "activity", name: "操作紀錄", icon: "scroll-text", roles: ["SuperAdmin", "Admin"] },
             { id: "recycle", name: "回收桶", icon: "trash-2", roles: ["SuperAdmin", "Admin"] },
-            { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
-            { id: "stages", name: "會審設定", icon: "settings", roles: ["SuperAdmin"] }
+            { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Admin", "Leader", "Member"] }
         ];
         const BOOT_LOADER_MIN_MS = 950;
         const bootLoaderStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -3846,9 +3844,7 @@
         // 資料庫模型 (模擬 Google Sheets 5 張工作表)
         let state = {
             Config_Stages: [
-                { Stage_ID: "S01", Stage_Name: "第一次會審", Budget_Allocated: 150000, Is_Active: false },
-                { Stage_ID: "S02", Stage_Name: "第二次會審", Budget_Allocated: 200000, Is_Active: true },
-                { Stage_ID: "S03", Stage_Name: "第三次總會審", Budget_Allocated: 350000, Is_Active: false }
+                { Stage_ID: "S02", Stage_Name: "116級 畢業製作", Budget_Allocated: 200000, Is_Active: true }
             ],
             Users: [
                 { User_ID: "U01", Email: "boss@test.com", Password: "123", Name: "許安迪", Team_ID: "T00", Role: "SuperAdmin", Status: "Active" },
@@ -4483,7 +4479,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -6521,7 +6517,7 @@
 
         function startStableFileUploadFlow() {
             const selectedFile = getSelectedFileFromInput("upload-form-file");
-            const activeStage = state.Config_Stages.find(function(stage) { return stage.Is_Active; });
+            const activeStage = getCurrentProjectStage();
             if (!selectedFile) {
                 showToast("請先選擇要上傳的附件。", "warning");
                 return;
@@ -6702,7 +6698,7 @@
             const fileSize = getFileByteSize(selectedFile);
             const canUseStableUpload = isRemoteSyncEnabled() && Boolean(getGasApiUrl());
             const parsedFile = parseFileMeta(fileName);
-            const activeStage = state.Config_Stages.find(function(stage) { return stage.Is_Active; });
+            const activeStage = getCurrentProjectStage();
             const normalizedBaseName = normalizeFileBaseName(parsedFile.baseName);
             const isResubmitting = Boolean(pendingUploadContext && pendingUploadContext.groupKey);
             const expectedBaseName = isResubmitting ? normalizeFileBaseName(pendingUploadContext.baseName) : "";
@@ -7396,6 +7392,26 @@
             });
         }
 
+        function normalizeProjectStageList(stages) {
+            const stageList = ensureArray(stages);
+            const sourceStage = stageList.find(function(stage) { return stage && stage.Is_Active === true; })
+                || stageList[0]
+                || {};
+            const budget = Number(sourceStage.Budget_Allocated);
+            return [{
+                Stage_ID: String(sourceStage.Stage_ID || "S116"),
+                Stage_Name: PROJECT_DISPLAY_NAME,
+                Budget_Allocated: Number.isFinite(budget) && budget >= 0 ? budget : 200000,
+                Is_Active: true
+            }];
+        }
+
+        function getCurrentProjectStage() {
+            return ensureArray(state && state.Config_Stages).find(function(stage) { return stage && stage.Is_Active === true; })
+                || ensureArray(state && state.Config_Stages)[0]
+                || null;
+        }
+
         function normalizeStateSchema() {
             if (!state || typeof state !== "object") {
                 state = {};
@@ -7405,7 +7421,7 @@
                 state.Meta = {};
             }
 
-            state.Config_Stages = ensureArray(state.Config_Stages);
+            state.Config_Stages = normalizeProjectStageList(state.Config_Stages);
             state.Users = ensureArray(state.Users).map(function(user) {
                 if (!user || typeof user !== "object") return {};
                 const studentRole = String(user.Student_Role || "");
@@ -8289,7 +8305,7 @@
                             <i data-lucide="bar-chart-3" class="h-4 w-4 text-[#0066CC]"></i>
                             <h4 class="text-sm font-bold text-[#1D1D1F]">小組完成率比較</h4>
                         </div>
-                        <p class="mt-2 text-[10px] text-[#86868B]">目前會期尚未設定可比較的繳交項目。</p>
+                        <p class="mt-2 text-[10px] text-[#86868B]">目前尚未有可比較的繳交項目。</p>
                     </section>
                 `;
             }
@@ -8303,7 +8319,7 @@
                                 <i data-lucide="bar-chart-3" class="h-4 w-4 text-[#0066CC]"></i>
                                 <h4 class="text-sm font-bold text-[#1D1D1F]">小組完成率比較</h4>
                             </div>
-                            <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">只顯示形印組管理視角，以目前會期的已繳交項目計算。</p>
+                            <p class="mt-1 text-[10px] leading-relaxed text-[#86868B]">只顯示形印組管理視角，依專案繳交紀錄計算。</p>
                         </div>
                         <span class="text-[10px] font-semibold text-[#86868B]">${rows.length} 組</span>
                     </div>
@@ -8368,7 +8384,6 @@
 
         function getAssignmentsForBrowserView(activeStage, effectiveRole, effectiveTeamID) {
             const query = normalizeSearchText(assignmentBrowserState.query);
-            const stageFilterValue = assignmentBrowserState.stage;
             const submissionModeFilter = assignmentBrowserState.submissionMode;
             const nowText = formatDateTimeTaipei(new Date());
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
@@ -8403,18 +8418,6 @@
             });
 
             let assignments = baseAssignments;
-
-            if (stageFilterValue === "active") {
-                if (activeStage) {
-                    assignments = assignments.filter(function(assignment) {
-                        return assignment.Stage_ID === activeStage.Stage_ID;
-                    });
-                }
-            } else if (stageFilterValue !== "all") {
-                assignments = assignments.filter(function(assignment) {
-                    return assignment.Stage_ID === stageFilterValue;
-                });
-            }
 
             if (submissionModeFilter !== "all") {
                 assignments = assignments.filter(function(assignment) {
@@ -9639,7 +9642,6 @@
         function getFilesForBrowserView(activeStage, effectiveRole, effectiveTeamID) {
             const useLatestOnly = fileBrowserState.versionScope !== "all";
             const baseFiles = useLatestOnly ? getLatestFileRecords(state.Files) : state.Files.slice();
-            const stageFilterValue = fileBrowserState.stage;
             const query = normalizeSearchText(fileBrowserState.query);
             let files = baseFiles.slice();
 
@@ -9652,16 +9654,6 @@
             } else {
                 files = files.filter(function(file) {
                     return file.Team_ID === effectiveTeamID;
-                });
-            }
-
-            if (stageFilterValue === "active" && activeStage) {
-                files = files.filter(function(file) {
-                    return file.Stage_ID === activeStage.Stage_ID;
-                });
-            } else if (stageFilterValue !== "all") {
-                files = files.filter(function(file) {
-                    return file.Stage_ID === stageFilterValue;
                 });
             }
 
@@ -10438,9 +10430,7 @@
 
             const defaultDue = formatAssignmentDateTimeInput(formatDateTimeTaipei(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)));
             const defaultDueParts = getAssignmentDateTimeParts(defaultDue);
-            const stageOptionsHtml = state.Config_Stages.map(function(stage) {
-                return `<option value="${escapeHtml(stage.Stage_ID)}" ${stage.Is_Active ? "selected" : ""}>${escapeHtml(stage.Stage_Name)}</option>`;
-            }).join('');
+            const projectStage = getCurrentProjectStage();
             const duePresetButtonsHtml = getAssignmentPostDuePresetDefinitions().map(function(preset) {
                 return `<button type="button" data-assignment-due-preset="${preset.key}" data-active="false" onclick="setAssignmentPostDuePreset(${preset.dayOffset}, '${preset.time}')" class="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-[15px] border border-transparent bg-transparent px-3.5 py-2 text-[11px] font-semibold text-[#6E6E73] transition-all duration-200 hover:text-[#1D1D1F]">${preset.label}</button>`;
             }).join('');
@@ -10458,13 +10448,8 @@
             modalBody.innerHTML = `
                 <form onsubmit="handlePublishAssignment(event)" class="flex min-h-0 flex-1 flex-col">
                     <div class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1">
-                    <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)] gap-4 items-end">
-                        <div>
-                            <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">會期</label>
-                            <select id="assignment-post-stage" class="w-full px-4 py-2.5 rounded-xl border border-[#E8E8ED] bg-white focus:outline-none focus:border-[#0066CC] text-xs">
-                                ${stageOptionsHtml}
-                            </select>
-                        </div>
+                    <input id="assignment-post-stage" type="hidden" value="${escapeHtml(projectStage ? projectStage.Stage_ID : "S116")}">
+                    <div class="grid grid-cols-1 gap-4 items-end">
                         <div>
                             <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">截止日期與時間</label>
                             <div data-date-time-picker-root data-date-time-picker-native-for="assignment-post-due-picker">
@@ -10491,7 +10476,7 @@
 
                     <div>
                         <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">項目標題</label>
-                        <input type="text" id="assignment-post-title" required class="w-full px-4 py-2.5 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs" placeholder="例如：第三次總會審繳交說明">
+                        <input type="text" id="assignment-post-title" required class="w-full px-4 py-2.5 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs" placeholder="例如：畢業製作成果繳交說明">
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -10691,7 +10676,12 @@
             const guideUrl = readAssignmentGuideInput('assignment-post-guide-url');
             if (guideUrl === null) return;
             const requirementText = String((document.getElementById('assignment-post-requirement') || {}).value || "").trim();
-            const stageId = String((document.getElementById('assignment-post-stage') || {}).value || "").trim();
+            const projectStage = getCurrentProjectStage();
+            if (!projectStage) {
+                showToast("專案資料尚未就緒，請重新同步後再發布。", "warning");
+                return;
+            }
+            const stageId = String(projectStage.Stage_ID || "").trim();
             const dueDate = String((document.getElementById('assignment-post-due-date') || {}).value || "").trim();
             const dueTime = String((document.getElementById('assignment-post-due-time') || {}).value || "").trim();
             const normalizedDueTime = normalizeAssignmentTimeInput(dueTime);
@@ -10743,9 +10733,6 @@
                 return;
             }
 
-            const stage = state.Config_Stages.find(function(item) {
-                return item.Stage_ID === stageId;
-            });
             const assignmentId = (publishForm && publishForm.dataset.assignmentDraftId) || generateSequentialId("A", state.Assignments, "Assignment_ID");
             if (publishForm) publishForm.dataset.assignmentDraftId = assignmentId;
             const existingDraftIndex = state.Assignments.findIndex(function(item) { return item.Assignment_ID === assignmentId; });
@@ -10799,7 +10786,7 @@
                 if (existingDraftIndex < 0) createNotification({
                     type: "assignment-post",
                     title: "新繳交項目：" + title,
-                    message: "「" + title + "」已發布，請前往繳交專區查看與繳交。" + (stage ? "（" + stage.Stage_Name + "）" : ""),
+                    message: "「" + title + "」已發布，請前往繳交專區查看與繳交。",
                     tab: "files",
                     refType: "assignment",
                     refId: assignmentId,
@@ -11813,9 +11800,6 @@
                     pendingLargeAssignmentAssetUpload = draft.asset;
                 }
             }
-            const stage = state.Config_Stages.find(function(item) {
-                return item.Stage_ID === assignment.Stage_ID;
-            });
             const creator = state.Users.find(function(item) {
                 return item.User_ID === assignment.Created_By_User_ID;
             });
@@ -11896,7 +11880,6 @@
                 <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4 border-b border-[#E8E8ED] pb-4">
                     <div class="space-y-2">
                         <div class="flex flex-wrap items-center gap-2">
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#F5F5F7] text-[#1D1D1F]">${escapeHtml(stage ? stage.Stage_Name : "未定會期")}</span>
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold ${statusTone}">${lmsMeta.statusLabel}</span>
                         </div>
                         <h3 class="text-lg font-bold text-[#1D1D1F]">${escapeHtml(assignment.Title)}</h3>
@@ -12302,36 +12285,34 @@
         }
 
         function handleExportReport() {
-            const activeStage = state.Config_Stages.find(function(s) { return s.Is_Active; });
+            const activeStage = getCurrentProjectStage();
             if (!activeStage) {
-                showToast("無作用中會審，無法匯出報表", "warning");
+                showToast("專案資料尚未就緒，無法匯出報表。", "warning");
                 return;
             }
 
-            const purchases = state.Purchase_Items.filter(function(p) { return p.Stage_ID === activeStage.Stage_ID; });
+            const purchases = ensureArray(state.Purchase_Items);
             const totalSpent = purchases.reduce(function(sum, item) { return sum + item.Subtotal; }, 0);
-            const latestStageFiles = getLatestFileRecords(state.Files).filter(function(f) {
-                return f.Stage_ID === activeStage.Stage_ID;
-            });
+            const latestStageFiles = getLatestFileRecords(state.Files);
             
             const csvCell = function(value) {
                 const text = String(value == null ? '' : value);
                 return '"' + (/^[=+@\-\t\r]/.test(text) ? "'" : '') + text.replace(/"/g, '""') + '"';
             };
             let csvContent = "\uFEFF";
-            csvContent += `會審階段名稱,${csvCell(activeStage.Stage_Name)}\n`;
-            csvContent += `會期撥付總預算,NT$ ${activeStage.Budget_Allocated}\n`;
+            csvContent += `專案名稱,${csvCell(PROJECT_DISPLAY_NAME)}\n`;
+            csvContent += `專案總預算,NT$ ${activeStage.Budget_Allocated}\n`;
             csvContent += `累計發包花費,NT$ ${totalSpent}\n`;
             csvContent += `超支狀態,${totalSpent > activeStage.Budget_Allocated ? "警告：預算超額！" : "預算安全範圍內"}\n\n`;
             
-            csvContent += "=== 1. 當前會審大宗印刷發包明細 ===\n";
+            csvContent += "=== 1. 大宗印刷發包明細 ===\n";
             csvContent += "印刷品項名稱,發包單價(NT$),發包數量,發包小計(NT$)\n";
             purchases.forEach(function(item) {
                 csvContent += `${csvCell(item.Item_Name)},${item.Vendor_Price},${item.Quantity},${item.Subtotal}\n`;
             });
             csvContent += "\n";
 
-            csvContent += "=== 2. 當前會期各組繳交清單 ===\n";
+            csvContent += "=== 2. 各組繳交清單 ===\n";
             csvContent += "組別名稱,附件名稱,繳交時間,審核狀態,審核反饋意見\n";
             
             latestStageFiles.forEach(function(f) {
@@ -12343,7 +12324,7 @@
             const encodedUri = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8' }));
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `${activeStage.Stage_Name}_形印大會報告.csv`);
+            link.setAttribute("download", `${PROJECT_DISPLAY_NAME}_專案報告.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -12523,7 +12504,6 @@
             }
 
             activeDesignServiceRequestAssignmentId = String(assignment.Assignment_ID || "");
-            const stage = state.Config_Stages.find(function(item) { return item.Stage_ID === assignment.Stage_ID; });
             const modal = document.getElementById("design-service-request-modal");
             const body = document.getElementById("design-service-request-modal-body");
             if (!modal || !body) return;
@@ -12534,9 +12514,8 @@
                         <span class="rounded-full bg-[#EAF3FF] px-2.5 py-1 text-[10px] font-bold text-[#0066CC]">形印代做</span>
                     </div>
                     <h4 class="text-sm font-bold text-[#1D1D1F]">${escapeHtml(assignment.Title)}</h4>
-                    <div class="grid grid-cols-2 gap-3 text-[11px]">
-                        <div><p class="text-[#86868B]">會期</p><p class="mt-1 font-semibold text-[#1D1D1F]">${escapeHtml(stage ? stage.Stage_Name : "未定")}</p></div>
-                        <div><p class="text-[#86868B]">截止時間</p><p class="mt-1 font-semibold text-[#1D1D1F]">${escapeHtml(getAssignmentDueAtLabel(assignment))}</p></div>
+                    <div class="text-[11px]">
+                        <p class="text-[#86868B]">截止時間</p><p class="mt-1 font-semibold text-[#1D1D1F]">${escapeHtml(getAssignmentDueAtLabel(assignment))}</p>
                     </div>
                 </div>
                 <div class="rounded-2xl border border-[#E8E8ED] bg-white p-4">
@@ -13251,6 +13230,111 @@
             return Boolean(currentUser) && getEffectiveRoleContext().effectiveRole === 'SuperAdmin';
         }
 
+        function canManageProjectBusinessDataReset() {
+            return Boolean(currentUser) && getEffectiveRoleContext().effectiveRole === 'SuperAdmin';
+        }
+
+        function buildProjectBusinessDataResetMarkup() {
+            if (!canManageProjectBusinessDataReset()) return '';
+            const completedAt = String(state.Meta?.ProjectBusinessDataReset?.Completed_At || '');
+            if (completedAt) {
+                return `<section class="rounded-3xl border border-[#D7EBDD] bg-[#F6FBF7] p-5 shadow-sm md:p-6" aria-live="polite">
+                    <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[#248A48]"><i data-lucide="circle-check" class="h-5 w-5"></i></span><div><h3 class="text-base font-bold text-[#1D1D1F]">舊專案資料已整理</h3><p class="mt-1 text-xs leading-relaxed text-[#6E6E73]">已完成單一專案初始化（${escapeHtml(completedAt)}）。帳號、系統設定與 Google Drive 原始檔案均保留。</p></div></div>
+                </section>`;
+            }
+            const busy = projectBusinessDataResetInFlight;
+            return `<section class="rounded-3xl border border-[#FFD8D5] bg-[linear-gradient(135deg,#FFFFFF_0%,#FFF8F7_100%)] p-5 shadow-sm md:p-6">
+                <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[#FFE0DD] bg-white text-[#D84A41]"><i data-lucide="database-zap" class="h-5 w-5"></i></span><div><h3 class="text-base font-bold text-[#1D1D1F]">一次性整理舊專案資料</h3><p class="mt-1 text-xs leading-relaxed text-[#6E6E73]">將系統切換為「${PROJECT_DISPLAY_NAME}」，並移除尚未正式使用前建立的舊業務資料。此操作無法復原。</p></div></div>
+                <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    <div class="rounded-2xl border border-[#F0E6E5] bg-white/85 p-4"><p class="text-[11px] font-bold text-[#D84A41]">會清除</p><p class="mt-1.5 text-xs leading-relaxed text-[#6E6E73]">舊會審期數、繳交項目與紀錄、通知、行事曆、工作事項、發包／代做案件、檔案索引、操作紀錄及回收桶內容。</p></div>
+                    <div class="rounded-2xl border border-[#E2EDE5] bg-white/85 p-4"><p class="text-[11px] font-bold text-[#248A48]">會保留</p><p class="mt-1.5 text-xs leading-relaxed text-[#6E6E73]">帳號、小組與權限、系統及註冊設定、形印代做功能設定，以及 Google Drive 上的原始檔案。</p></div>
+                </div>
+                <form class="mt-4" onsubmit="clearProjectBusinessData(event)" aria-busy="${busy}">
+                    <label for="project-business-reset-confirmation" class="mb-1.5 block text-[11px] font-semibold text-[#515156]">為避免誤觸，請輸入「${PROJECT_RESET_CONFIRMATION_LABEL}」</label>
+                    <div class="flex flex-col gap-2 sm:flex-row"><input id="project-business-reset-confirmation" type="text" autocomplete="off" spellcheck="false" ${busy ? 'disabled' : ''} oninput="updateProjectBusinessResetButton()" class="min-w-0 flex-1 rounded-xl border border-[#E8D8D6] bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-[#D84A41]" placeholder="${PROJECT_RESET_CONFIRMATION_LABEL}"><button id="project-business-reset-submit" type="submit" disabled class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#D84A41] px-4 text-xs font-bold text-white transition hover:bg-[#C9342B] disabled:cursor-not-allowed disabled:opacity-45">${busy ? '<span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true"></span>正在整理…' : '<i data-lucide="trash-2" class="h-4 w-4"></i>清除舊業務資料'}</button></div>
+                    <p id="project-business-reset-feedback" role="status" aria-live="polite" class="mt-2 min-h-4 text-xs leading-relaxed ${projectBusinessDataResetFeedback ? 'text-[#C9342B]' : 'text-[#86868B]'}">${escapeHtml(projectBusinessDataResetFeedback || (isRemoteSyncEnabled() ? '只會執行一次；完成後這個操作會自動收起。' : '請連線正式雲端並以形印組長帳號登入後操作。'))}</p>
+                </form>
+            </section>`;
+        }
+
+        function updateProjectBusinessResetButton() {
+            const input = document.getElementById('project-business-reset-confirmation');
+            const button = document.getElementById('project-business-reset-submit');
+            if (!input || !button) return;
+            button.disabled = projectBusinessDataResetInFlight || input.value.trim() !== PROJECT_RESET_CONFIRMATION_LABEL;
+        }
+
+        function getProjectBusinessResetRequestId() {
+            const storageKey = PROJECT_BUSINESS_DATA_RESET_SESSION_KEY + String(currentUser?.User_ID || '');
+            try {
+                const existing = sessionStorage.getItem(storageKey);
+                if (existing) return existing;
+                const requestId = generateSequentialId('RESET', [], '');
+                sessionStorage.setItem(storageKey, requestId);
+                return requestId;
+            } catch (error) {
+                return generateSequentialId('RESET', [], '');
+            }
+        }
+
+        async function clearProjectBusinessData(event) {
+            event.preventDefault();
+            if (projectBusinessDataResetInFlight || !canManageProjectBusinessDataReset()) return;
+            const input = document.getElementById('project-business-reset-confirmation');
+            if (!input || input.value.trim() !== PROJECT_RESET_CONFIRMATION_LABEL) {
+                projectBusinessDataResetFeedback = '請輸入上方顯示的專案名稱，確認要清除舊資料。';
+                renderAll();
+                return;
+            }
+            if (!isRemoteSyncEnabled() || !authSessionToken) {
+                projectBusinessDataResetFeedback = '目前沒有連上正式雲端，資料尚未變更。請確認連線後再操作。';
+                renderAll();
+                return;
+            }
+            if (remoteMutationInFlight) {
+                projectBusinessDataResetFeedback = '另一項雲端操作仍在進行，請稍候再試。';
+                renderAll();
+                return;
+            }
+
+            projectBusinessDataResetInFlight = true;
+            remoteMutationInFlight = true;
+            projectBusinessDataResetFeedback = '正在整理資料並確認雲端結果，請暫時不要關閉頁面。';
+            renderAll();
+            try {
+                if (remoteSavePromise) {
+                    const settled = await remoteSavePromise;
+                    if (!settled.ok) throw new Error('請先完成頁面上方的雲端儲存確認，再進行資料整理。');
+                }
+                const response = await requestGas('clearProjectBusinessData', {
+                    requestId: getProjectBusinessResetRequestId(),
+                    confirmation: PROJECT_BUSINESS_DATA_RESET_CONFIRMATION,
+                    stateRevision: remoteStateRevision
+                });
+                const result = response?.data?.projectBusinessDataReset;
+                if (!result || !response.data.state || !applyBackendStateResponse(response, {
+                    preferredUserId: currentUser?.User_ID || '', allowFallback: false, skipRender: true, editsAlreadyHandled: true
+                })) throw new Error('尚未取得整理完成確認；請保留此頁並稍後重試確認。');
+
+                const storageKey = PROJECT_BUSINESS_DATA_RESET_SESSION_KEY + String(currentUser?.User_ID || '');
+                try { sessionStorage.removeItem(storageKey); } catch (error) {}
+                projectBusinessDataResetFeedback = '';
+                showToast(result.alreadyCleared ? '已確認舊資料先前已整理完成，沒有再次刪除。' : '舊業務資料已整理完成；帳號、系統設定與 Drive 原始檔案均已保留。', 'success');
+            } catch (error) {
+                const message = String(error?.message || '資料整理未能確認。');
+                projectBusinessDataResetFeedback = /REQUEST_TIMEOUT/.test(message)
+                    ? '尚未收到完成確認。資料可能已整理成功；請保留此頁，重新輸入專案名稱再確認，系統會防止重複清除。'
+                    : /STATE_CONFLICT/.test(message)
+                        ? '雲端資料剛有更新，本次沒有套用清理。請重新整理資料後再確認。'
+                        : message.replace(/^[A-Z_]+:\s*/, '');
+                if (!error.sessionExpired) showToast(projectBusinessDataResetFeedback, 'warning');
+            } finally {
+                projectBusinessDataResetInFlight = false;
+                remoteMutationInFlight = false;
+                renderAll();
+            }
+        }
+
         function buildRegistrationSettingsMarkup() {
             if (!canManageRegistrationOptions()) return '';
             if (registrationOptionsDraft && registrationOptionsDraft.owner !== currentUser.User_ID) registrationOptionsDraft = null;
@@ -13609,14 +13693,12 @@
             const memberActions = document.getElementById('topbar-member-actions');
             const notificationCount = document.getElementById('topbar-notification-count');
             const refreshButton = document.getElementById('topbar-refresh-button');
-            const activeStage = state.Config_Stages.find(function(stage) { return stage.Is_Active; });
+            const activeStage = getCurrentProjectStage();
             const connectionMeta = getConnectionStatusMeta();
             const roleContext = getEffectiveRoleContext();
 
             if (stageBadge) {
-                stageBadge.textContent = workspaceHydrationInFlight
-                    ? "會審資料載入中"
-                    : (activeStage ? activeStage.Stage_Name : "尚未指定會審");
+                stageBadge.textContent = workspaceHydrationInFlight ? "專案資料同步中" : PROJECT_DISPLAY_NAME;
             }
 
             if (dataSourceBadge) {
@@ -13673,6 +13755,9 @@
 
         function getNavigationMenusForRole(effectiveRole) {
             return NAVIGATION_MENU_CONFIGS.filter(function(menu) {
+                if (menu.id === "purchase") {
+                    return isShapePrintAccount(currentUser);
+                }
                 return menu.roles.includes(effectiveRole);
             });
         }
@@ -14466,9 +14551,9 @@
             const price = parseFloat(document.getElementById('purchase-form-price').value);
             const qty = parseInt(document.getElementById('purchase-form-qty').value);
 
-            const activeStage = state.Config_Stages.find(function(s) { return s.Is_Active; });
+            const activeStage = getCurrentProjectStage();
             if (!activeStage) {
-                showToast("無活躍會審，無法進行登記！", "warning");
+                showToast("專案資料尚未就緒，無法進行登記。", "warning");
                 return;
             }
 
@@ -14568,7 +14653,7 @@
                 Stage_ID: nextId, Stage_Name: name, Budget_Allocated: budget, Is_Active: false
             });
 
-            showToast("成功建立會審【" + name + "】", "success");
+            showToast("已成功建立「" + name + "」", "success");
             document.getElementById('stage-form-name').value = '';
             document.getElementById('stage-form-budget').value = '';
             saveState();
@@ -15777,7 +15862,14 @@
         function switchTab(tabId) {
             const roleContext = getEffectiveRoleContext();
             const targetMenu = NAVIGATION_MENU_CONFIGS.find(function(menu) { return menu.id === tabId; });
-            if (targetMenu && !targetMenu.roles.includes(roleContext.effectiveRole)) {
+            const canAccessTarget = targetMenu && (targetMenu.id === "purchase"
+                ? isShapePrintAccount(currentUser)
+                : targetMenu.roles.includes(roleContext.effectiveRole));
+            if (!targetMenu) {
+                showToast("這個功能已移除，請使用專案工作台的導覽選單。", "info");
+                return;
+            }
+            if (!canAccessTarget) {
                 showToast("目前帳號沒有查看此功能的權限。", "warning");
                 return;
             }
@@ -16227,10 +16319,8 @@
             if (endInput) endInput.value = event ? calendarInputValue(event.endsAt) : calendarInputValue(formatDateTimeTaipei(defaultEnd));
             if (typeInput) typeInput.value = event ? event.eventType : "meeting";
             if (stageInput) {
-                stageInput.innerHTML = `<option value="">不指定會期</option>` + state.Config_Stages.map(function(stage) {
-                    return `<option value="${escapeHtml(stage.Stage_ID)}">${escapeHtml(stage.Stage_Name)}</option>`;
-                }).join("");
-                stageInput.value = event ? event.stageId : "";
+                const projectStage = getCurrentProjectStage();
+                stageInput.value = projectStage ? projectStage.Stage_ID : "S116";
             }
             if (allDayInput) allDayInput.checked = Boolean(event && event.allDay);
             if (descriptionInput) descriptionInput.value = event ? event.description : "";
@@ -16273,7 +16363,7 @@
                 startsAt: startsAt,
                 endsAt: endsAt,
                 eventType: String(document.getElementById("calendar-event-type") && document.getElementById("calendar-event-type").value || "meeting"),
-                stageId: String(document.getElementById("calendar-event-stage") && document.getElementById("calendar-event-stage").value || ""),
+                stageId: String((getCurrentProjectStage() || {}).Stage_ID || ""),
                 allDay: Boolean(document.getElementById("calendar-event-all-day") && document.getElementById("calendar-event-all-day").checked),
                 description: String(document.getElementById("calendar-event-description") && document.getElementById("calendar-event-description").value || "").trim()
             };
@@ -17089,6 +17179,10 @@
                 if (dashboardSection) dashboardSection.classList.remove('hidden');
             }
 
+            if (!NAVIGATION_MENU_CONFIGS.some(function(menu) { return menu.id === activeTab; })) {
+                activeTab = "overview";
+            }
+
             // B. 雙重身份切換卡片偵測（形印帳號兼任畢製小組時呈現）
             const workspaceCard = document.getElementById('workspace-switcher-card');
             if (isShapePrintAccount(currentUser) && hasStudentWorkspace(currentUser)) {
@@ -17151,29 +17245,17 @@
 
             // E. 總預算大控盤卡片可見度與渲染 (限大會形印組工作台、SuperAdmin 可見)
             const budgetCard = document.getElementById('dashboard-budget-card');
-            const activeStage = state.Config_Stages.find(function(s) { return s.Is_Active; });
-            const activeStageHeader = document.getElementById('active-stage-title-header');
-            const budgetStageBadge = document.getElementById('budget-card-stage-badge');
-            
+            const activeStage = getCurrentProjectStage();
             if (canManageAssignmentBoard(effectiveRole)) {
                 if (budgetCard) budgetCard.classList.remove('hidden');
                 if (workspaceHydrationInFlight) {
-                    if (activeStageHeader) activeStageHeader.textContent = "資料同步中";
-                    if (budgetStageBadge) budgetStageBadge.textContent = "同步中";
                     renderBudgetProgressBar(null, { loading: true });
-                } else if (activeStage) {
-                    if (activeStageHeader) activeStageHeader.textContent = activeStage.Stage_Name;
-                    if (budgetStageBadge) budgetStageBadge.textContent = activeStage.Stage_Name;
-                } else {
-                    if (activeStageHeader) activeStageHeader.textContent = "無作用中會審";
-                    if (budgetStageBadge) budgetStageBadge.textContent = "未指定";
                 }
                 if (!workspaceHydrationInFlight) {
                     renderBudgetProgressBar(activeStage);
                 }
             } else {
                 if (budgetCard) budgetCard.classList.add('hidden'); // 學生組員與組長隱藏預算
-                if (activeStageHeader) activeStageHeader.textContent = activeStage ? activeStage.Stage_Name : "畢業會審專區";
             }
 
             // F. 執行導覽列、工作面板視圖更新
@@ -17242,7 +17324,7 @@
                 return;
             }
 
-            const stagePurchases = state.Purchase_Items.filter(function(p) { return p.Stage_ID === activeStage.Stage_ID; });
+            const stagePurchases = ensureArray(state.Purchase_Items);
             const totalSpent = stagePurchases.reduce(function(sum, item) { return sum + item.Subtotal; }, 0);
             const budgetLimit = activeStage.Budget_Allocated;
             const progressRatio = Math.round((totalSpent / budgetLimit) * 100) || 0;
@@ -17461,13 +17543,6 @@
             };
         }
 
-        function getWorkItemStageLabel(item) {
-            const stage = ensureArray(state.Config_Stages).find(function(entry) {
-                return String(entry && entry.Stage_ID || "") === String(item && item.Stage_ID || "");
-            });
-            return stage ? String(stage.Stage_Name || "") : "未指定會期";
-        }
-
         function canCreateWorkItems() {
             return getEffectiveRoleContext().effectiveRole === "SuperAdmin";
         }
@@ -17621,11 +17696,8 @@
             if (dueInput) dueInput.value = item ? formatAssignmentDateTimeInput(item.Due_At) : defaultDue;
             if (priorityInput) priorityInput.value = item ? String(item.Priority || "一般") : "一般";
             if (stageInput) {
-                const defaultStage = ensureArray(state.Config_Stages).find(function(stage) { return stage.Is_Active === true; }) || state.Config_Stages[0];
-                stageInput.innerHTML = `<option value="">不指定會期</option>` + ensureArray(state.Config_Stages).map(function(stage) {
-                    return `<option value="${escapeHtml(stage.Stage_ID)}">${escapeHtml(stage.Stage_Name)}</option>`;
-                }).join("");
-                stageInput.value = item ? String(item.Stage_ID || "") : String(defaultStage && defaultStage.Stage_ID || "");
+                const projectStage = getCurrentProjectStage();
+                stageInput.value = projectStage ? projectStage.Stage_ID : "S116";
             }
             if (assigneeInput) {
                 const assignees = ensureArray(state.Users).filter(function(user) {
@@ -17675,7 +17747,7 @@
                 title: String(document.getElementById("work-item-title") && document.getElementById("work-item-title").value || "").trim(),
                 dueAt: String(document.getElementById("work-item-due") && document.getElementById("work-item-due").value || "").replace("T", " "),
                 priority: String(document.getElementById("work-item-priority") && document.getElementById("work-item-priority").value || "一般"),
-                stageId: String(document.getElementById("work-item-stage") && document.getElementById("work-item-stage").value || ""),
+                stageId: String((getCurrentProjectStage() || {}).Stage_ID || ""),
                 assignedToUserId: String(document.getElementById("work-item-assignee") && document.getElementById("work-item-assignee").value || ""),
                 description: String(document.getElementById("work-item-description") && document.getElementById("work-item-description").value || "").trim()
             };
@@ -17810,7 +17882,7 @@
                 return `<article data-work-item-card-id="${escapeHtml(item.Work_Item_ID)}" class="rounded-[24px] border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:border-[#D9D9E3] hover:bg-white sm:p-5">
                     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div class="min-w-0 flex-1">
-                            <div class="flex flex-wrap items-center gap-2"><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${statusMeta.tone}">${statusMeta.label}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${priorityMeta.tone}">${priorityMeta.label}</span>${item.Stage_ID ? `<span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-[#86868B]">${escapeHtml(getWorkItemStageLabel(item))}</span>` : ""}</div>
+                            <div class="flex flex-wrap items-center gap-2"><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${statusMeta.tone}">${statusMeta.label}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${priorityMeta.tone}">${priorityMeta.label}</span></div>
                             <h4 class="mt-3 text-base font-bold tracking-[-0.02em] text-[#1D1D1F]">${escapeHtml(item.Title || "未命名工作")}</h4>
                             ${item.Description ? `<p class="mt-2 whitespace-pre-line text-xs leading-relaxed text-[#6E6E73]">${escapeHtml(item.Description)}</p>` : `<p class="mt-2 text-xs text-[#AEAEB2]">尚未補充工作說明</p>`}
                             <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] font-semibold ${dueMeta.tone}"><span class="inline-flex items-center gap-1.5"><i data-lucide="clock-3" class="h-3.5 w-3.5"></i>${escapeHtml(dueMeta.label)}</span><span class="inline-flex items-center gap-1.5 text-[#86868B]"><i data-lucide="user-round" class="h-3.5 w-3.5"></i>${escapeHtml(item.Assigned_To_Name || "開放認養")}</span></div>
@@ -17835,7 +17907,7 @@
 
         function getRecycleBinEntityLabel(entityType) {
             const labels = {
-                stage: "會審期數",
+                stage: "專案設定",
                 assignment: "繳交項目",
                 purchase: "發包品項",
                 "purchase-item": "發包品項",
@@ -17851,7 +17923,7 @@
                 ? entry.Snapshot_JSON.collections
                 : {};
             const labels = {
-                Config_Stages: "會審期數",
+                Config_Stages: "專案設定",
                 Purchase_Items: "發包",
                 Assignments: "繳交項目",
                 Assignment_Resources: "附件",
@@ -18015,6 +18087,20 @@
 
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
 
+            if (activeTab === "purchase" && !isShapePrintAccount(currentUser)) {
+                container.innerHTML = `
+                    <section class="rounded-[28px] border border-[#E8E8ED] bg-white px-6 py-14 text-center shadow-sm sm:px-10">
+                        <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#E8E8ED] bg-[#F5F5F7] text-[#86868B]">
+                            <i data-lucide="lock-keyhole" class="h-6 w-6"></i>
+                        </span>
+                        <h3 class="mt-5 text-lg font-bold text-[#1D1D1F]">此功能僅提供形印組使用</h3>
+                        <p class="mt-2 text-sm leading-6 text-[#6E6E73]">請返回專案總覽，繼續查看所屬小組的資料。</p>
+                        <button type="button" onclick="switchTab('overview')" class="mt-5 rounded-xl bg-[#1D1D1F] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#363638]">返回專案總覽</button>
+                    </section>
+                `;
+                return;
+            }
+
             if (activeTab === "work-items") {
                 renderWorkItemsBoard(container, effectiveRole);
                 return;
@@ -18034,9 +18120,7 @@
                     : ensureArray(state.Assignments).filter(function(assignment) {
                         return getAssignmentTargetTeamIds(assignment).includes(effectiveTeamID);
                     });
-                const activeAssignments = visibleAssignments.filter(function(assignment) {
-                    return !activeStage || assignment.Stage_ID === activeStage.Stage_ID;
-                });
+                const activeAssignments = visibleAssignments;
                 const targetSlots = activeAssignments.reduce(function(sum, assignment) {
                     return sum + getAssignmentTargetTeamIds(assignment).length;
                 }, 0);
@@ -18061,10 +18145,10 @@
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 md:mb-4">
                             <div>
                                 <h3 class="font-bold text-base text-[#1D1D1F]">當前作業進度概要</h3>
-                                <p class="text-xs text-[#86868B] mt-0.5">依當前活躍會期與繳交項目進行統計</p>
+                                <p class="text-xs text-[#86868B] mt-0.5">依畢業製作專案的繳交資料統計</p>
                             </div>
                             <button onclick="handleExportReport()" class="px-4 py-2 border border-[#E8E8ED] hover:bg-[#F5F5F7] text-xs font-bold text-[#0066CC] rounded-xl transition flex items-center gap-1.5 self-start sm:self-auto">
-                                <i data-lucide="download" class="w-4 h-4"></i> 匯出本期總報表 (CSV)
+                                <i data-lucide="download" class="w-4 h-4"></i> 匯出專案報表 (CSV)
                             </button>
                         </div>
                         <div class="grid ${canSeeShapePrintSummary ? "grid-cols-2 md:grid-cols-4" : "grid-cols-3 md:grid-cols-3"} gap-2 md:gap-4">
@@ -18130,7 +18214,7 @@
                     <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <div>
-                                <h3 class="font-bold text-base text-[#1D1D1F]">近期繳交項目 (所有會審)</h3>
+                                <h3 class="font-bold text-base text-[#1D1D1F]">近期繳交項目</h3>
                                 <p class="text-xs text-[#86868B] mt-0.5">可快速查看各繳交項目的截止時間、目標組別與繳交進度。</p>
                             </div>
                             <button onclick="switchTab('files')" class="text-xs text-[#0066CC] font-bold hover:underline flex items-center gap-1">
@@ -18142,15 +18226,13 @@
                                 <thead>
                                     <tr class="border-b border-[#E8E8ED] text-[#86868B] uppercase font-bold">
                                         <th class="py-3 px-4">項目標題</th>
-                                        <th class="py-3 px-4">會期</th>
                                         <th class="py-3 px-4">目標組別</th>
                                         <th class="py-3 px-4">截止時間</th>
                                         <th class="py-3 px-4 text-center">狀態</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-[#E8E8ED]">
-                                    ${recentAssignments.length === 0 ? `<tr><td colspan="5" class="mobile-stack-primary py-4 text-center text-[#86868B]">目前沒有任何繳交項目</td></tr>` : recentAssignments.map(function(assignment) {
-                                        const stage = state.Config_Stages.find(function(stg) { return stg.Stage_ID === assignment.Stage_ID; });
+                                    ${recentAssignments.length === 0 ? `<tr><td colspan="4" class="mobile-stack-primary py-4 text-center text-[#86868B]">目前沒有任何繳交項目</td></tr>` : recentAssignments.map(function(assignment) {
                                         const teamLabels = getAssignmentTargetTeamLabels(assignment);
                                         const targetIds = getAssignmentTargetTeamIds(assignment);
                                         const assignmentSubmissions = getAssignmentSubmissionsForAssignment(assignment.Assignment_ID);
@@ -18181,7 +18263,6 @@
                                                         <span class="inline-flex w-fit items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F2F2F7] text-[#1D1D1F]">${getAssignmentSubmissionModeLabel(assignment.Submission_Mode)}</span>
                                                     </div>
                                                 </td>
-                                                <td data-mobile-label="會期" class="mobile-stack-secondary py-3.5 px-4 text-[#86868B]">${escapeHtml(stage ? stage.Stage_Name : "未定")}</td>
                                                 <td data-mobile-label="目標組別" class="mobile-stack-secondary py-3.5 px-4 text-[#86868B]">${escapeHtml(teamLabels)}</td>
                                                 <td data-mobile-label="截止" class="py-3.5 px-4 text-[#86868B]">${getAssignmentDueAtLabel(assignment)}</td>
                                                 <td data-mobile-label="狀態" class="mobile-stack-status py-3.5 px-4 text-center">
@@ -18247,12 +18328,6 @@
             }
             else if (activeTab === "files") {
                 const assignmentsToDisplay = getAssignmentsForBrowserView(activeStage, effectiveRole, effectiveTeamID);
-                const stageOptionsHtml = [
-                    `<option value="active" ${assignmentBrowserState.stage === "active" ? "selected" : ""}>目前會期</option>`,
-                    `<option value="all" ${assignmentBrowserState.stage === "all" ? "selected" : ""}>全部會期</option>`
-                ].concat(state.Config_Stages.map(function(stage) {
-                    return `<option value="${escapeHtml(stage.Stage_ID)}" ${assignmentBrowserState.stage === stage.Stage_ID ? "selected" : ""}>${escapeHtml(stage.Stage_Name)}</option>`;
-                })).join('');
                 const teamOptionsHtml = isExhibitionAdmin ? [
                     `<option value="all" ${assignmentBrowserState.team === "all" ? "selected" : ""}>全部組別</option>`
                 ].concat(state.Teams.filter(function(team) { return team.Team_ID !== "T00"; }).map(function(team) {
@@ -18262,9 +18337,7 @@
                 const pendingCount = assignmentsToDisplay.filter(function(assignment) { return !assignment.__isSubmitted && !assignment.__isOverdue; }).length;
                 const submittedCount = assignmentsToDisplay.filter(function(assignment) { return assignment.__isSubmitted; }).length;
                 const overdueCount = assignmentsToDisplay.filter(function(assignment) { return assignment.__isOverdue && !assignment.__isSubmitted; }).length;
-                const comparisonAssignments = state.Assignments.filter(function(assignment) {
-                    return !activeStage || assignment.Stage_ID === activeStage.Stage_ID;
-                });
+                const comparisonAssignments = state.Assignments;
 
                 container.innerHTML = `
                     <div class="bg-white border border-[#E5E5EA] rounded-[28px] p-5 md:p-6 shadow-sm" data-files-entrance="shell">
@@ -18349,12 +18422,6 @@
                                 </div>
                             `}
                             <div>
-                                <label class="block text-[10px] font-bold text-[#1D1D1F] mb-1.5">會期</label>
-                                <select onchange="setAssignmentBrowserValue('stage', this.value)" class="w-full px-4 py-2.5 rounded-xl border border-[#E5E5EA] bg-white focus:outline-none focus:border-[#0066CC] text-xs">
-                                    ${stageOptionsHtml}
-                                </select>
-                            </div>
-                            <div>
                                 <label class="block text-[10px] font-bold text-[#1D1D1F] mb-1.5">排序</label>
                                 <select onchange="setAssignmentBrowserValue('sortBy', this.value)" class="w-full px-4 py-2.5 rounded-xl border border-[#E5E5EA] bg-white focus:outline-none focus:border-[#0066CC] text-xs">
                                     <option value="newest" ${assignmentBrowserState.sortBy === "newest" ? "selected" : ""}>最新發布</option>
@@ -18381,12 +18448,9 @@
                                     <i data-lucide="book-open" class="w-6 h-6"></i>
                                 </div>
                                 <h4 class="font-bold text-[#1D1D1F] mt-4 text-base">目前沒有符合條件的繳交項目</h4>
-                                <p class="text-xs text-[#86868B] mt-2 leading-relaxed">可以切換會期、調整篩選，或由形印組新增新的繳交項目。</p>
+                                <p class="text-xs text-[#86868B] mt-2 leading-relaxed">可以調整搜尋條件，或請形印組新增繳交項目。</p>
                             </div>
                         ` : assignmentsToDisplay.map(function(assignment) {
-                            const stage = state.Config_Stages.find(function(item) {
-                                return item.Stage_ID === assignment.Stage_ID;
-                            });
                             const creator = state.Users.find(function(item) {
                                 return item.User_ID === assignment.Created_By_User_ID;
                             });
@@ -18424,7 +18488,7 @@
                                                     ${assignment.Allow_ReSubmit ? '<span class="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold bg-[#5E5CE6] bg-opacity-10 text-[#5E5CE6]">可補交</span>' : ''}
                                                 </div>
                                                 <p class="text-[12px] text-[#86868B] mt-1.5 leading-relaxed">
-                                                    會期 ${escapeHtml(stage ? stage.Stage_Name : "未定")} · ${escapeHtml(assignment.__targetTeamLabels || getAssignmentTargetTeamLabels(assignment))} · 截止 ${getAssignmentDueAtLabel(assignment)}
+                                                    ${escapeHtml(assignment.__targetTeamLabels || getAssignmentTargetTeamLabels(assignment))} · 截止 ${getAssignmentDueAtLabel(assignment)}
                                                 </p>
                                                 <p class="text-sm text-[#6E6E73] mt-2 leading-relaxed max-w-3xl">${escapeHtml(assignment.Body || "請依項目內容完成繳交。")}</p>
                                             </div>
@@ -18468,13 +18532,13 @@
                 `;
             } 
             else if (activeTab === "purchase") {
-                const stagePurchases = state.Purchase_Items.filter(function(p) { return p.Stage_ID === activeStage.Stage_ID; });
+                const stagePurchases = ensureArray(state.Purchase_Items);
 
                 container.innerHTML = `
                     ${isExhibitionAdmin ? `
                         <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
                             <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">📝 新增發包品項</h3>
-                            <p class="text-xs text-[#86868B] mb-5">形印組在此統一登記本會期的大宗印刷。新增後金額將即時反映於上方總預算控盤。</p>
+                            <p class="text-xs text-[#86868B] mb-5">形印組在此統一登記畢業製作的大宗印刷，金額會即時反映於上方總預算。</p>
                             
                             <form onsubmit="handleRegisterPurchase(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                                 <div>
@@ -18499,8 +18563,8 @@
                     ` : ''}
 
                     <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
-                        <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">當前會審發包品項</h3>
-                        <p class="text-xs text-[#86868B] mb-5">發包品項由形印籌備組大宗統一向廠商發包，學生組員可在此查看形印組預備製作的發包品項清單（金額不流向小組）。</p>
+                        <h3 class="font-bold text-base mb-1 text-[#1D1D1F]">畢業製作發包品項</h3>
+                            <p class="text-xs text-[#86868B] mb-5">發包品項由形印籌備組統一向廠商發包，學生組員可在此查看預備製作的清單（金額不流向小組）。</p>
 
                         <div class="overflow-x-auto mobile-table-scroll">
                             <table class="w-full text-left text-xs mobile-stack-table">
@@ -18673,6 +18737,7 @@
 
                 container.innerHTML = `
                     ${canManageRegistrationOptions() ? `<div id="registration-settings-panel">${buildRegistrationSettingsMarkup()}</div>` : ''}
+                    ${canManageProjectBusinessDataReset() ? `<div id="project-business-reset-panel">${buildProjectBusinessDataResetMarkup()}</div>` : ''}
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         ${canManageShapePrintInvites() ? `
                             <section class="md:col-span-2 rounded-3xl border border-[#DCE8F8] bg-[linear-gradient(135deg,#FFFFFF_0%,#F5F9FF_100%)] p-5 shadow-sm md:p-6">
@@ -18829,79 +18894,6 @@
                 if (displayEl) {
                     displayEl.innerHTML = formatInviteCodeDisplayMarkup(team ? team.Invite_Code : "");
                 }
-            } 
-            else if (activeTab === "stages" && effectiveRole === "SuperAdmin") {
-                container.innerHTML = `
-                    <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
-                        <h3 class="font-bold text-base mb-2 text-[#1D1D1F]">➕ 新增會審期數與預算</h3>
-                        <p class="text-xs text-[#86868B] mb-4">形印組長在此可隨時為全屆新增會審期數，以即時變更系統大控盤之提撥款額。</p>
-                        
-                        <form onsubmit="handleCreateStage(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                            <div>
-                                <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">會審名稱</label>
-                                <input type="text" id="stage-form-name" required class="w-full px-4 py-2.5 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs" placeholder="如：第三次總會審">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold text-[#1D1D1F] mb-1.5">提撥發包預算 (NT$)</label>
-                                <input type="number" id="stage-form-budget" required min="0" class="w-full px-4 py-2.5 rounded-xl border border-[#E8E8ED] focus:outline-none focus:border-[#0066CC] text-xs" placeholder="350000">
-                            </div>
-                            <div>
-                                <button type="submit" class="w-full bg-[#0066CC] text-white py-3 rounded-xl font-bold text-xs hover:opacity-95 transition shadow-sm">
-                                    建立新期數
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-
-                    <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
-                        <h3 class="font-bold text-base text-[#1D1D1F] mb-1">歷史會審期數一覽表</h3>
-                        <p class="text-xs text-[#86868B] mb-4">大會同時僅允許「一期」活躍會審。設定活躍後，所有檔案收發與控盤進度將即刻重定位。</p>
-
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-xs">
-                                <thead>
-                                    <tr class="border-b border-[#E8E8ED] text-[#86868B] uppercase font-bold">
-                                        <th class="py-3 px-4">會期代號</th>
-                                        <th class="py-3 px-4">會審期數名稱</th>
-                                        <th class="py-3 px-4 text-right">提撥配置預算</th>
-                                        <th class="py-3 px-4 text-center">狀態</th>
-                                        <th class="py-3 px-4 text-right">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-[#E8E8ED]">
-                                    ${state.Config_Stages.map(function(item) {
-                                        let statusBadge = `<span class="inline-block text-[10px] font-bold text-[#86868B] bg-[#E8E8ED] px-2.5 py-0.5 rounded-full">歷史存檔</span>`;
-                                        const isSwitchingThisStage = stageActivationInFlight && stageActivationTargetId === item.Stage_ID;
-                                        let actionBtnHtml = stageActivationInFlight
-                                            ? `<span class="text-[10px] font-bold ${isSwitchingThisStage ? 'text-[#0066CC]' : 'text-[#86868B]'}">${isSwitchingThisStage ? '同步中…' : '請稍候'}</span>`
-                                            : `<button onclick="makeStageActive('${escapeInlineJsString(item.Stage_ID)}')" class="text-[10px] text-[#0066CC] font-bold bg-[#0066CC] bg-opacity-5 hover:bg-opacity-10 px-2.5 py-1 rounded-lg transition-all">設為活躍會期</button>`;
-                                        
-                                        if (item.Is_Active) {
-                                            statusBadge = `<span class="inline-block text-[10px] font-bold text-[#34C759] bg-[#34C759] bg-opacity-10 px-2.5 py-0.5 rounded-full">當前活躍</span>`;
-                                            actionBtnHtml = `<span class="text-[10px] text-[#34C759] font-bold mr-2">作用中</span>`;
-                                        }
-
-                                        return `
-                                            <tr class="hover:bg-[#FBFBFD]">
-                                                <td class="py-3.5 px-4 font-mono font-semibold text-[#86868B]"><span class="block max-w-[7rem] truncate" title="${escapeHtml(item.Stage_ID)}">${escapeHtml(item.Stage_ID)}</span></td>
-                                                <td class="py-3.5 px-4 font-bold text-[#1D1D1F]">${escapeHtml(item.Stage_Name)}</td>
-                                                <td class="py-3.5 px-4 text-right font-mono font-bold text-[#1D1D1F]">NT$ ${item.Budget_Allocated.toLocaleString()}</td>
-                                                <td class="py-3.5 px-4 text-center">${statusBadge}</td>
-                                                <td class="py-3.5 px-4 text-right">
-                                                    <div class="flex items-center gap-1.5 justify-end">
-                                                        ${actionBtnHtml}
-                                                        <button onclick="editStageBudget('${escapeInlineJsString(item.Stage_ID)}')" class="text-[#86868B] hover:text-[#1D1D1F] p-1.5" title="修改總款額"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i></button>
-                                                        <button onclick="deleteStage('${escapeInlineJsString(item.Stage_ID)}')" class="text-[#FF3B30] hover:text-[#D70015] p-1.5" title="刪除此會審"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                `;
             }
         }
 
@@ -19065,9 +19057,9 @@
             const selectedFile = getSelectedFileFromInput('upload-form-file');
             const fileName = selectedFile ? String(selectedFile.name || "").trim() : "";
             const uploadValidation = refreshUploadRuleValidation();
-            const activeStage = state.Config_Stages.find(function(s) { return s.Is_Active; });
+            const activeStage = getCurrentProjectStage();
             if (!activeStage) {
-                showToast("目前沒有作用中的會審，無法繳交。", "warning");
+                showToast("專案資料尚未就緒，請重新同步後再繳交。", "warning");
                 return;
             }
 
@@ -19127,7 +19119,7 @@
             try {
                 let resultFileId = "";
                 let resultFolderPath = activeStage.Stage_Name + " / " + teamName;
-                setGasUploadProgress(8, "正在確認繳交條件", "已驗證會期、小組與檔案規則。");
+                setGasUploadProgress(8, "正在確認繳交條件", "已驗證專案、小組與檔案規則。");
                 appendGasTerminalLine(terminal, "已確認「" + activeStage.Stage_Name + " / " + teamName + "」的繳交位置。", "drive");
 
                 if (isRemoteSyncEnabled()) {
@@ -19250,11 +19242,11 @@
                     subtitle: "快速了解系統功能與主要操作流程。",
                     body: `
                         <div class="space-y-3 text-sm leading-relaxed text-[#1D1D1F]">
-                            <p>登入系統後，您可依帳號權限使用會審總覽、通知中心、繳交專區、發包管理與小組成員等功能。</p>
+                            <p>登入系統後，您可依帳號權限使用專案總覽、通知中心、繳交專區、發包管理與小組成員等功能。</p>
                             <div class="rounded-2xl bg-[#F5F5F7] border border-[#E8E8ED] p-4">
                                 <p class="text-[11px] font-bold text-[#86868B] uppercase tracking-wider mb-2">建議操作步驟</p>
                                 <ol class="space-y-2 text-[12px] text-[#1D1D1F] list-decimal list-inside">
-                                    <li>登入後先確認目前會審期數與您的帳號角色。</li>
+                                    <li>登入後先確認「116級 畢業製作」專案與您的帳號角色。</li>
                                     <li>前往繳交專區查看繳交項目、格式說明與截止時間。</li>
                                     <li>完成檔案上傳後，請留意通知中心的審核回覆與系統提醒。</li>
                                     <li>若作業被退件，請依退件原因修正內容後再重新繳交。</li>
