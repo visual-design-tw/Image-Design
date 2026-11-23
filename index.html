@@ -1140,6 +1140,12 @@
         .catalog-format-option input:checked + span { border-color: var(--catalog-border); background: white; color: var(--catalog-ink); box-shadow: 0 1px 2px #0000000d; }
         .catalog-format-option input:focus-visible + span { outline: 2px solid var(--catalog-accent); outline-offset: 1px; }
         .catalog-format-option input:disabled + span { opacity: .55; cursor: not-allowed; }
+        .catalog-item-disclosure { min-width: 0; border: 1px solid var(--catalog-border); border-radius: 14px; background: #fafafc; }
+        .catalog-item-disclosure > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: 13px; list-style: none; cursor: pointer; }
+        .catalog-item-disclosure > summary::-webkit-details-marker { display: none; }
+        @media (prefers-reduced-motion: no-preference) { .catalog-item-disclosure > summary > :last-child { transition: transform 150ms ease; } }
+        .catalog-item-disclosure[open] > summary > :last-child { transform: rotate(180deg); }
+        .catalog-item-disclosure[open] > .catalog-item-disclosure-body { border-top: 1px solid var(--catalog-border); padding: 12px; }
         .catalog-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 126px), 1fr)); gap: 8px; }
         .catalog-break { overflow-wrap: anywhere; }
         .catalog-board #catalog-editor, .catalog-board #catalog-link-panel { scroll-margin-top: 88px; }
@@ -18291,7 +18297,7 @@
             } else if (kind === 'mode') {
                 values = { confirm: false };
             } else return;
-            view.form = { kind, id: record?.id || '', record, values,
+            view.form = { kind, id: record?.id || '', record, values, itemSections: new Set(),
                 modeRevision: workspaceAccessPolicy.workspaceModeRevision, nextMode: !workspaceAccessPolicy.workspaceInternalOnly,
                 requestId: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('') };
             view.link = null;
@@ -18326,6 +18332,10 @@
                 return;
             }
             form.values[input.name] = input.type === 'checkbox' ? input.checked : input.value;
+            if (form.kind === 'item' && input.name === 'verifyEmail') {
+                const badge = input.closest('details')?.querySelector('.catalog-chip');
+                if (badge) badge.textContent = input.checked ? '開啟' : '關閉';
+            }
             if (form.kind === 'assign' && input.name === 'itemId') {
                 form.values.groupIds = [];
                 drawCatalogWorkspace();
@@ -18337,6 +18347,11 @@
                 document.getElementById('catalog-member-count')?.focus({ preventScroll: true });
             }
             if (form.kind === 'item' && input.name === 'format') {
+                document.querySelectorAll('#catalog-editor details[data-catalog-item-section]').forEach(section => {
+                    const key = section.dataset.catalogItemSection;
+                    if (section.open) form.itemSections.add(key);
+                    else form.itemSections.delete(key);
+                });
                 drawCatalogWorkspace();
                 document.getElementById('catalog-format-' + input.value)?.focus({ preventScroll: true });
             }
@@ -18355,6 +18370,7 @@
                 fields.splice(index, 1);
                 index = Math.min(index, fields.length - 1);
             } else return;
+            form.itemSections.add('text');
             drawCatalogWorkspace();
             const name = document.getElementById('catalog-text-' + index + '-label');
             name?.focus({ preventScroll: true });
@@ -18386,19 +18402,15 @@
             if (!limits) return '<p class="text-sm catalog-muted">雲端尚未更新多欄位收件功能，文字會使用原本的單一輸入框。</p>';
             if (record?.fieldsLocked) {
                 const fields = record.textFields || [];
-                return `<section class="rounded-2xl border border-[#E4E8EE] bg-[#F7F7FA] p-3 text-sm">
-                    <h4 class="font-semibold">文字欄位</h4>
-                    ${fields.length ? `<ul class="mt-2 space-y-1">${fields.map(field => `<li class="catalog-break">${escapeHtml(field.label)} <span class="catalog-muted">（${field.minChars} 至 ${field.maxChars} 字）</span></li>`).join('')}</ul>`
-                        : '<p class="mt-1 catalog-muted">原有的單一文字欄位，最多 5,000 字。</p>'}
-                </section>`;
+                return fields.length ? `<ul class="space-y-1 text-sm">${fields.map(field => `<li class="catalog-break">${escapeHtml(field.label)} <span class="catalog-muted">（${field.minChars} 至 ${field.maxChars} 字）</span></li>`).join('')}</ul>`
+                    : '<p class="text-sm catalog-muted">原有的單一文字欄位，最多 5,000 字。</p>';
             }
             const fields = values.textFields;
             const fieldInput = (index, key, value, max, extra = '') => `<input class="catalog-input" id="catalog-text-${index}-${key}" type="text" maxlength="${max}" value="${escapeHtml(String(value ?? ''))}" data-catalog-field-index="${index}" data-catalog-field-key="${key}" ${extra} oninput="catalogDraftChange(this)">`;
             return `<fieldset class="min-w-0 space-y-2">
-                <legend class="mb-1 text-sm font-semibold">要填寫的文字欄位</legend>
-                <p class="text-sm catalog-muted">每個欄位皆必填，可設定不同字數。最多 ${limits.fields} 欄，上限合計 ${limits.totalChars.toLocaleString('zh-TW')} 字。</p>
+                <legend class="sr-only">文字欄位設定</legend>
                 ${fields.map((field, index) => `<fieldset data-catalog-text-field class="min-w-0 rounded-2xl border border-[#E4E8EE] bg-[#F7F7FA] p-3">
-                    <legend class="px-1 text-xs font-bold catalog-muted">文字欄位 ${index + 1}</legend>
+                    <legend class="sr-only">文字欄位 ${index + 1}</legend>
                     <div class="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                         <div class="col-span-2 sm:col-span-1">${catalogField('欄位名稱', fieldInput(index, 'label', field.label, limits.labelChars, 'placeholder="例如：作品介紹"'))}</div>
                         ${catalogField('最少字數', fieldInput(index, 'minChars', field.minChars, 4, 'inputmode="numeric"'))}
@@ -18406,8 +18418,18 @@
                         ${fields.length > 1 ? `<div class="col-span-2 flex justify-end sm:col-span-1"><button type="button" class="catalog-button" aria-label="移除文字欄位 ${index + 1}" onclick="changeCatalogTextFields(false,${index})">移除</button></div>` : ''}
                     </div>
                 </fieldset>`).join('')}
-                ${catalogButton('＋ 新增文字欄位', 'changeCatalogTextFields(true)', false, fields.length >= limits.fields)}
+                <div class="flex flex-wrap items-center justify-between gap-2">${catalogButton('＋ 新增文字欄位', 'changeCatalogTextFields(true)', false, fields.length >= limits.fields)}
+                    <p class="text-xs catalog-muted">各欄必填，最多 ${limits.fields} 欄、合計 ${limits.totalChars.toLocaleString('zh-TW')} 字。</p></div>
             </fieldset>`;
+        }
+
+        function catalogItemDisclosure(form, key, label, badge, body) {
+            return `<details class="catalog-item-disclosure" data-catalog-item-section="${key}" ${form.itemSections.has(key) ? 'open' : ''}
+                ontoggle="if (this.isConnected) { const sections = catalogWorkspaceForUser().form?.itemSections; if (this.open) sections?.add(this.dataset.catalogItemSection); else sections?.delete(this.dataset.catalogItemSection); }">
+                <summary class="text-sm font-semibold"><span>${label}</span><span class="catalog-chip ml-auto">${escapeHtml(badge)}</span>
+                    <i data-lucide="chevron-down" aria-hidden="true" class="h-4 w-4 shrink-0 catalog-muted"></i></summary>
+                <div class="catalog-item-disclosure-body">${body}</div>
+            </details>`;
         }
 
         function catalogEditorMarkup(view) {
@@ -18432,24 +18454,26 @@
             } else if (kind === 'item') {
                 title = record ? '編輯收件項目' : '建立收件項目';
                 const formatEditable = !record || record.fieldsLocked === false;
-                fields = `${catalogField('收件名稱', input('title', 120, '例如：專刊作品圖文'))}
-                    <div data-catalog-form-settings class="space-y-3">
+                const fieldCount = record?.fieldsLocked ? (record.textFields?.length || 1) : values.textFields.length;
+                const verification = record ? '<p class="text-sm catalog-muted">只有已登記信箱的小組需要驗證。</p>'
+                    : `<label class="flex items-start gap-2 text-sm"><input name="verifyEmail" type="checkbox" ${values.verifyEmail ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span><strong>要求信箱驗證</strong><span class="mt-1 block text-sm font-normal catalog-muted">只有已登記信箱的小組需驗證。</span></span></label>`;
+                fields = `<div class="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                    ${catalogField('收件名稱', input('title', 120, '例如：專刊作品圖文'))}
+                    <div><p class="mb-1.5 text-sm font-semibold">截止時間（台灣）</p><div data-date-time-picker-root data-date-time-picker-native-for="catalog-due-picker">
+                        <input type="hidden" name="dueAt" id="catalog-due-picker" data-date-time-picker-input value="${escapeHtml(values.dueAt)}" onchange="catalogDraftChange(this)">
+                        <button class="catalog-input flex items-center justify-between gap-2 text-sm font-semibold" type="button" aria-label="選擇收件截止時間" aria-haspopup="dialog" aria-expanded="false" data-date-time-picker-trigger onclick="toggleDateTimePicker('catalog-due-picker')"><span data-date-time-picker-label>${formatDateTimePickerLabel(values.dueAt)}</span><i data-lucide="calendar-clock" class="h-4 w-4 shrink-0 text-[#0066CC]"></i></button>
+                    </div></div>
+                    </div>
                     ${formatEditable ? `<fieldset class="min-w-0"><legend class="mb-1.5 text-sm font-semibold">收件格式</legend>
                         <div class="catalog-format-options">${catalogFormats.map(option => `<label class="catalog-format-option text-sm font-semibold">
                             <input id="catalog-format-${option.id}" type="radio" name="format" value="${option.id}" ${values.format === option.id ? 'checked' : ''} onchange="catalogDraftChange(this)"><span>${option.name}</span>
-                        </label>`).join('')}</div><p class="mt-1 text-sm catalog-muted">小組只會看到所選格式需要填寫的欄位。</p></fieldset>`
-                        : `<p class="text-sm catalog-muted">收件格式：${catalogFormatLabel(record.format)}。分配後會保留原有格式和文字欄位。</p>`}
-                    ${catalogTextFieldEditor(values, record, data.textFieldLimits)}
-                    </div>
-                    ${catalogField('繳交規格', `<textarea class="catalog-input" name="requirements" required maxlength="5000" rows="3" placeholder="例如：原圖請打包成 ZIP，檔名加上組別。" oninput="catalogDraftChange(this)">${escapeHtml(values.requirements || '')}</textarea>`)}
-                    <div class="grid items-center gap-3 sm:grid-cols-2">
-                        <div><p class="mb-1.5 text-sm font-semibold">截止時間（台灣）</p><div data-date-time-picker-root data-date-time-picker-native-for="catalog-due-picker">
-                            <input type="hidden" name="dueAt" id="catalog-due-picker" data-date-time-picker-input value="${escapeHtml(values.dueAt)}" onchange="catalogDraftChange(this)">
-                            <button class="catalog-input flex items-center justify-between text-sm font-semibold" type="button" aria-label="選擇收件截止時間" aria-haspopup="dialog" aria-expanded="false" data-date-time-picker-trigger onclick="toggleDateTimePicker('catalog-due-picker')"><span data-date-time-picker-label>${formatDateTimePickerLabel(values.dueAt)}</span><i data-lucide="calendar-clock" class="h-4 w-4 text-[#0066CC]"></i></button>
-                        </div></div>
-                        ${record ? `<p class="text-sm catalog-muted">${record.verifyEmail ? '有登記信箱的小組須驗證' : '持有專屬連結即可上傳'}</p>` : ''}
-                    </div>
-                    ${record ? '' : `<label class="flex items-start gap-2 text-sm"><input name="verifyEmail" type="checkbox" ${values.verifyEmail ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span><strong>要求信箱驗證</strong><br><span class="catalog-muted">只有名冊已有聯絡信箱的小組會收到驗證碼；其他小組以專屬連結繳交。</span></span></label>`}`;
+                        </label>`).join('')}</div></fieldset>`
+                        : `<p class="flex flex-wrap items-center gap-2 text-sm font-semibold">收件格式 <span class="catalog-chip">${catalogFormatLabel(record.format)}</span><span class="text-xs font-normal catalog-muted">已分配，格式固定</span></p>`}
+                    ${catalogField('繳交規格', `<textarea class="catalog-input" name="requirements" required maxlength="5000" rows="2" placeholder="填寫給小組看的繳交說明" oninput="catalogDraftChange(this)">${escapeHtml(values.requirements || '')}</textarea>`)}
+                    ${values.format !== 'file' || !record || record.verifyEmail ? `<div data-catalog-form-settings class="space-y-2">
+                        ${values.format === 'file' ? '' : catalogItemDisclosure(form, 'text', '文字欄位', fieldCount + ' 欄', catalogTextFieldEditor(values, record, data.textFieldLimits))}
+                        ${!record || record.verifyEmail ? catalogItemDisclosure(form, 'verification', '信箱驗證', values.verifyEmail ? '開啟' : '關閉', verification) : ''}
+                    </div>` : ''}`;
             } else if (kind === 'delete-item' || kind === 'restore-item') {
                 const deleting = kind === 'delete-item';
                 title = deleting ? '確認刪除收件項目？' : '確認復原收件項目？';
@@ -18663,6 +18687,7 @@
                     } catch (error) {
                         view.message = error.message;
                         view.warning = true;
+                        form.itemSections.add('text');
                         closeDateTimePicker();
                         drawCatalogWorkspace();
                         document.getElementById(error.fieldId)?.focus();

@@ -738,8 +738,19 @@ test('two separate guest pages complete approval and correction and resume a 50 
     await selectSection('收件項目');
     await admin().getByRole('button', { name: '建立收件項目', exact: true }).click();
     const form = manager.locator('#catalog-editor');
-    await form.getByLabel('收件名稱').fill('專刊圖文測試');
+    const textOptions = form.locator('[data-catalog-item-section="text"]');
+    const verification = form.locator('[data-catalog-item-section="verification"]');
     const textField = index => form.locator('[data-catalog-text-field]').nth(index);
+    const requireEmail = verification.getByRole('checkbox', { includeHidden: true });
+    assert.equal(await textOptions.getAttribute('open'), null);
+    assert.equal(await verification.getAttribute('open'), null);
+    assert.equal(await textField(0).isVisible(), false);
+    assert.equal(await requireEmail.isVisible(), false);
+    if (process.env.CATALOG_ARTIFACT_DIR) {
+      await form.screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-editor-compact.png') });
+    }
+    await form.getByLabel('收件名稱').fill('專刊圖文測試');
+    await textOptions.locator('summary').press('Enter');
     await textField(0).getByLabel('欄位名稱').fill('作品介紹');
     await textField(0).getByLabel('最少字數').fill('3');
     await textField(0).getByLabel('最多字數').fill('16');
@@ -750,24 +761,38 @@ test('two separate guest pages complete approval and correction and resume a 50 
     await form.getByRole('button', { name: /新增文字欄位/ }).click();
     await form.getByRole('button', { name: '移除文字欄位 3' }).click();
     await form.getByText('只收附件', { exact: true }).click();
-    assert.equal(await form.locator('[data-catalog-text-field]').count(), 0);
+    assert.equal(await textOptions.count(), 0);
     await form.getByText('只收文字', { exact: true }).click();
     assert.equal(await textField(0).getByLabel('欄位名稱').inputValue(), '作品介紹');
     await form.getByText('文字與附件', { exact: true }).click();
+    assert.equal(await textField(1).isVisible(), true);
     assert.equal(await form.locator('[data-catalog-text-field]').count(), 2);
+    await textOptions.locator('summary').getByText('2 欄', { exact: true }).waitFor();
+    await verification.locator('summary').click();
+    await requireEmail.check();
+    await verification.locator('summary').getByText('開啟', { exact: true }).waitFor();
+    await verification.locator('summary').click();
+    assert.equal(await requireEmail.isChecked(), true);
+    await verification.locator('summary').click();
+    await requireEmail.uncheck();
+    await verification.locator('summary').getByText('關閉', { exact: true }).waitFor();
+    await verification.locator('summary').click();
     await form.getByLabel('繳交規格').fill('請提供原檔與作品介紹');
     await form.getByRole('button', { name: '選擇收件截止時間' }).click();
     await manager.locator('#date-time-picker-portal').getByRole('button', { name: '23:59' }).click();
     await manager.locator('#date-time-picker-portal').getByRole('button', { name: '完成' }).click();
     if (process.env.CATALOG_ARTIFACT_DIR) {
-      await form.locator('[data-catalog-form-settings]').screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-admin-form.png') });
+      await form.locator('[data-catalog-form-settings]').screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-editor-expanded.png') });
     }
     await manager.setViewportSize({ width: 390, height: 844 });
     assert.equal(await form.evaluate(node => node.scrollWidth <= Math.ceil(node.getBoundingClientRect().width)), true);
     await manager.setViewportSize({ width: 1380, height: 960 });
     await textField(1).getByLabel('最多字數').fill('1');
+    await textOptions.locator('summary').click();
+    assert.equal(await textField(1).isVisible(), false);
     await form.getByRole('button', { name: '儲存', exact: true }).click();
     await admin().getByText(/最多字數不可小於最少字數/).waitFor();
+    assert.equal(await textField(1).getByLabel('最多字數').evaluate(node => document.activeElement === node), true);
     assert.equal(f.data.Catalog_Items.length, 0);
     await textField(1).getByLabel('最多字數').fill('12');
     await form.getByRole('button', { name: '儲存', exact: true }).click();
