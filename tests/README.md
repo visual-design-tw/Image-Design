@@ -9,10 +9,13 @@ node --test tests/catalog-intake.test.cjs
 This suite uses a mocked workbook, mail sender and Drive, with the real Apps
 Script request dispatcher and separate browser sessions for staff and guests.
 It exercises roster creation and batch assignment, link and email-code scope,
+all three intake formats, individual character ranges, legacy sheet headers,
 approval, correction history, private download, legacy access cutover, and a
-50 MiB synthetic upload that resumes after a lost acknowledgement. Nothing is
-sent to the deployed system. Set `CATALOG_ARTIFACT_DIR` to an existing folder
-to capture the desktop board and mobile confirmation.
+50 MiB synthetic upload that resumes after a lost acknowledgement. Guest UI
+coverage includes the desktop and 320px layouts, retry on load failure,
+email verification, long filenames, and draft preservation across steps.
+Nothing is sent to the deployed system. Set `CATALOG_ARTIFACT_DIR` to a folder
+to capture the admin field settings and guest form, overview, and receipt.
 
 ## Notification Center
 

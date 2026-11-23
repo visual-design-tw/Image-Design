@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.23-catalog-roster.1';
+var APP_RELEASE = '2026.11.23-catalog-forms.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -57,6 +57,9 @@ var CATALOG_SIGNING_KEY_PROPERTY = 'CATALOG_LINK_SIGNING_KEY_V1';
 var CATALOG_DAY_MS = 24 * 60 * 60 * 1000;
 var CATALOG_FILE_LIMIT = 100 * 1024 * 1024;
 var CATALOG_DRAFT_TTL = 6 * 60 * 60;
+var CATALOG_TEXT_FIELD_LIMIT = 8;
+var CATALOG_TEXT_TOTAL_LIMIT = 5000;
+var CATALOG_TEXT_LABEL_LIMIT = 60;
 
 var TABLE_SCHEMAS = {
   Config_Stages: {
@@ -80,8 +83,9 @@ var TABLE_SCHEMAS = {
     types: { Revision: 'number', Member_Count: 'number' }
   },
   Catalog_Items: {
-    headers: ['Item_ID', 'Title', 'Requirements', 'Format', 'Due_At', 'Verify_Email', 'Revision', 'Created_At'],
-    types: { Verify_Email: 'boolean', Revision: 'number' }
+    headers: ['Item_ID', 'Title', 'Requirements', 'Format', 'Due_At', 'Verify_Email', 'Revision', 'Created_At', 'Text_Fields', 'Deleted_At'],
+    types: { Verify_Email: 'boolean', Revision: 'number', Text_Fields: 'json' },
+    optionalColumns: 2
   },
   Catalog_Targets: {
     headers: ['Target_ID', 'Item_ID', 'Group_ID', 'Reviewer_ID', 'Link_Key', 'Link_Expires', 'Revision'],
@@ -90,8 +94,9 @@ var TABLE_SCHEMAS = {
   Catalog_Submissions: {
     headers: ['Submission_ID', 'Target_ID', 'Request_ID', 'Link_Key', 'Input_Hash', 'Version', 'Text_Content',
       'File_Name', 'File_Size', 'Drive_File_ID', 'Submitted_At', 'Status', 'Review_Note', 'Reviewed_By',
-      'Reviewed_At', 'Correction_Due_At', 'Mail_Status'],
-    types: { Version: 'number', File_Size: 'number' }
+      'Reviewed_At', 'Correction_Due_At', 'Mail_Status', 'Text_Answers'],
+    types: { Version: 'number', File_Size: 'number', Text_Answers: 'json' },
+    optionalColumns: 1
   },
   Purchase_Items: {
     headers: ['Item_ID', 'Stage_ID', 'Item_Name', 'Vendor_Price', 'Quantity', 'Subtotal', 'Created_At'],
@@ -2081,7 +2086,10 @@ function readFreshStateTables_(config) {
 
 function readFreshWorkspaceTables_(config, names) {
   var ranges = names.map(function(name) {
-    var width = TABLE_SCHEMAS[name].headers.length;
+    var schema = TABLE_SCHEMAS[name];
+    // Older catalog sheets may not yet have room for the appended columns.
+    if (schema.optionalColumns) return 'ranges=' + encodeURIComponent("'" + name + "'");
+    var width = schema.headers.length;
     var column = '';
     while (width > 0) {
       width -= 1;
@@ -2107,7 +2115,12 @@ function readFreshWorkspaceTables_(config, names) {
   names.forEach(function(name, index) {
     var values = result.valueRanges[index].values;
     var headers = values && values[0];
-    if (!Array.isArray(headers) || TABLE_SCHEMAS[name].headers.some(function(header, i) { return headers[i] !== header; })) {
+    var schema = TABLE_SCHEMAS[name];
+    if (!Array.isArray(headers) || schema.headers.some(function(header, i) {
+      if (headers[i] === header) return false;
+      return !(schema.optionalColumns && i >= schema.headers.length - schema.optionalColumns
+        && !headers[i] && values.slice(1).every(function(row) { return row[i] == null || row[i] === ''; }));
+    })) {
       throw new Error('SYNC_NOT_CONFIRMED: 雲端資料欄位需要確認，這次沒有再次刪除。請聯絡管理者。');
     }
     var records = tableValuesToRecords_(name, values);
@@ -5658,7 +5671,12 @@ function ensureSheet_(spreadsheet, sheetName, headers) {
     sheet = spreadsheet.insertSheet(sheetName);
   }
 
-  var currentLastColumn = Math.max(sheet.getLastColumn(), headers.length);
+  var optionalColumns = TABLE_SCHEMAS[sheetName].optionalColumns || 0;
+  if (optionalColumns && sheet.getMaxColumns() < headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
+  }
+  var usedColumns = sheet.getLastColumn();
+  var currentLastColumn = Math.max(usedColumns, headers.length);
   var currentHeaders = currentLastColumn > 0
     ? sheet.getRange(1, 1, 1, currentLastColumn).getValues()[0]
     : [];
@@ -5666,6 +5684,15 @@ function ensureSheet_(spreadsheet, sheetName, headers) {
     return String(currentHeaders[index] || '') !== header;
   });
 
+  if (optionalColumns && shouldRewriteHeader) {
+    var dataRows = Math.max(0, sheet.getLastRow() - 1);
+    for (var i = headers.length - optionalColumns; i < Math.min(usedColumns, headers.length); i++) {
+      if (currentHeaders[i] !== headers[i] && (currentHeaders[i] !== '' ||
+        (dataRows && sheet.getRange(2, i + 1, dataRows, 1).getValues().some(function(row) { return row[0] !== ''; })))) {
+        throw new Error('SYNC_NOT_CONFIRMED: 專刊資料表的新欄位位置已有資料，請聯絡管理者確認。');
+      }
+    }
+  }
   if (shouldRewriteHeader) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
@@ -9845,6 +9872,7 @@ function dispatchCatalogAction_(action, payload) {
     catalogBoard: handleCatalogBoard_,
     catalogSaveGroup: handleCatalogSaveGroup_,
     catalogSaveItem: handleCatalogSaveItem_,
+    catalogSetItemDeleted: handleCatalogSetItemDeleted_,
     catalogAssignReviewer: handleCatalogAssignReviewer_,
     catalogLink: handleCatalogLink_,
     catalogReview: handleCatalogReview_,
@@ -9949,15 +9977,58 @@ function catalogLegacyTeamIdForNumber_(teams, number) {
   return matches.length === 1 ? matches[0].Team_ID : '';
 }
 
-function catalogItemView_(row) {
+function catalogItemTextFields_(row) {
+  if (row.Format === 'file' || row.Text_Fields == null) return [];
+  try {
+    return catalogNormalizeTextFields_(row.Text_Fields, row.Format);
+  } catch (error) {
+    throw new Error('CATALOG_FORM_INVALID: 文字欄位設定有誤，請聯絡形印組。');
+  }
+}
+
+function catalogNormalizeTextFields_(fields, format) {
+  if (format === 'file') {
+    if (Array.isArray(fields) && !fields.length) return [];
+    throw new Error('只有附件的收件項目不需要文字欄位。');
+  }
+  if (!Array.isArray(fields) || !fields.length || fields.length > CATALOG_TEXT_FIELD_LIMIT) {
+    throw new Error('請設定 1 至 ' + CATALOG_TEXT_FIELD_LIMIT + ' 個文字欄位。');
+  }
+  var usedNames = new Set();
+  var total = 0;
+  var normalized = fields.map(function(field, index) {
+    var label = field && typeof field.label === 'string' ? field.label.trim() : '';
+    if (!label || label.length > CATALOG_TEXT_LABEL_LIMIT || /[\x00-\x1f\x7f]/.test(label)) {
+      throw new Error('請填寫第 ' + (index + 1) + ' 個文字欄位的名稱，最多 ' + CATALOG_TEXT_LABEL_LIMIT + ' 字。');
+    }
+    var normalizedName = label.normalize('NFKC').toLowerCase();
+    if (usedNames.has(normalizedName)) throw new Error('文字欄位名稱不可重複：' + label);
+    usedNames.add(normalizedName);
+    var minChars = field.minChars;
+    var maxChars = field.maxChars;
+    if (!Number.isSafeInteger(minChars) || !Number.isSafeInteger(maxChars)
+      || minChars < 1 || maxChars < minChars || maxChars > CATALOG_TEXT_TOTAL_LIMIT) {
+      throw new Error('「' + label + '」請設定有效的最少與最多字數（1 至 ' + CATALOG_TEXT_TOTAL_LIMIT + ' 字）。');
+    }
+    total += maxChars;
+    return { id: 'text-' + (index + 1), label: label, minChars: minChars, maxChars: maxChars };
+  });
+  if (total > CATALOG_TEXT_TOTAL_LIMIT) throw new Error('各欄位的最多字數加總不得超過 ' + CATALOG_TEXT_TOTAL_LIMIT + ' 字。');
+  return normalized;
+}
+
+function catalogItemView_(row, fieldsLocked) {
   return { id: row.Item_ID, title: row.Title, requirements: row.Requirements, format: row.Format,
-    dueAt: row.Due_At, verifyEmail: row.Verify_Email === true, revision: row.Revision };
+    dueAt: row.Due_At, verifyEmail: row.Verify_Email === true, revision: row.Revision,
+    textFields: catalogItemTextFields_(row), fieldsLocked: fieldsLocked === true };
 }
 
 function catalogSubmissionView_(row, users) {
   var reviewer = catalogFind_(users, 'User_ID', row.Reviewed_By);
+  var answers = ensureArray_(row.Text_Answers);
   return {
-    id: row.Submission_ID, version: row.Version, status: row.Status, text: row.Text_Content,
+    id: row.Submission_ID, version: row.Version, status: row.Status, textAnswers: answers,
+    text: answers.length ? answers.map(function(answer) { return answer.label + '\n' + answer.value; }).join('\n\n') : row.Text_Content,
     fileName: row.File_Name, fileSize: row.File_Size, fileId: row.Drive_File_ID, submittedAt: row.Submitted_At,
     note: row.Review_Note, reviewedAt: row.Reviewed_At, reviewerName: reviewer ? reviewer.Name : '',
     correctionDueAt: row.Correction_Due_At, mailStatus: row.Mail_Status
@@ -9976,7 +10047,7 @@ function catalogTargetView_(target, group, item, submissions, users, actor) {
   var activeLink = Boolean(target.Link_Key && Number(target.Link_Expires) > Date.now());
   var latest = submissions[0];
   return {
-    id: target.Target_ID, group: catalogGroupView_(group), item: catalogItemView_(item),
+    id: target.Target_ID, group: catalogGroupView_(group), item: catalogItemView_(item, true),
     revision: target.Revision, reviewerId: target.Reviewer_ID, reviewerName: reviewer ? reviewer.Name : '',
     reviewerAvailable: eligible, assignedToMe: assigned,
     canShare: eligible && (assigned || actor.Role === 'SuperAdmin'),
@@ -9992,7 +10063,8 @@ function handleCatalogBoard_(payload) {
   var manager = auth.actor.Role === 'SuperAdmin';
   var tables = readCatalogBoardData_(manager);
   var groups = tables.Catalog_Roster;
-  var items = tables.Catalog_Items;
+  var items = tables.Catalog_Items.filter(function(item) { return !item.Deleted_At; });
+  var assignedItems = new Set(tables.Catalog_Targets.map(function(target) { return target.Item_ID; }));
   var submissionsByTarget = Object.create(null);
   tables.Catalog_Submissions.forEach(function(row) {
     (submissionsByTarget[row.Target_ID] || (submissionsByTarget[row.Target_ID] = [])).push(row);
@@ -10010,7 +10082,11 @@ function handleCatalogBoard_(payload) {
     manager: manager,
     rows: rows,
     groups: manager ? groups.map(catalogGroupView_) : [],
-    items: manager ? items.map(catalogItemView_) : [],
+    items: manager ? items.map(function(item) { return catalogItemView_(item, assignedItems.has(item.Item_ID)); }) : [],
+    deletedItems: manager ? tables.Catalog_Items.filter(function(item) { return item.Deleted_At; })
+      .map(function(item) { return { id: item.Item_ID, title: item.Title, revision: item.Revision, deletedAt: item.Deleted_At }; })
+      .sort(function(a, b) { return b.deletedAt.localeCompare(a.deletedAt); }) : [],
+    textFieldLimits: manager ? { fields: CATALOG_TEXT_FIELD_LIMIT, totalChars: CATALOG_TEXT_TOTAL_LIMIT, labelChars: CATALOG_TEXT_LABEL_LIMIT } : null,
     reviewers: manager ? auth.users.filter(function(user) {
       return isShapePrintUser_(user) && user.Status === 'Active';
     }).map(function(user) { return { id: user.User_ID, name: user.Name, legacyTeamId: user.Team_ID }; }) : [],
@@ -10071,28 +10147,63 @@ function handleCatalogSaveGroup_(payload) {
 
 function handleCatalogSaveItem_(payload) {
   requireCatalogStaff_(payload, true);
-  var items = readCatalogTables_(['Catalog_Items'], true).Catalog_Items;
+  var tables = readCatalogTables_(['Catalog_Items', 'Catalog_Targets'], true);
+  var items = tables.Catalog_Items;
   var id = String(payload.itemId || '') || 'PCI_' + catalogRequestId_(payload);
   var existing = catalogFind_(items, 'Item_ID', id);
   if (payload.itemId && !existing) throw new Error('找不到這個收件項目，請重新載入。');
+  if (existing && existing.Deleted_At) throw new Error('CATALOG_CHANGED: 此項目已刪除，請先復原。');
   var title = String(payload.title || '').trim();
   var requirements = String(payload.requirements || '').trim();
   var due = catalogDueAt_(payload.dueAt);
-  var format = existing ? existing.Format : String(payload.format || '');
+  var format = payload.format === undefined && existing ? existing.Format : String(payload.format || '');
   if (!title || title.length > 120 || !requirements || requirements.length > 5000) throw new Error('請填寫收件名稱與繳交規格。');
   if (['text', 'file', 'both'].indexOf(format) === -1) throw new Error('請選擇收件格式。');
+  var currentFields = existing ? catalogItemTextFields_(existing) : [];
+  // Older clients can continue creating single-text items without sending a field schema.
+  var textFields = payload.textFields === undefined ? (format === 'file' ? [] : currentFields)
+    : catalogNormalizeTextFields_(payload.textFields, format);
+  var fieldsLocked = tables.Catalog_Targets.some(function(target) { return target.Item_ID === id; });
+  var configChanged = existing && (existing.Format !== format || JSON.stringify(currentFields) !== JSON.stringify(textFields));
+  if (fieldsLocked && configChanged) {
+    throw new Error('CATALOG_CHANGED: 此項目已分配給小組，不能更改收件格式或文字欄位。');
+  }
   if ((!existing || existing.Due_At !== due) && (Date.parse(due) <= Date.now() || Date.parse(due) > Date.now() + 366 * CATALOG_DAY_MS)) {
     throw new Error('截止時間須晚於現在，且在一年以內。');
   }
   var next = { Item_ID: id, Title: title, Requirements: requirements, Format: format, Due_At: due,
     Verify_Email: existing ? existing.Verify_Email : payload.verifyEmail !== false,
-    Revision: existing ? existing.Revision + 1 : 1, Created_At: existing ? existing.Created_At : new Date().toISOString() };
-  if (existing && ['Title', 'Requirements', 'Due_At'].every(function(key) { return existing[key] === next[key]; })) {
-    return { item: catalogItemView_(existing) };
+    Revision: existing ? existing.Revision + 1 : 1, Created_At: existing ? existing.Created_At : new Date().toISOString(),
+    Text_Fields: textFields.length ? textFields : null };
+  if (existing && !configChanged && ['Title', 'Requirements', 'Due_At'].every(function(key) { return existing[key] === next[key]; })) {
+    return { item: catalogItemView_(existing, fieldsLocked) };
   }
   catalogAssertRevision_(existing, payload.revision);
   writeCatalogTables_({ Catalog_Items: existing ? items.map(function(item) { return item.Item_ID === id ? next : item; }) : items.concat([next]) });
-  return { item: catalogItemView_(next) };
+  return { item: catalogItemView_(next, fieldsLocked) };
+}
+
+function handleCatalogSetItemDeleted_(payload) {
+  requireCatalogStaff_(payload, true);
+  if (payload.confirm !== true || typeof payload.deleted !== 'boolean') throw new Error('請先確認刪除或復原。');
+  var tables = readCatalogTables_(['Catalog_Items', 'Catalog_Targets'], true);
+  var item = catalogFind_(tables.Catalog_Items, 'Item_ID', payload.itemId);
+  if (!item) throw new Error('CATALOG_CHANGED: 找不到這個收件項目，請重新載入。');
+  if (Boolean(item.Deleted_At) === payload.deleted) return { itemId: item.Item_ID, deleted: payload.deleted };
+
+  catalogAssertRevision_(item, payload.revision);
+  item.Deleted_At = payload.deleted ? new Date().toISOString() : '';
+  item.Revision += 1;
+  var writes = { Catalog_Items: tables.Catalog_Items };
+  if (payload.deleted) {
+    tables.Catalog_Targets.forEach(function(target) {
+      if (target.Item_ID !== item.Item_ID || (!target.Link_Key && !target.Link_Expires)) return;
+      Object.assign(target, { Link_Key: '', Link_Expires: 0, Revision: target.Revision + 1 });
+      writes.Catalog_Targets = tables.Catalog_Targets;
+    });
+  }
+  writeCatalogTables_(writes);
+  return { itemId: item.Item_ID, deleted: payload.deleted };
 }
 
 function handleCatalogAssignReviewer_(payload) {
@@ -10102,10 +10213,10 @@ function handleCatalogAssignReviewer_(payload) {
   var reviewer = catalogFind_(auth.users, 'User_ID', payload.reviewerId);
   if (!isShapePrintUser_(reviewer) || reviewer.Status !== 'Active') throw new Error('請選擇可使用的形印組帳號。');
   if (payload.targetId) {
-    var target = catalogFind_(targets, 'Target_ID', payload.targetId);
-    var group = target && catalogFind_(tables.Catalog_Roster, 'Group_ID', target.Group_ID);
-    if (!group) throw new Error('找不到這筆收件分配。');
-    if (!catalogIsEligibleReviewer_(reviewer, group)) throw new Error('不可將自己的畢製小組交由自己審核。');
+    var context = catalogTargetContext_(tables, payload.targetId);
+    if (!context) throw new Error('找不到這筆收件分配。');
+    var target = context.target;
+    if (!catalogIsEligibleReviewer_(reviewer, context.group)) throw new Error('不可將自己的畢製小組交由自己審核。');
     if (target.Reviewer_ID === reviewer.User_ID) return { assignedCount: 1 };
     catalogAssertRevision_(target, payload.revision);
     target.Reviewer_ID = reviewer.User_ID;
@@ -10115,7 +10226,7 @@ function handleCatalogAssignReviewer_(payload) {
   }
   var item = catalogFind_(tables.Catalog_Items, 'Item_ID', payload.itemId);
   var ids = ensureArray_(payload.groupIds).map(String);
-  if (!item || !ids.length || ids.length > 100 || new Set(ids).size !== ids.length) throw new Error('請選擇收件項目與要分配的小組。');
+  if (!item || item.Deleted_At || !ids.length || ids.length > 100 || new Set(ids).size !== ids.length) throw new Error('請選擇收件項目與要分配的小組。');
   ids.forEach(function(groupId) {
     var group = catalogFind_(tables.Catalog_Roster, 'Group_ID', groupId);
     if (!group) throw new Error('有小組已不存在，請重新載入名冊。');
@@ -10170,7 +10281,7 @@ function catalogTargetContext_(tables, targetId) {
   var target = catalogFind_(tables.Catalog_Targets, 'Target_ID', targetId);
   var group = target && catalogFind_(tables.Catalog_Roster, 'Group_ID', target.Group_ID);
   var item = target && catalogFind_(tables.Catalog_Items, 'Item_ID', target.Item_ID);
-  return group && item ? { target: target, group: group, item: item,
+  return group && item && !item.Deleted_At ? { target: target, group: group, item: item,
     versions: catalogLatest_(tables.Catalog_Submissions || [], targetId) } : null;
 }
 
@@ -10388,6 +10499,7 @@ function catalogGuestView_(context, verified) {
     members: [context.group.Leader_Name, context.group.Member_Name].map(function(name) { return String(name || '').trim(); }).filter(Boolean),
     requirements: context.item.Requirements,
     format: context.item.Format,
+    textFields: catalogItemTextFields_(context.item),
     dueAt: window.dueAt,
     canSubmit: window.canSubmit,
     maxFileBytes: CATALOG_FILE_LIMIT,
@@ -10463,11 +10575,37 @@ function catalogMIMEType_(name) {
 function catalogGuestInputs_(context, payload) {
   var format = context.item.Format;
   var text = String(payload.text || '').trim();
+  var fields = catalogItemTextFields_(context.item);
+  var answers = payload.textAnswers;
+  var textAnswers = null;
   var fileName = String(payload.fileName || '').trim();
   var fileSize = payload.fileSize === undefined ? 0 : payload.fileSize;
-  if (['text', 'file', 'both'].indexOf(format) < 0
-    || (format === 'file' && text) || (format !== 'file' && (!text || text.length > 5000))) {
-    throw new Error('CATALOG_INPUT_INVALID: 請依指定格式填寫內容，文字最多 5000 字。');
+  if (fields.length) {
+    if (answers === undefined) {
+      throw new Error('CATALOG_FORM_UPDATED: 此項目已使用新版文字欄位，請重新整理後再填寫。');
+    }
+    if (text || !Array.isArray(answers) || answers.length !== fields.length) {
+      throw new Error('CATALOG_INPUT_INVALID: 請依表單填寫所有文字欄位。');
+    }
+    var values = new Map();
+    answers.forEach(function(answer) {
+      if (!answer || typeof answer.id !== 'string' || typeof answer.value !== 'string' || values.has(answer.id)) {
+        throw new Error('CATALOG_INPUT_INVALID: 文字欄位不完整，請重新確認。');
+      }
+      values.set(answer.id, answer.value.replace(/\r\n?/g, '\n').trim());
+    });
+    textAnswers = fields.map(function(field) {
+      if (!values.has(field.id)) throw new Error('CATALOG_INPUT_INVALID: 缺少「' + field.label + '」。');
+      var value = values.get(field.id);
+      var count = Array.from(value).length;
+      if (count < field.minChars || count > field.maxChars) {
+        throw new Error('CATALOG_INPUT_INVALID: 「' + field.label + '」須填寫 ' + field.minChars + ' 至 ' + field.maxChars + ' 字（目前 ' + count + ' 字）。');
+      }
+      return { id: field.id, label: field.label, value: value };
+    });
+  } else if (answers !== undefined || ['text', 'file', 'both'].indexOf(format) < 0
+    || (format === 'file' && text) || (format !== 'file' && (!text || text.length > CATALOG_TEXT_TOTAL_LIMIT))) {
+    throw new Error('CATALOG_INPUT_INVALID: 請依指定格式填寫內容，文字最多 ' + CATALOG_TEXT_TOTAL_LIMIT + ' 字。');
   }
   if (format !== 'text') {
     if (!fileName || fileName.length > 180 || /[\x00-\x1f\x7f]/.test(fileName) ||
@@ -10479,7 +10617,9 @@ function catalogGuestInputs_(context, payload) {
   } else if (fileName || fileSize) {
     throw new Error('CATALOG_INPUT_INVALID: 此項目只收文字，不需上傳附件。');
   }
-  return { text: text, fileName: fileName, fileSize: fileSize };
+  var inputs = { text: text, fileName: fileName, fileSize: fileSize };
+  if (textAnswers) inputs.textAnswers = textAnswers;
+  return inputs;
 }
 
 function catalogUploadKey_(identity, requestId) {
@@ -10517,7 +10657,7 @@ function commitCatalogGuestSubmission_(context, identity, draft) {
     Link_Key: identity.linkKey, Input_Hash: draft.inputHash, Version: draft.expectedVersion + 1, Text_Content: draft.text,
     File_Name: draft.fileName, File_Size: draft.fileSize, Drive_File_ID: draft.driveFileId || '',
     Submitted_At: new Date().toISOString(), Status: 'pending', Review_Note: '', Reviewed_By: '',
-    Reviewed_At: '', Correction_Due_At: '', Mail_Status: ''
+    Reviewed_At: '', Correction_Due_At: '', Mail_Status: '', Text_Answers: draft.textAnswers || null
   };
   if (draft.fileSize && !submission.Drive_File_ID) throw new Error('CATALOG_UPLOAD_RETRY: 附件尚未確認，請重試。');
   writeCatalogTables_({ Catalog_Submissions: context.tables.Catalog_Submissions.concat([submission]) });

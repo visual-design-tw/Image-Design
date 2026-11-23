@@ -16,6 +16,21 @@ const requestId = () => crypto.randomBytes(16).toString('hex');
 const MiB = 1024 * 1024;
 const day = 86400000;
 const taipeiDue = time => new Date(time + 8 * 3600000).toISOString().slice(0, 16);
+const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+async function startCatalogServer() {
+  const files = { '/': 'index.html', '/catalog-upload.html': 'catalog-upload.html',
+    '/catalog-upload.js': 'catalog-upload.js', '/catalog-upload.css': 'catalog-upload.css' };
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+  const server = http.createServer((req, res) => {
+    const file = files[req.url.split('?')[0]];
+    if (!file) { res.writeHead(404).end(); return; }
+    res.setHeader('Content-Type', types[path.extname(file)] + '; charset=utf-8');
+    res.end(fs.readFileSync(path.join(root, file)));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return { server, url: 'http://127.0.0.1:' + server.address().port };
+}
 
 function fakeWorkspace() {
   const seed = fixture();
@@ -148,8 +163,8 @@ function fakeWorkspace() {
   const addGroup = (number, legacyTeamId = '') => staff('catalogSaveGroup', { requestId: requestId(), number,
     project: '專刊作品 ' + number, advisor: '測試老師', email: 'group' + number + '@example.invalid',
     memberCount: '2', leaderName: '組長' + number, memberName: '組員' + number, legacyTeamId }).group;
-  const addItem = (format = 'text', verifyEmail = false, due = result.clock + day) => staff('catalogSaveItem', { requestId: requestId(),
-    title: '專刊圖文', requirements: '請依照規格繳交。', format, verifyEmail, dueAt: taipeiDue(due) }).item;
+  const addItem = (format = 'text', verifyEmail = false, due = result.clock + day, textFields) => staff('catalogSaveItem', { requestId: requestId(),
+    title: '專刊圖文', requirements: '請依照規格繳交。', format, verifyEmail, dueAt: taipeiDue(due), textFields }).item;
   const assign = (item, group, reviewerId = 'U05') => {
     staff('catalogAssignReviewer', { itemId: item.id, groupIds: [group.id], reviewerId });
     return staff('catalogBoard').rows.find(row => row.item.id === item.id && row.group.id === group.id);
@@ -343,6 +358,308 @@ test('private files are not accepted via forged IDs, and revocation is checked a
   assert.equal(f.data.Catalog_Submissions.length, 0);
 });
 
+test('older catalog tables can be read without the new trailing columns', () => {
+  const { c } = fakeWorkspace();
+  const names = ['Catalog_Items', 'Catalog_Submissions'];
+  const itemHeader = Array.from(c.TABLE_SCHEMAS.Catalog_Items.headers).slice(0, -2);
+  const submissionHeader = Array.from(c.TABLE_SCHEMAS.Catalog_Submissions.headers).slice(0, -1);
+  const values = [
+    { values: [itemHeader, ['old-item', '舊項目', '原有規格', 'text', '', false, 1, '']] },
+    { values: [submissionHeader, ['old-submission', 'old-target', '', '', '', 1, '原有文字']] }
+  ];
+  c.UrlFetchApp.fetch = url => {
+    assert.deepEqual(new URL(url).searchParams.getAll('ranges'), ["'Catalog_Items'", "'Catalog_Submissions'"]);
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ valueRanges: values }) };
+  };
+  const tables = c.readFreshWorkspaceTables_(c.getConfig_(), names);
+  assert.equal(tables.Catalog_Items[0].Text_Fields, null);
+  assert.equal(tables.Catalog_Items[0].Deleted_At, '');
+  assert.equal(tables.Catalog_Submissions[0].Text_Content, '原有文字');
+  assert.equal(tables.Catalog_Submissions[0].Text_Answers, null);
+  values[0].values[1][itemHeader.length] = 'unexpected data without a header';
+  assert.throws(() => c.readFreshWorkspaceTables_(c.getConfig_(), names), /SYNC_NOT_CONFIRMED/);
+  itemHeader.push('Text_Fields');
+  values[0].values[1][8] = JSON.stringify([{ label: '作品介紹' }]);
+  assert.equal(c.readFreshWorkspaceTables_(c.getConfig_(), names).Catalog_Items[0].Text_Fields[0].label, '作品介紹');
+});
+
+test('deleting and restoring an item preserves submissions, scopes links and enforces permissions and revisions', () => {
+  const f = fakeWorkspace(), a = f.addTarget('17'), b = f.addTarget('18');
+  f.call('catalogGuestBegin', { linkToken: a.linkToken, requestId: requestId(), expectedVersion: 0, text: '已提交的說明' });
+  const before = clone(f.data.Catalog_Submissions);
+  const edit = { itemId: a.item.id, revision: a.item.revision, deleted: true, confirm: true };
+  assert.throws(() => f.staff('catalogSetItemDeleted', edit, 'U05'), /FORBIDDEN/);
+  assert.throws(() => f.staff('catalogSetItemDeleted', { ...edit, confirm: false }), /確認/);
+  assert.throws(() => f.staff('catalogSetItemDeleted', { ...edit, revision: 0 }), /CATALOG_CHANGED/);
+  f.writeFailure = 'after';
+  assert.throws(() => f.staff('catalogSetItemDeleted', edit), /TEST_RESPONSE_LOST/);
+  const writes = f.cloudWrites;
+  assert.equal(f.staff('catalogSetItemDeleted', edit).deleted, true);
+  assert.equal(f.cloudWrites, writes);
+  assert.deepEqual(f.data.Catalog_Submissions, before);
+  assert.equal(f.data.Catalog_Targets.length, 2);
+  assert.equal(f.mail.length, 0);
+  const board = f.staff('catalogBoard');
+  assert.deepEqual(board.items.map(item => item.id), [b.item.id]);
+  assert.deepEqual(board.rows.map(row => row.id), [b.target.id]);
+  assert.deepEqual(f.staff('catalogBoard', {}, 'U05').deletedItems, []);
+  assert.throws(() => f.call('catalogGuestDescribe', a), /CATALOG_LINK_INVALID/);
+  assert.equal(f.call('catalogGuestDescribe', b).verified, true);
+  assert.throws(() => f.staff('catalogLink', { targetId: a.target.id, operation: 'copy' }, 'U05'), /FORBIDDEN/);
+  assert.throws(() => f.staff('catalogAssignReviewer', { targetId: a.target.id, reviewerId: 'U05' }), /找不到/);
+  assert.throws(() => f.staff('catalogSaveItem', { itemId: a.item.id }), /已刪除/);
+  const restore = { ...edit, revision: board.deletedItems[0].revision, deleted: false };
+  assert.equal(f.staff('catalogSetItemDeleted', restore).deleted, false);
+  assert.throws(() => f.staff('catalogSetItemDeleted', edit), /CATALOG_CHANGED/);
+  const row = f.staff('catalogBoard').rows.find(entry => entry.id === a.target.id);
+  assert.equal(row.item.dueAt, a.item.dueAt);
+  assert.equal(row.linkStatus, 'inactive');
+  assert.equal(row.versions[0].text, '已提交的說明');
+  assert.notEqual(f.share(row), a.linkToken);
+  assert.throws(() => f.call('catalogGuestDescribe', a), /CATALOG_LINK_INVALID/);
+});
+
+test('deletion during transfer prevents the last chunk from creating a submission', () => {
+  const f = fakeWorkspace(), a = f.addTarget('17', 'file');
+  const begin = { linkToken: a.linkToken, requestId: requestId(), expectedVersion: 0, fileName: 'sample.zip', fileSize: 2 };
+  f.call('catalogGuestBegin', begin);
+  f.onChunk = () => f.staff('catalogSetItemDeleted', { itemId: a.item.id, revision: a.item.revision, deleted: true, confirm: true });
+  assert.throws(() => f.call('catalogGuestChunk', { ...begin, start: 0, end: 1, base64: 'QUI=' }), /CATALOG_LINK_INVALID/);
+  assert.equal(f.data.Catalog_Submissions.length, 0);
+});
+
+test('managers can configure the format before assignment and cannot change the requirements mid-submission', () => {
+  const f = fakeWorkspace();
+  const rules = [{ label: '作品介紹', minChars: 3, maxChars: 10 }, { label: '設計理念', minChars: 2, maxChars: 20 }];
+  const add = (fields, format = 'text') => f.addItem(format, false, f.clock + day, fields);
+  assert.throws(() => add([], 'both'), /1 至 8/);
+  assert.throws(() => add(rules, 'file'), /不需要文字/);
+  assert.throws(() => add([{ ...rules[0], minChars: 11 }]), /最少與最多字數/);
+  assert.throws(() => add([{ ...rules[0], minChars: 2.5 }]), /最少與最多字數/);
+  assert.throws(() => add([rules[0], { ...rules[1], label: ' 作品介紹 ' }]), /不可重複/);
+  assert.throws(() => add([{ ...rules[0], maxChars: 4990 }, rules[1]]), /加總/);
+  assert.equal(f.data.Catalog_Items.length, 0);
+  const initial = add([], 'file');
+  const update = (item, format, textFields) => f.staff('catalogSaveItem', {
+    ...item, itemId: item.id, dueAt: taipeiDue(Date.parse(item.dueAt)), format, textFields
+  }).item;
+  const item = update(initial, 'both', rules);
+  assert.equal(item.fieldsLocked, false);
+  assert.deepEqual(item.textFields, rules.map((rule, index) => ({ id: 'text-' + (index + 1), ...rule })));
+  f.assign(item, f.addGroup('21'));
+  const locked = f.staff('catalogBoard').items.find(row => row.id === item.id);
+  assert.equal(locked.fieldsLocked, true);
+  assert.throws(() => update(locked, 'file', []), /不能更改/);
+  assert.throws(() => update(locked, 'both', [rules[1]]), /不能更改/);
+  const renamed = update({ ...locked, title: '修正標題' }, 'both', undefined);
+  assert.equal(renamed.title, '修正標題');
+  assert.deepEqual(renamed.textFields, item.textFields);
+});
+
+test('structured answers enforce each range and keep labels and values in each reviewed version', () => {
+  const f = fakeWorkspace();
+  const rules = [{ label: '作品介紹', minChars: 3, maxChars: 4 }, { label: '設計理念', minChars: 2, maxChars: 3 }];
+  const item = f.addItem('text', false, f.clock + day, rules);
+  const target = f.assign(item, f.addGroup('21'));
+  const linkToken = f.share(target);
+  const form = f.call('catalogGuestDescribe', { linkToken });
+  assert.deepEqual(form.textFields, item.textFields);
+  const answers = [{ id: 'text-1', value: ' 甲乙😀 ' }, { id: 'text-2', value: '丙丁戊', label: '不可竄改名稱' }];
+  const begin = { linkToken, requestId: requestId(), expectedVersion: 0, textAnswers: answers };
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, textAnswers: undefined, text: '舊版送出' }), /CATALOG_FORM_UPDATED/);
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, textAnswers: [answers[0]] }), /INPUT_INVALID/);
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, textAnswers: [answers[0], answers[0]] }), /INPUT_INVALID/);
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, textAnswers: [answers[0], { ...answers[1], id: 'unknown' }] }), /缺少「設計理念」/);
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, textAnswers: [{ ...answers[0], value: ' 甲乙 ' }, answers[1]] }), /作品介紹.*目前 2 字/);
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, textAnswers: [answers[0], { ...answers[1], value: '甲乙丙丁' }] }), /設計理念.*目前 4 字/);
+  assert.throws(() => f.call('catalogGuestBegin', { ...begin, fileName: 'sample.zip', fileSize: 3 }), /只收文字/);
+  assert.equal(f.data.Catalog_Submissions.length, 0);
+  f.writeFailure = 'after';
+  assert.throws(() => f.call('catalogGuestBegin', begin), /CATALOG_UNAVAILABLE/);
+  assert.equal(f.call('catalogGuestBegin', { ...begin, textAnswers: answers.slice().reverse() }).receipt.version, 1);
+  const row = f.staff('catalogBoard', {}, 'U05').rows.find(entry => entry.id === target.id);
+  assert.deepEqual(row.versions[0].textAnswers, [
+    { id: 'text-1', label: '作品介紹', value: '甲乙😀' }, { id: 'text-2', label: '設計理念', value: '丙丁戊' }
+  ]);
+  assert.doesNotMatch(JSON.stringify(f.call('catalogGuestDescribe', { linkToken }).latest), /甲乙|丙丁/);
+  f.staff('catalogReview', { targetId: target.id, submissionId: row.versions[0].id, decision: 'returned', note: '請修改作品介紹' }, 'U05');
+  assert.equal(f.call('catalogGuestBegin', { ...begin, requestId: requestId(), expectedVersion: 1,
+    textAnswers: [{ ...answers[0], value: '修正完整' }, answers[1]] }).receipt.version, 2);
+  assert.deepEqual(f.data.Catalog_Submissions.map(entry => entry.Text_Answers[0].value), ['甲乙😀', '修正完整']);
+});
+
+test('guest layout separates guidance from the draft and keeps details behind verification', { timeout: 60000 }, async () => {
+  const f = fakeWorkspace();
+  const group = f.staff('catalogSaveGroup', { requestId: requestId(), number: '17', advisor: '示範老師',
+    memberCount: 2, leaderName: '示範組長', memberName: '示範組員' }).group;
+  const requirements = '請上傳作品原檔，並填寫 150 字以內的作品介紹。\n\n檔案命名：組別_作品名稱.zip\n如有多張圖片，請和原檔一起打包。';
+  const item = f.staff('catalogSaveItem', { requestId: requestId(), title: '專刊作品圖文', requirements, format: 'both',
+    verifyEmail: false, dueAt: taipeiDue(f.clock + 7 * day) }).item;
+  const linkToken = f.share(f.assign(item, group));
+  const legacy = f.addTarget('18', 'text', true);
+  const fileOnly = f.addTarget('19', 'file', false);
+  const textOnly = f.addItem('text', false, f.clock + day, [{ label: '作品介紹', minChars: 2, maxChars: 80 }]);
+  const textOnlyLink = f.share(f.assign(textOnly, fileOnly.group));
+  const { server, url } = await startCatalogServer();
+  let browser;
+  const errors = [];
+  let describeFails = false;
+  let calls = 0;
+  try {
+    browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    async function guest(viewport) {
+      const page = await browser.newPage({ viewport, timezoneId: 'Asia/Taipei', reducedMotion: 'reduce' });
+      page.setDefaultTimeout(8000);
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route(/https:\/\/script\.(google|googleusercontent)\.com\//, route => {
+        const payload = JSON.parse(route.request().postData());
+        assert.match(payload.action, /^catalogGuest/);
+        calls++;
+        if (describeFails && payload.action === 'catalogGuestDescribe') {
+          describeFails = false;
+          return route.abort('failed');
+        }
+        return route.fulfill({ contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+          body: JSON.stringify(f.dispatch(payload)) });
+      });
+      return page;
+    }
+    async function assertActiveStep(page, name) {
+      const steps = page.locator('#intake-steps');
+      assert.equal(await steps.locator('[aria-current="step"]').count(), 1);
+      assert.equal(await steps.locator('[aria-current="step"]').getAttribute('data-step'), name);
+      const aligned = await steps.evaluate(rail => {
+        const capsule = getComputedStyle(rail, '::before');
+        const track = rail.getBoundingClientRect();
+        const active = rail.querySelector('[aria-current="step"]').getBoundingClientRect();
+        const offset = new DOMMatrixReadOnly(capsule.transform).m41;
+        const left = track.left + rail.clientLeft + parseFloat(capsule.left) + offset;
+        return Math.abs(active.left - left) <= 1 && Math.abs(active.width - parseFloat(capsule.width)) <= 1;
+      });
+      assert.ok(aligned, 'one capsule fits entirely within the active segment');
+    }
+    const entry = url + '/catalog-upload.html';
+    const desktop = await guest({ width: 1280, height: 800 });
+    await desktop.goto(entry + '#' + linkToken);
+    await desktop.getByRole('heading', { name: '專刊作品圖文', exact: true }).waitFor();
+    await desktop.locator('#requirements').waitFor();
+    assert.equal(await desktop.locator('#format-label').textContent(), '檔案與文字');
+    assert.ok(await desktop.locator('#due-label').getAttribute('datetime'));
+    const brief = await desktop.locator('.brief').boundingBox();
+    const workbench = await desktop.locator('.workbench').boundingBox();
+    const identity = await desktop.locator('.brief-content').boundingBox();
+    const facts = await desktop.locator('#brief-facts').boundingBox();
+    assert.ok(workbench.y >= brief.y + brief.height && workbench.x === brief.x && workbench.width === brief.width,
+      'desktop uses aligned summary and workflow cards');
+    assert.ok(facts.x > identity.x + identity.width, 'desktop shows deadline and format next to the title');
+    assert.equal(await desktop.locator('body').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(245, 245, 247)');
+    await assertActiveStep(desktop, 'overview');
+    assert.equal(await desktop.locator('#intake-text').isVisible(), false);
+    if (process.env.CATALOG_ARTIFACT_DIR) {
+      await desktop.screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-guest-desktop.png'), fullPage: true });
+    }
+    await desktop.emulateMedia({ reducedMotion: 'no-preference' });
+    await desktop.getByRole('button', { name: '開始填寫' }).click();
+    await desktop.locator('#intake-steps').evaluate(async rail => {
+      await Promise.all(rail.getAnimations({ subtree: true }).map(animation => animation.finished));
+    });
+    await assertActiveStep(desktop, 'edit');
+    if (process.env.CATALOG_ARTIFACT_DIR) {
+      await desktop.screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-guest-writing.png'),
+        fullPage: true, animations: 'disabled' });
+    }
+
+    const phone = await guest({ width: 320, height: 760 });
+    const assertNoOverflow = async () => assert.ok(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    const before = calls;
+    await phone.goto(entry);
+    await phone.getByRole('heading', { name: '無法開啟上傳頁' }).waitFor();
+    assert.equal(calls, before);
+    assert.equal(await phone.locator('#brief-facts, #intake-steps').filter({ visible: true }).count(), 0);
+    assert.equal(await phone.locator('#retry-load').isVisible(), false);
+
+    describeFails = true;
+    await phone.goto(entry + '?case=retry#' + linkToken);
+    await phone.getByRole('button', { name: '重新檢查' }).click();
+    await phone.getByRole('heading', { name: '這次要交什麼？' }).waitFor();
+    const mobileBrief = await phone.locator('.brief').boundingBox();
+    const mobileWorkbench = await phone.locator('.workbench').boundingBox();
+    const mobileIdentity = await phone.locator('.brief-content').boundingBox();
+    const mobileFacts = await phone.locator('#brief-facts').boundingBox();
+    assert.ok(mobileWorkbench.y >= mobileBrief.y + mobileBrief.height && mobileFacts.y > mobileIdentity.y + mobileIdentity.height,
+      'mobile stacks the title, metadata, and workflow');
+    await assertActiveStep(phone, 'overview');
+    await assertNoOverflow();
+    if (process.env.CATALOG_ARTIFACT_DIR) {
+      const preview = await guest({ width: 390, height: 880 });
+      await preview.goto(entry + '#' + linkToken);
+      await preview.getByRole('button', { name: '開始填寫' }).waitFor();
+      await preview.screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-guest-mobile.png'), fullPage: true });
+      await preview.close();
+    }
+    await phone.getByRole('button', { name: '開始填寫' }).click();
+    await assertActiveStep(phone, 'edit');
+    assert.equal(await phone.locator('#edit-title').evaluate(node => document.activeElement === node), true);
+    const draft = '專刊介紹\n保留換行';
+    await phone.getByLabel('文字內容', { exact: true }).fill(draft);
+    assert.equal(await phone.locator('#text-count').textContent(), draft.length + ' / 5,000');
+    const fileName = '作品原檔-' + 'a'.repeat(155) + '.zip';
+    await phone.locator('#intake-file').setInputFiles({ name: fileName, mimeType: 'application/zip', buffer: Buffer.from('ZIP') });
+    assert.match(await phone.locator('#file-selection').textContent(), /作品原檔-/);
+    assert.equal(await phone.locator('#file-button-label').textContent(), '更換檔案');
+    await assertNoOverflow();
+    await phone.getByRole('button', { name: '下一步：確認內容' }).click();
+    await assertActiveStep(phone, 'confirm');
+    assert.equal(await phone.locator('#intake-steps [data-complete]').count(), 2);
+    assert.equal(await phone.locator('#confirm-text').textContent(), draft);
+    assert.ok((await phone.locator('#confirm-file').textContent()).startsWith(fileName));
+    assert.equal(f.data.Catalog_Submissions.length, 0);
+    await assertNoOverflow();
+    await phone.getByRole('button', { name: '返回修改' }).click();
+    await assertActiveStep(phone, 'edit');
+    assert.equal(await phone.locator('#intake-text').inputValue(), draft);
+    assert.equal(await phone.locator('#intake-file').evaluate(node => node.files[0].name), fileName);
+
+    await phone.goto(entry + '?case=verification#' + legacy.linkToken);
+    await phone.getByRole('heading', { name: '先確認是這個小組' }).waitFor();
+    assert.equal(await phone.locator('#brief-facts').isVisible(), false);
+    assert.equal(await phone.locator('#requirements').textContent(), '');
+    assert.doesNotMatch(await phone.locator('#project-label').textContent(), /組長18|組員18/);
+    await phone.getByRole('button', { name: '寄送驗證碼' }).click();
+    await phone.getByText(/驗證碼已寄出/).waitFor();
+    await phone.getByLabel('6 位數字驗證碼').fill(f.mail.at(-1).text.match(/驗證碼：(\d{6})/)[1]);
+    await phone.getByRole('button', { name: '驗證並繼續' }).click();
+    await phone.getByRole('button', { name: '開始填寫' }).click();
+    assert.equal(await phone.locator('#file-fields').isVisible(), false);
+    assert.equal(await phone.locator('#format-label').textContent(), '僅文字');
+    await assertNoOverflow();
+    await phone.goto(entry + '?case=file#' + fileOnly.linkToken);
+    await phone.getByRole('button', { name: '開始填寫' }).click();
+    assert.equal(await phone.locator('#screen-edit textarea').count(), 0);
+    assert.equal(await phone.locator('#file-fields').isVisible(), true);
+    assert.equal(await phone.locator('#format-label').textContent(), '僅檔案');
+    await phone.locator('#intake-file').setInputFiles({ name: 'file-only.zip', mimeType: 'application/zip', buffer: Buffer.from('ZIP') });
+    await phone.getByRole('button', { name: '下一步：確認內容' }).click();
+    assert.equal(await phone.locator('#confirm-file-row').isVisible(), true);
+    assert.equal(await phone.locator('[data-confirm-answer]').count(), 0);
+    await phone.getByRole('button', { name: '送出給形印組' }).click();
+    await phone.getByRole('heading', { name: '資料已送出' }).waitFor();
+    await phone.goto(entry + '?case=text#' + textOnlyLink);
+    await phone.getByRole('button', { name: '開始填寫' }).click();
+    assert.equal(await phone.locator('#file-fields').isVisible(), false);
+    await phone.getByLabel('作品介紹', { exact: true }).fill('只繳交文字');
+    await phone.getByRole('button', { name: '下一步：確認內容' }).click();
+    assert.equal(await phone.locator('#confirm-file-row').isVisible(), false);
+    await phone.getByRole('button', { name: '送出給形印組' }).click();
+    await phone.getByRole('heading', { name: '資料已送出' }).waitFor();
+    assert.equal(f.data.Catalog_Submissions[1].Text_Answers[0].value, '只繳交文字');
+    assert.deepEqual(errors, []);
+  } finally {
+    if (browser) await browser.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test('two separate guest pages complete approval and correction and resume a 50 MiB transfer', { timeout: 90000 }, async () => {
   const f = fakeWorkspace();
   const largeName = 'mock-catalog-original.zip';
@@ -350,22 +667,14 @@ test('two separate guest pages complete approval and correction and resume a 50 
   const synthetic = path.join(dir, largeName);
   fs.closeSync(fs.openSync(synthetic, 'w'));
   fs.truncateSync(synthetic, 50 * MiB);
-  const staticFiles = { '/': 'index.html', '/catalog-upload.html': 'catalog-upload.html', '/catalog-upload.js': 'catalog-upload.js' };
-  const server = http.createServer((req, res) => {
-    const target = staticFiles[req.url.split('?')[0]];
-    if (!target) { res.writeHead(404).end(); return; }
-    res.setHeader('Content-Type', target.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
-    res.end(fs.readFileSync(path.join(root, target)));
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const url = 'http://127.0.0.1:' + server.address().port;
+  const { server, url } = await startCatalogServer();
   let browser;
   const errors = [];
   const outsideCalls = [];
   let dropChunkAcknowledgement = true;
   let firstRequest = '';
   try {
-    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+    browser = await chromium.launch({ executablePath: chromePath, headless: true });
     async function newPage({ guest = false } = {}) {
       const context = await browser.newContext({ acceptDownloads: true, viewport: guest ? { width: 320, height: 760 } : { width: 1380, height: 960 },
         timezoneId: 'Asia/Taipei', reducedMotion: 'reduce' });
@@ -430,10 +739,37 @@ test('two separate guest pages complete approval and correction and resume a 50 
     await admin().getByRole('button', { name: '建立收件項目', exact: true }).click();
     const form = manager.locator('#catalog-editor');
     await form.getByLabel('收件名稱').fill('專刊圖文測試');
+    const textField = index => form.locator('[data-catalog-text-field]').nth(index);
+    await textField(0).getByLabel('欄位名稱').fill('作品介紹');
+    await textField(0).getByLabel('最少字數').fill('3');
+    await textField(0).getByLabel('最多字數').fill('16');
+    await form.getByRole('button', { name: /新增文字欄位/ }).click();
+    await textField(1).getByLabel('欄位名稱').fill('設計理念');
+    await textField(1).getByLabel('最少字數').fill('2');
+    await textField(1).getByLabel('最多字數').fill('12');
+    await form.getByRole('button', { name: /新增文字欄位/ }).click();
+    await form.getByRole('button', { name: '移除文字欄位 3' }).click();
+    await form.getByText('只收附件', { exact: true }).click();
+    assert.equal(await form.locator('[data-catalog-text-field]').count(), 0);
+    await form.getByText('只收文字', { exact: true }).click();
+    assert.equal(await textField(0).getByLabel('欄位名稱').inputValue(), '作品介紹');
+    await form.getByText('文字與附件', { exact: true }).click();
+    assert.equal(await form.locator('[data-catalog-text-field]').count(), 2);
     await form.getByLabel('繳交規格').fill('請提供原檔與作品介紹');
     await form.getByRole('button', { name: '選擇收件截止時間' }).click();
     await manager.locator('#date-time-picker-portal').getByRole('button', { name: '23:59' }).click();
     await manager.locator('#date-time-picker-portal').getByRole('button', { name: '完成' }).click();
+    if (process.env.CATALOG_ARTIFACT_DIR) {
+      await form.locator('[data-catalog-form-settings]').screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-admin-form.png') });
+    }
+    await manager.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await form.evaluate(node => node.scrollWidth <= Math.ceil(node.getBoundingClientRect().width)), true);
+    await manager.setViewportSize({ width: 1380, height: 960 });
+    await textField(1).getByLabel('最多字數').fill('1');
+    await form.getByRole('button', { name: '儲存', exact: true }).click();
+    await admin().getByText(/最多字數不可小於最少字數/).waitFor();
+    assert.equal(f.data.Catalog_Items.length, 0);
+    await textField(1).getByLabel('最多字數').fill('12');
     await form.getByRole('button', { name: '儲存', exact: true }).click();
     await admin().getByRole('button', { name: '分配小組', exact: true }).click();
     await form.getByLabel(/17｜單人姓名17/).check();
@@ -468,11 +804,30 @@ test('two separate guest pages complete approval and correction and resume a 50 
       assert.equal(await guest.locator('#intake-file').isVisible(), false);
       assert.equal(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await guest.getByRole('button', { name: '開始填寫' }).click();
-      await guest.getByLabel(/文字內容/).fill('作品原始介紹 ' + number);
+      const intro = guest.getByLabel('作品介紹', { exact: true });
+      const theme = guest.getByLabel('設計理念', { exact: true });
+      assert.equal(await guest.locator('#text-fields textarea').count(), 2);
+      if (index === 0) {
+        await intro.fill('短');
+        await theme.fill('設'.repeat(13));
+        await guest.getByRole('button', { name: '下一步：確認內容' }).click();
+        assert.equal(await intro.getAttribute('aria-invalid'), 'true');
+        assert.equal(await theme.getAttribute('aria-invalid'), 'true');
+        assert.equal(f.data.Catalog_Submissions.length, 0);
+      }
+      await intro.fill('作品原始介紹 ' + number);
+      await theme.fill('作品使用壓印與留白');
+      assert.equal(await intro.getAttribute('aria-invalid'), null);
+      assert.equal(await theme.getAttribute('aria-invalid'), null);
       await guest.locator('#intake-file').setInputFiles(index === 0 ? synthetic
         : { name: 'small.zip', mimeType: 'application/zip', buffer: Buffer.from('ZIP') });
+      if (process.env.CATALOG_ARTIFACT_DIR && index === 0) {
+        await guest.locator('#screen-edit').screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-guest-form.png') });
+      }
       await guest.getByRole('button', { name: '下一步：確認內容' }).click();
       await guest.getByRole('heading', { name: '確認後送出' }).waitFor();
+      assert.deepEqual(await guest.locator('[data-confirm-answer] dt').allTextContents(), ['作品介紹', '設計理念']);
+      assert.deepEqual(await guest.locator('[data-confirm-answer] dd').allTextContents(), ['作品原始介紹 ' + number, '作品使用壓印與留白']);
       assert.equal(f.data.Catalog_Submissions.length, index, 'preview step makes no upload request');
       await guest.getByRole('button', { name: '送出給形印組' }).click();
       if (index === 0) {
@@ -483,6 +838,7 @@ test('two separate guest pages complete approval and correction and resume a 50 
       }
       await guest.getByRole('heading', { name: '資料已送出' }).waitFor({ timeout: 30000 });
       assert.match(await guest.locator('#receipt-label').textContent(), /第 1 版/);
+      assert.ok(await guest.locator('#receipt-time').getAttribute('datetime'));
     }
     assert.ok(f.probeCalls >= 1);
     assert.equal(f.ranges[6][1], 50 * MiB - 1);
@@ -492,6 +848,8 @@ test('two separate guest pages complete approval and correction and resume a 50 
     for (const [index, number] of ['17', '18'].entries()) {
       const row = caseFor(number);
       if (await row.getAttribute('open') === null) await row.locator('summary').first().click();
+      await row.getByText('作品原始介紹 ' + number, { exact: true }).waitFor();
+      assert.deepEqual(await row.locator('dl dt').allTextContents(), ['作品介紹', '設計理念']);
       if (index === 1) {
         const download = reviewer.waitForEvent('download');
         await row.getByRole('button', { name: '下載原檔', exact: true }).click();
@@ -505,15 +863,39 @@ test('two separate guest pages complete approval and correction and resume a 50 
       await guests[index].getByRole('button', { name: '查看收件狀態' }).click();
     }
     await guests[0].getByText('審核已通過', { exact: true }).waitFor();
+    assert.equal(await guests[0].locator('#intake-steps').isVisible(), false);
+    assert.equal(await guests[0].locator('#requirements-block').getAttribute('open'), null);
     await guests[1].getByText('請補上攝影者資訊', { exact: true }).waitFor();
+    assert.equal(await guests[1].locator('#due-kind').textContent(), '補件期限');
+    assert.equal(await guests[1].locator('#overview-heading').getAttribute('data-tone'), 'warning');
     await guests[1].getByRole('button', { name: '開始補件' }).click();
-    await guests[1].getByLabel(/文字內容/).fill('已補攝影者資訊');
+    await guests[1].getByLabel('作品介紹', { exact: true }).fill('已補攝影者資訊');
+    await guests[1].getByLabel('設計理念', { exact: true }).fill('作品使用壓印與留白');
     await guests[1].locator('#intake-file').setInputFiles({ name: 'correction.zip', mimeType: 'application/zip', buffer: Buffer.from('ZIP2') });
     await guests[1].getByRole('button', { name: '下一步：確認內容' }).click();
     await guests[1].getByRole('button', { name: '送出給形印組' }).click();
     await guests[1].getByText(/已確認收到第 2 版/).waitFor();
     assert.deepEqual(f.data.Catalog_Submissions.map(row => row.Status), ['approved', 'returned', 'pending']);
     assert.equal(f.mail.length, 0);
+
+    await selectSection('收件項目');
+    const storedSubmissions = clone(f.data.Catalog_Submissions);
+    await admin().getByRole('button', { name: '刪除', exact: true }).click();
+    await form.getByRole('heading', { name: '確認刪除收件項目？' }).waitFor();
+    await form.getByRole('button', { name: '取消', exact: true }).click();
+    assert.ok(!f.data.Catalog_Items[0].Deleted_At);
+    await admin().getByRole('button', { name: '刪除', exact: true }).click();
+    await form.getByRole('button', { name: '確認刪除', exact: true }).click();
+    await admin().getByText('已刪除項目（1）', { exact: true }).waitFor();
+    assert.deepEqual(f.data.Catalog_Submissions, storedSubmissions);
+    await guests[0].getByRole('button', { name: '更新狀態' }).click();
+    await guests[0].getByRole('heading', { name: '無法開啟上傳頁' }).waitFor();
+    await admin().getByRole('button', { name: '復原', exact: true }).click();
+    await form.getByRole('button', { name: '確認復原', exact: true }).click();
+    await admin().getByRole('button', { name: '刪除', exact: true }).waitFor();
+    await reviewer.getByRole('button', { name: '重新整理', exact: true }).click();
+    await caseFor('17').locator('[data-catalog-status="approved"]').waitFor();
+    assert.deepEqual(f.data.Catalog_Submissions, storedSubmissions);
 
     await selectSection('開放設定');
     await admin().getByRole('button', { name: '切換為形印組專用', exact: true }).click();
@@ -533,7 +915,8 @@ test('two separate guest pages complete approval and correction and resume a 50 
     assert.deepEqual(errors, []);
     if (process.env.CATALOG_ARTIFACT_DIR) {
       await reviewer.locator('[data-catalog-workspace]').screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-board.png') });
-      await guests[1].screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-mobile-receipt.png') });
+      await guests[1].evaluate(() => scrollTo(0, 0));
+      await guests[1].screenshot({ path: path.join(process.env.CATALOG_ARTIFACT_DIR, 'catalog-mobile-receipt.png'), fullPage: true });
     }
   } finally {
     if (browser) await browser.close();

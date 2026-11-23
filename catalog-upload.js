@@ -6,40 +6,64 @@
     const validToken = /^PCT_[a-f0-9]{32}\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.test(linkToken);
     const field = id => document.getElementById(id);
     const screens = ['loading', 'unavailable', 'verify', 'overview', 'edit', 'confirm', 'received'];
+    const workflowSteps = ['overview', 'edit', 'confirm'];
+    const defaultCaption = '小組專屬的繳交頁面，不需登入。';
     const dateFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
     });
-    const statusLabels = { pending: '等待形印組審核', returned: '需要補件', approved: '審核已通過' };
+    const formats = {
+        both: { label: '檔案與文字', hint: '請填寫文字並選擇一個附件。' },
+        file: { label: '僅檔案', hint: '請選擇一個要上傳的附件。' },
+        text: { label: '僅文字', hint: '這次只需填寫文字，不用上傳附件。' }
+    };
+    const legacyTextField = { id: 'legacy-text', label: '文字內容', minChars: 1, maxChars: 5000, legacy: true };
+    const overviewStates = {
+        open: { title: '這次要交什麼？', hint: '看完規格後，再填寫並確認要交的資料。' },
+        pending: { title: '等待形印組審核', kicker: '已繳交', hint: '小組的資料已收到，可回到這裡查看審核結果。', icon: 'clock' },
+        returned: { title: '需要補件', kicker: '補件通知', hint: '請依照審核意見修正，再送出完整資料。', icon: 'note', tone: 'warning' },
+        overdue: { title: '補件期限已過', kicker: '補件已截止', hint: '現在無法補件，如有疑問請聯絡形印組負責人。', icon: 'clock', tone: 'warning' },
+        approved: { title: '審核已通過', kicker: '審核結果', hint: '這份資料已完成審核，不需要再繳交。', icon: 'check', tone: 'success' },
+        closed: { title: '收件已截止', kicker: '收件狀態', hint: '目前不再接受繳交，如有疑問請聯絡形印組負責人。', icon: 'clock', tone: 'warning' }
+    };
     let model = null;
     let guestGrant = '';
     let requestId = '';
     let expectedVersion = 0;
     let view = 'loading';
     let busy = false;
+    let textEntries = [];
 
     function showScreen(name) {
         view = name;
         screens.forEach(screen => { field('screen-' + screen).hidden = name !== screen; });
-        const inSteps = ['overview', 'edit', 'confirm'].includes(name) && model?.canSubmit;
-        field('intake-steps').hidden = !inSteps;
-        document.querySelectorAll('[data-step]').forEach(step => {
-            if (step.dataset.step === name) step.setAttribute('aria-current', 'step');
+        const activeStep = workflowSteps.indexOf(name);
+        const inSteps = activeStep >= 0 && model?.canSubmit;
+        const steps = field('intake-steps');
+        steps.hidden = !inSteps;
+        steps.dataset.activeStep = name;
+        steps.querySelectorAll('[data-step]').forEach((step, index) => {
+            if (inSteps && index === activeStep) step.setAttribute('aria-current', 'step');
             else step.removeAttribute('aria-current');
+            step.toggleAttribute('data-complete', inSteps && index < activeStep);
         });
         if (name !== 'loading') {
             const heading = field(name + '-title');
             heading?.focus({ preventScroll: true });
-            if (heading?.getBoundingClientRect().top < 0) heading.scrollIntoView({ block: 'nearest' });
+            revealIfOffscreen(heading);
         }
+    }
+
+    function revealIfOffscreen(node) {
+        const rect = node?.getBoundingClientRect();
+        if (rect && (rect.top < 0 || rect.bottom > window.innerHeight)) node.scrollIntoView({ block: 'nearest' });
     }
 
     function announce(message, isError = false) {
         const node = field('intake-feedback');
         node.textContent = message;
         node.dataset.error = String(isError);
-        node.hidden = !message;
-        if (isError && node.getBoundingClientRect().top < 0) node.scrollIntoView({ block: 'center' });
+        if (message && isError) revealIfOffscreen(node);
     }
 
     function lock(value) {
@@ -82,13 +106,29 @@
         return value && Number.isFinite(date.getTime()) ? dateFormatter.format(date) : '';
     }
 
+    function showBrief(data) {
+        field('intake-title').textContent = data?.title || '專刊收件';
+        field('brief-context').hidden = !data;
+        field('group-label').textContent = data ? '第 ' + data.groupNumber + ' 組' : '';
+        const members = data?.verified && Array.isArray(data.members) ? data.members.filter(Boolean) : [];
+        field('project-label').textContent = members.length ? '組員：' + members.join('、')
+            : (data?.verified && data.project) || defaultCaption;
+        field('brief-facts').hidden = !data?.verified;
+        const state = data?.latest?.status;
+        const due = data?.verified && state !== 'pending' && state !== 'approved' ? labelDate(data.dueAt) : '';
+        field('deadline-fact').hidden = !due;
+        field('due-kind').textContent = state === 'returned' ? '補件期限' : '繳交期限';
+        field('due-label').textContent = due;
+        field('due-label').dateTime = due ? data.dueAt : '';
+        field('format-label').textContent = formats[data?.format]?.label || '';
+    }
+
     function showInvalid(message, retry) {
+        announce('');
         field('unavailable-note').textContent = message;
         field('retry-load').hidden = !retry;
-        field('intake-title').textContent = '專刊收件';
-        field('group-label').textContent = '116級 畢業製作 ・ 形印組';
-        field('project-label').textContent = '小組專屬上傳頁，不需註冊帳號。';
         model = null;
+        showBrief();
         showScreen('unavailable');
     }
 
@@ -97,34 +137,34 @@
             throw new Error('無法確認這個收件連結，請保留此頁稍後重試。');
         }
         model = data;
-        field('intake-title').textContent = data.title;
-        field('group-label').textContent = '第 ' + data.groupNumber + ' 組 ・ 116級 畢業製作';
-        field('project-label').textContent = data.members?.length
-            ? '組員：' + data.members.join('、')
-            : data.project || '小組專屬上傳頁，不需註冊帳號。';
+        showBrief(data);
         if (!data.verified) {
             showScreen('verify');
             return;
         }
         const latest = data.latest;
-        const currentStatus = statusLabels[latest?.status];
-        field('latest-summary').hidden = !latest && data.canSubmit;
-        field('latest-status').textContent = latest?.status === 'returned' && !data.canSubmit ? '補件期限已過' : currentStatus || '收件已截止';
-        field('latest-status').dataset.tone = latest?.status || '';
-        field('latest-when').textContent = latest ? '第 ' + latest.version + ' 版 ・ ' + labelDate(latest.submittedAt) : '目前不再接受繳交';
+        const state = latest?.status === 'returned' && !data.canSubmit ? 'overdue' : latest?.status;
+        const overview = overviewStates[state] || overviewStates[data.canSubmit ? 'open' : 'closed'];
+        field('overview-heading').dataset.tone = overview.tone || '';
+        field('overview-icon').hidden = !overview.icon;
+        field('overview-icon').querySelector('use').setAttribute('href', '#icon-' + (overview.icon || 'note'));
+        field('overview-kicker').textContent = overview.kicker || '';
+        field('overview-kicker').hidden = !overview.kicker;
+        field('overview-title').textContent = overview.title;
+        field('overview-hint').textContent = overview.hint;
+        field('latest-summary').hidden = !latest;
+        field('latest-summary').dataset.tone = overview.tone || '';
+        field('latest-when').textContent = latest ? '已繳交第 ' + latest.version + ' 版｜' + labelDate(latest.submittedAt) : '';
         field('latest-note').textContent = latest?.note || '';
-        field('latest-note').hidden = !latest?.note;
-        field('overview-title').textContent = data.canSubmit ? latest?.status === 'returned' ? '依照意見補件' : '這次要交什麼？' : '收件規格';
+        field('review-note').hidden = !latest?.note;
         field('requirements').textContent = data.requirements || '';
-        field('due-label').textContent = (latest?.status === 'returned' ? '補件期限：' : '初次繳交期限：') + labelDate(data.dueAt) + '（台灣時間）';
+        field('requirements-block').hidden = !data.requirements;
+        field('requirements-block').open = data.canSubmit;
         field('start-intake').hidden = !data.canSubmit;
         field('start-intake').textContent = latest?.status === 'returned' ? '開始補件' : '開始填寫';
-        field('text-fields').hidden = data.format === 'file';
-        field('intake-text').required = data.format !== 'file';
+        renderTextFields(data);
         field('file-fields').hidden = data.format === 'text';
-        field('edit-instructions').textContent = {
-            both: '請填寫文字並選擇一個附件。', file: '請選擇一個要上傳的附件。', text: '這個項目只收文字，不需上傳檔案。'
-        }[data.format] || '';
+        field('edit-instructions').textContent = formats[data.format]?.hint || '';
         if (keepEditing && data.canSubmit && requestId && expectedVersion === (latest?.version || 0)) {
             showConfirmation();
         } else showScreen('overview');
@@ -141,7 +181,8 @@
         try {
             showIntake(await query('catalogGuestDescribe'));
         } catch (error) {
-            showInvalid(error.message, error.code !== 'CATALOG_LINK_INVALID');
+            if (model?.verified && error.code !== 'CATALOG_LINK_INVALID') announce(error.message, true);
+            else showInvalid(error.message, error.code !== 'CATALOG_LINK_INVALID');
         } finally { lock(false); }
     }
 
@@ -155,7 +196,7 @@
             field('verify-code').value = '';
         } catch (error) {
             if (error.code === 'CATALOG_LINK_INVALID') showInvalid(error.message, false);
-            announce(error.message, true);
+            else announce(error.message, true);
         } finally {
             lock(false);
             if (view === 'verify') field('verify-code').focus();
@@ -179,23 +220,106 @@
             showIntake(result.intake, true);
         } catch (error) {
             if (error.code === 'CATALOG_LINK_INVALID') showInvalid(error.message, false);
-            announce(error.message, true);
+            else announce(error.message, true);
         } finally { lock(false); }
     }
 
+    function contentNode(tag, className, text = '') {
+        const node = document.createElement(tag);
+        node.className = className;
+        node.textContent = text;
+        return node;
+    }
+
+    function renderTextFields(data) {
+        const container = field('text-fields');
+        const previous = new Map(textEntries.map(entry => [entry.spec.id, entry.input.value]));
+        const specs = data.format === 'file' ? []
+            : Array.isArray(data.textFields) && data.textFields.length ? data.textFields : [legacyTextField];
+        const fragment = document.createDocumentFragment();
+        textEntries = specs.map((spec, index) => {
+            const wrapper = contentNode('div', 'field-stack');
+            wrapper.dataset.textField = spec.id;
+            const heading = contentNode('div', 'field-title');
+            const label = contentNode('label', '', spec.label);
+            const count = contentNode('span', 'meta text-count');
+            const rule = contentNode('p', 'quiet field-rule', spec.minChars + ' 至 ' + spec.maxChars + ' 字（不含前後空白）');
+            const input = contentNode('textarea', '');
+            const error = contentNode('p', 'field-error');
+            input.id = spec.legacy ? 'intake-text' : 'intake-field-' + index;
+            count.id = spec.legacy ? 'text-count' : input.id + '-count';
+            rule.id = input.id + '-rule';
+            error.id = input.id + '-error';
+            label.htmlFor = input.id;
+            input.required = true;
+            input.disabled = busy;
+            input.dataset.lock = '';
+            input.rows = spec.legacy || spec.maxChars > 160 ? 4 : 3;
+            input.placeholder = spec.legacy ? '依照繳交規格填寫' : '請填寫' + spec.label;
+            if (spec.legacy) input.maxLength = spec.maxChars;
+            input.value = previous.get(spec.id) || '';
+            rule.hidden = !!spec.legacy;
+            input.setAttribute('aria-describedby', (spec.legacy ? '' : rule.id + ' ') + count.id + ' ' + error.id);
+            heading.append(label, count);
+            wrapper.append(heading, rule, input, error);
+            fragment.append(wrapper);
+            const entry = { spec, input, count, error, checked: false };
+            updateTextCount(entry);
+            input.addEventListener('input', () => {
+                requestId = '';
+                updateTextCount(entry);
+            });
+            return entry;
+        });
+        container.replaceChildren(fragment);
+        container.hidden = !textEntries.length;
+    }
+
+    function textValue(entry) {
+        return entry.input.value.replace(/\r\n?/g, '\n').trim();
+    }
+
     function getInputs() {
-        const text = model.format === 'file' ? '' : field('intake-text').value.trim();
+        const values = textEntries.map(entry => ({ ...entry.spec, value: textValue(entry) }));
         const file = model.format === 'text' ? null : field('intake-file').files[0] || null;
-        return { text, file };
+        return { values, file };
     }
 
     function displaySize(bytes) {
         return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
     }
 
+    function updateTextCount(entry) {
+        const { spec, input, count, error } = entry;
+        const value = textValue(entry);
+        const length = spec.legacy ? value.length : Array.from(value).length;
+        count.textContent = length.toLocaleString('zh-TW') + ' / ' + spec.maxChars.toLocaleString('zh-TW');
+        const message = length > spec.maxChars ? '請縮短至 ' + spec.maxChars + ' 字以內。'
+            : entry.checked && length < spec.minChars ? '請輸入至少 ' + spec.minChars + ' 字。' : '';
+        error.textContent = message;
+        error.hidden = !message;
+        count.toggleAttribute('data-invalid', Boolean(message));
+        if (message) input.setAttribute('aria-invalid', 'true');
+        else input.removeAttribute('aria-invalid');
+        return message;
+    }
+
+    function updateFileSelection() {
+        const file = field('intake-file').files[0];
+        field('file-picker').toggleAttribute('data-selected', Boolean(file));
+        field('file-selection').textContent = file ? file.name + '｜' + displaySize(file.size) : '尚未選擇檔案';
+        field('file-button-label').textContent = file ? '更換檔案' : '選擇檔案';
+    }
+
     function checkInputs(inputs) {
-        const { file, text } = inputs;
-        if (model.format !== 'file' && !text) throw new Error('請先填寫文字內容。');
+        const { file } = inputs;
+        let firstError;
+        textEntries.forEach(entry => {
+            entry.checked = true;
+            const message = updateTextCount(entry);
+            if (message && !firstError) firstError = Object.assign(new Error('「' + entry.spec.label + '」' + message), { input: entry.input });
+        });
+        if (firstError) throw firstError;
         if (model.format !== 'text' && !file) throw new Error('請先選擇附件。');
         if (file && (!/\.(ai|pdf|psd|indd|jpe?g|png|tiff?|zip)$/i.test(file.name) ||
             file.name.length > 180 || file.size < 1 || file.size > model.maxFileBytes)) {
@@ -204,11 +328,19 @@
     }
 
     function showConfirmation() {
-        const { text, file } = getInputs();
-        field('confirm-file').textContent = file ? '附件：' + file.name + ' ・ ' + displaySize(file.size) : '';
-        field('confirm-file').hidden = !file;
-        field('confirm-text').textContent = text;
-        field('confirm-text').hidden = !text;
+        const { values, file } = getInputs();
+        field('confirm-file').textContent = file ? file.name + '｜' + displaySize(file.size) : '';
+        field('confirm-file-row').hidden = !file;
+        const summary = field('confirm-summary');
+        summary.querySelectorAll('[data-confirm-answer]').forEach(row => row.remove());
+        values.forEach(answer => {
+            const row = contentNode('div', '');
+            row.dataset.confirmAnswer = answer.id;
+            const value = contentNode('dd', 'multiline', answer.value);
+            if (answer.legacy) value.id = 'confirm-text';
+            row.append(contentNode('dt', '', answer.label), value);
+            summary.append(row);
+        });
         field('upload-progress').hidden = true;
         field('check-latest').hidden = true;
         field('send-intake').textContent = requestId ? '重試送出' : '送出給形印組';
@@ -230,21 +362,27 @@
 
     function updateProgress(current, total) {
         const progress = field('progress-value');
-        field('upload-progress').hidden = false;
+        const panel = field('upload-progress');
+        panel.hidden = false;
+        delete panel.dataset.tone;
+        progress.hidden = false;
+        field('progress-percent').hidden = !total;
+        field('progress-title').textContent = total ? '正在上傳附件' : '正在送出資料';
         if (!total) {
             progress.removeAttribute('value');
-            field('progress-label').textContent = '正在等待送出確認…';
+            field('progress-label').textContent = '請保留本頁，直到出現收件回執。';
         } else {
             const percent = Math.min(99, Math.floor(current * 100 / total));
             progress.value = percent;
-            field('progress-label').textContent = percent + '% ・ 已確認 ' + (current ? displaySize(current) : '0 KB') + ' / ' + displaySize(total);
+            field('progress-percent').textContent = percent + '%';
+            field('progress-label').textContent = '已確認 ' + (current ? displaySize(current) : '0 KB') + ' / ' + displaySize(total) + '。請勿關閉本頁。';
         }
     }
 
     async function sendIntake() {
         if (busy || !model?.verified || !model.canSubmit) return;
         const inputs = getInputs();
-        const { text, file } = inputs;
+        const { values, file } = inputs;
         if (!requestId) {
             requestId = newRequestId();
             expectedVersion = model.latest?.version || 0;
@@ -256,8 +394,10 @@
         updateProgress(0, 0);
         try {
             checkInputs(inputs);
-            let result = await query('catalogGuestBegin', { requestId, expectedVersion, text,
-                fileName: file?.name || '', fileSize: file?.size || 0 });
+            const first = values[0];
+            const textAnswers = first && !first.legacy ? values.map(({ id, value }) => ({ id, value })) : undefined;
+            let result = await query('catalogGuestBegin', { requestId, expectedVersion, textAnswers,
+                text: first?.legacy ? first.value : '', fileName: file?.name || '', fileSize: file?.size || 0 });
             if (file && result?.status === 'uploading') {
                 const chunkSize = result.chunkSize;
                 let next = result.nextByte;
@@ -284,17 +424,25 @@
                 throw new Error('尚未收到收件確認，請勿關閉本頁，可按「重試送出」核對。');
             }
             model = result.intake;
+            showBrief(model);
             requestId = '';
             field('progress-value').value = 100;
-            field('intake-text').value = '';
+            textEntries.forEach(entry => {
+                entry.input.value = '';
+                entry.checked = false;
+                updateTextCount(entry);
+            });
             field('intake-file').value = '';
-            field('file-selection').textContent = '尚未選擇檔案';
-            field('receipt-label').textContent = '已確認收到第 ' + result.receipt.version + ' 版 ・ ' + labelDate(result.receipt.submittedAt);
+            updateFileSelection();
+            field('receipt-label').textContent = '已確認收到第 ' + result.receipt.version + ' 版';
+            field('receipt-time').dateTime = result.receipt.submittedAt;
+            field('receipt-time').textContent = labelDate(result.receipt.submittedAt) + '（台灣時間）';
             showScreen('received');
         } catch (error) {
             if (error.code === 'CATALOG_VERIFY_REQUIRED') {
                 guestGrant = '';
-                field('project-label').textContent = '小組專屬上傳頁，不需註冊帳號。';
+                showBrief({ title: model.title, groupNumber: model.groupNumber });
+                model = null;
                 showScreen('verify');
                 announce('信箱驗證已過期，請再驗證一次。已保留文字與檔案。', true);
             } else if (error.code === 'CATALOG_LINK_INVALID') {
@@ -302,7 +450,10 @@
             } else {
                 field('check-latest').hidden = false;
                 field('send-intake').textContent = '重試送出';
-                field('progress-label').textContent = '尚未確認收件，請保留此頁。';
+                field('upload-progress').dataset.tone = 'warning';
+                field('progress-title').textContent = '尚未確認收件';
+                field('progress-value').hidden = !field('progress-value').hasAttribute('value');
+                field('progress-label').textContent = '已保留填寫內容與附件，可重試送出。';
                 announce(error.message, true);
             }
         } finally { lock(false); }
@@ -320,11 +471,9 @@
         announce('');
         showScreen('edit');
     });
-    field('intake-text').addEventListener('input', () => { requestId = ''; });
     field('intake-file').addEventListener('change', () => {
         requestId = '';
-        const file = field('intake-file').files[0];
-        field('file-selection').textContent = file ? file.name + ' ・ ' + displaySize(file.size) : '尚未選擇檔案';
+        updateFileSelection();
     });
     field('details-form').addEventListener('submit', event => {
         event.preventDefault();
@@ -333,7 +482,10 @@
             checkInputs(getInputs());
             announce('');
             showConfirmation();
-        } catch (error) { announce(error.message, true); }
+        } catch (error) {
+            announce(error.message, true);
+            error.input?.focus();
+        }
     });
     field('back-to-overview').addEventListener('click', () => { announce(''); showScreen('overview'); });
     field('back-to-edit').addEventListener('click', () => { announce(''); showScreen('edit'); });

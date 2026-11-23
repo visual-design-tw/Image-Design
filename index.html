@@ -1123,6 +1123,8 @@
         .catalog-button:hover, .catalog-button[aria-pressed=true] { background: #edf5ff; border-color: #cfe1fa; color: var(--catalog-accent); }
         .catalog-button-primary { background: var(--catalog-accent); color: #fff; border-color: var(--catalog-accent); }
         .catalog-button-primary:hover { background: #0056ad; color: #fff; }
+        .catalog-button-danger { color: #a82520; border-color: #ffd7d4; }
+        .catalog-button-danger:hover { background: #fff1ef; border-color: #f5bdb9; color: #a82520; }
         .catalog-button:disabled { opacity: .48; cursor: not-allowed; }
         .catalog-input { width: 100%; min-width: 0; min-height: 42px; padding: 9px 12px; border: 1px solid var(--catalog-border); border-radius: 12px; background: #fff; color: var(--catalog-ink); }
         .catalog-button:focus-visible, .catalog-input:focus-visible, .catalog-board summary:focus-visible { outline: 2px solid var(--catalog-accent); outline-offset: 2px; }
@@ -1131,6 +1133,13 @@
         .catalog-chip[data-catalog-status=returned] { background: #fff2e3; color: #8c4607; }
         .catalog-chip[data-catalog-status=approved] { background: #e7f6ed; color: #186642; }
         .catalog-muted { color: var(--catalog-muted); }
+        .catalog-format-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--catalog-border); border-radius: 15px; background: #f2f2f5; }
+        .catalog-format-option { position: relative; min-width: 0; }
+        .catalog-format-option input { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
+        .catalog-format-option span { display: grid; place-items: center; min-height: 42px; padding: 5px; border: 1px solid transparent; border-radius: 11px; color: var(--catalog-muted); text-align: center; cursor: pointer; }
+        .catalog-format-option input:checked + span { border-color: var(--catalog-border); background: white; color: var(--catalog-ink); box-shadow: 0 1px 2px #0000000d; }
+        .catalog-format-option input:focus-visible + span { outline: 2px solid var(--catalog-accent); outline-offset: 1px; }
+        .catalog-format-option input:disabled + span { opacity: .55; cursor: not-allowed; }
         .catalog-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 126px), 1fr)); gap: 8px; }
         .catalog-break { overflow-wrap: anywhere; }
         .catalog-board #catalog-editor, .catalog-board #catalog-link-panel { scroll-margin-top: 88px; }
@@ -2179,7 +2188,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.23-catalog-roster.1";
+        const APP_RELEASE = "2026.11.23-catalog-forms.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -18161,7 +18170,7 @@
 
         function createCatalogWorkspaceState() {
             return { owner: '', board: null, loading: false, error: '', busy: false, downloadId: '', section: 'cases',
-                filter: 'all', itemId: '', form: null, link: null, message: '', warning: false, expanded: new Set() };
+                filter: 'all', itemId: '', form: null, link: null, message: '', warning: false, expanded: new Set(), deletedItemsOpen: false };
         }
 
         function catalogWorkspaceForUser() {
@@ -18204,6 +18213,7 @@
                 if (!Array.isArray(board?.rows) || typeof board.manager !== 'boolean') throw new Error('未取得完整的收件清單。');
                 captureWorkspaceAccessPolicy(board);
                 view.board = board;
+                if (view.itemId && !board.rows.some(row => row.item.id === view.itemId)) view.itemId = '';
                 if (!board.manager) view.section = 'cases';
             } catch (error) {
                 if (catalogWorkspace === view && !error.sessionExpired) view.error = catalogStaffError(error);
@@ -18230,6 +18240,10 @@
         function catalogStatusLabel(status) {
             return ({ waiting: '待上傳', pending: '待審核', returned: '待補件', approved: '已通過' })[status] || '待上傳';
         }
+
+        const catalogFormats = [{ id: 'text', name: '只收文字' }, { id: 'file', name: '只收附件' }, { id: 'both', name: '文字與附件' }];
+        const catalogFormatLabel = format => catalogFormats.find(option => option.id === format)?.name || '';
+        const catalogTextFieldDraft = (label = '', maxChars = 500) => ({ label, minChars: '1', maxChars: String(maxChars) });
 
         function catalogChooseSection(section) {
             const view = catalogWorkspaceForUser();
@@ -18260,7 +18274,13 @@
             } else if (kind === 'item') {
                 record = data.items.find(entry => entry.id === id);
                 values = { ...record, dueAt: catalogTaipeiInput(record?.dueAt || Date.now() + 7 * 86400000),
-                    format: record?.format || 'both', verifyEmail: record ? record.verifyEmail : false };
+                    format: record?.format || 'both', verifyEmail: record ? record.verifyEmail : false,
+                    textFields: record?.textFields?.length ? record.textFields.map(field => ({ ...field }))
+                        : [catalogTextFieldDraft('文字內容', record && record.format !== 'file' ? data.textFieldLimits?.totalChars : 500)] };
+            } else if (kind === 'delete-item' || kind === 'restore-item') {
+                if (!Array.isArray(data.deletedItems)) return;
+                record = (kind === 'delete-item' ? data.items : data.deletedItems).find(item => item.id === id);
+                if (!record) return;
             } else if (kind === 'assign') {
                 record = row;
                 values = { itemId: row?.item.id || id || data.items[0]?.id || '', reviewerId: row?.reviewerId || '', groupIds: [] };
@@ -18294,6 +18314,11 @@
         function catalogDraftChange(input) {
             const form = catalogWorkspaceForUser().form;
             if (!form) return;
+            if (input.dataset.catalogFieldKey) {
+                const field = form.values.textFields?.[Number(input.dataset.catalogFieldIndex)];
+                if (field) field[input.dataset.catalogFieldKey] = input.value;
+                return;
+            }
             if (input.name === 'groupIds') {
                 const selected = new Set(form.values.groupIds || []);
                 if (input.checked) selected.add(input.value); else selected.delete(input.value);
@@ -18311,6 +18336,29 @@
                 drawCatalogWorkspace();
                 document.getElementById('catalog-member-count')?.focus({ preventScroll: true });
             }
+            if (form.kind === 'item' && input.name === 'format') {
+                drawCatalogWorkspace();
+                document.getElementById('catalog-format-' + input.value)?.focus({ preventScroll: true });
+            }
+        }
+
+        function changeCatalogTextFields(add, index = 0) {
+            const view = catalogWorkspaceForUser();
+            const form = view.form;
+            const limits = view.board?.textFieldLimits;
+            if (!form || form.kind !== 'item' || form.record?.fieldsLocked || view.busy || !limits || form.values.format === 'file') return;
+            const fields = form.values.textFields;
+            if (add && fields.length < limits.fields) {
+                fields.push(catalogTextFieldDraft());
+                index = fields.length - 1;
+            } else if (!add && Number.isInteger(index) && index >= 0 && index < fields.length && fields.length > 1) {
+                fields.splice(index, 1);
+                index = Math.min(index, fields.length - 1);
+            } else return;
+            drawCatalogWorkspace();
+            const name = document.getElementById('catalog-text-' + index + '-label');
+            name?.focus({ preventScroll: true });
+            name?.scrollIntoView({ block: 'nearest' });
         }
 
         function catalogButton(label, action, primary = false, disabled = false) {
@@ -18331,6 +18379,35 @@
 
         function catalogRosterName(group) {
             return group.displayName || group.project || '尚未填寫組員姓名';
+        }
+
+        function catalogTextFieldEditor(values, record, limits) {
+            if (values.format === 'file') return '';
+            if (!limits) return '<p class="text-sm catalog-muted">雲端尚未更新多欄位收件功能，文字會使用原本的單一輸入框。</p>';
+            if (record?.fieldsLocked) {
+                const fields = record.textFields || [];
+                return `<section class="rounded-2xl border border-[#E4E8EE] bg-[#F7F7FA] p-3 text-sm">
+                    <h4 class="font-semibold">文字欄位</h4>
+                    ${fields.length ? `<ul class="mt-2 space-y-1">${fields.map(field => `<li class="catalog-break">${escapeHtml(field.label)} <span class="catalog-muted">（${field.minChars} 至 ${field.maxChars} 字）</span></li>`).join('')}</ul>`
+                        : '<p class="mt-1 catalog-muted">原有的單一文字欄位，最多 5,000 字。</p>'}
+                </section>`;
+            }
+            const fields = values.textFields;
+            const fieldInput = (index, key, value, max, extra = '') => `<input class="catalog-input" id="catalog-text-${index}-${key}" type="text" maxlength="${max}" value="${escapeHtml(String(value ?? ''))}" data-catalog-field-index="${index}" data-catalog-field-key="${key}" ${extra} oninput="catalogDraftChange(this)">`;
+            return `<fieldset class="min-w-0 space-y-2">
+                <legend class="mb-1 text-sm font-semibold">要填寫的文字欄位</legend>
+                <p class="text-sm catalog-muted">每個欄位皆必填，可設定不同字數。最多 ${limits.fields} 欄，上限合計 ${limits.totalChars.toLocaleString('zh-TW')} 字。</p>
+                ${fields.map((field, index) => `<fieldset data-catalog-text-field class="min-w-0 rounded-2xl border border-[#E4E8EE] bg-[#F7F7FA] p-3">
+                    <legend class="px-1 text-xs font-bold catalog-muted">文字欄位 ${index + 1}</legend>
+                    <div class="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                        <div class="col-span-2 sm:col-span-1">${catalogField('欄位名稱', fieldInput(index, 'label', field.label, limits.labelChars, 'placeholder="例如：作品介紹"'))}</div>
+                        ${catalogField('最少字數', fieldInput(index, 'minChars', field.minChars, 4, 'inputmode="numeric"'))}
+                        ${catalogField('最多字數', fieldInput(index, 'maxChars', field.maxChars, 4, 'inputmode="numeric"'))}
+                        ${fields.length > 1 ? `<div class="col-span-2 flex justify-end sm:col-span-1"><button type="button" class="catalog-button" aria-label="移除文字欄位 ${index + 1}" onclick="changeCatalogTextFields(false,${index})">移除</button></div>` : ''}
+                    </div>
+                </fieldset>`).join('')}
+                ${catalogButton('＋ 新增文字欄位', 'changeCatalogTextFields(true)', false, fields.length >= limits.fields)}
+            </fieldset>`;
         }
 
         function catalogEditorMarkup(view) {
@@ -18354,17 +18431,33 @@
                     ${memberFields}`;
             } else if (kind === 'item') {
                 title = record ? '編輯收件項目' : '建立收件項目';
-                const modes = [{ id: 'both', name: '檔案與文字' }, { id: 'file', name: '只有檔案' }, { id: 'text', name: '只有文字' }];
+                const formatEditable = !record || record.fieldsLocked === false;
                 fields = `${catalogField('收件名稱', input('title', 120, '例如：專刊作品圖文'))}
-                    ${catalogField('繳交規格', `<textarea class="catalog-input" name="requirements" required maxlength="5000" rows="4" placeholder="例如：100 字作品介紹、原圖請打包成 ZIP" oninput="catalogDraftChange(this)">${escapeHtml(values.requirements || '')}</textarea>`)}
-                    <div class="grid gap-3 sm:grid-cols-2">
+                    <div data-catalog-form-settings class="space-y-3">
+                    ${formatEditable ? `<fieldset class="min-w-0"><legend class="mb-1.5 text-sm font-semibold">收件格式</legend>
+                        <div class="catalog-format-options">${catalogFormats.map(option => `<label class="catalog-format-option text-sm font-semibold">
+                            <input id="catalog-format-${option.id}" type="radio" name="format" value="${option.id}" ${values.format === option.id ? 'checked' : ''} onchange="catalogDraftChange(this)"><span>${option.name}</span>
+                        </label>`).join('')}</div><p class="mt-1 text-sm catalog-muted">小組只會看到所選格式需要填寫的欄位。</p></fieldset>`
+                        : `<p class="text-sm catalog-muted">收件格式：${catalogFormatLabel(record.format)}。分配後會保留原有格式和文字欄位。</p>`}
+                    ${catalogTextFieldEditor(values, record, data.textFieldLimits)}
+                    </div>
+                    ${catalogField('繳交規格', `<textarea class="catalog-input" name="requirements" required maxlength="5000" rows="3" placeholder="例如：原圖請打包成 ZIP，檔名加上組別。" oninput="catalogDraftChange(this)">${escapeHtml(values.requirements || '')}</textarea>`)}
+                    <div class="grid items-center gap-3 sm:grid-cols-2">
                         <div><p class="mb-1.5 text-sm font-semibold">截止時間（台灣）</p><div data-date-time-picker-root data-date-time-picker-native-for="catalog-due-picker">
                             <input type="hidden" name="dueAt" id="catalog-due-picker" data-date-time-picker-input value="${escapeHtml(values.dueAt)}" onchange="catalogDraftChange(this)">
                             <button class="catalog-input flex items-center justify-between text-sm font-semibold" type="button" aria-label="選擇收件截止時間" aria-haspopup="dialog" aria-expanded="false" data-date-time-picker-trigger onclick="toggleDateTimePicker('catalog-due-picker')"><span data-date-time-picker-label>${formatDateTimePickerLabel(values.dueAt)}</span><i data-lucide="calendar-clock" class="h-4 w-4 text-[#0066CC]"></i></button>
                         </div></div>
-                    ${record ? `<p class="text-sm catalog-muted">收件格式：${modes.find(mode => mode.id === record.format)?.name || ''}<br>${record.verifyEmail ? '有登記信箱的小組須驗證' : '持有專屬連結即可上傳'}</p>` : catalogField('收件格式', catalogSelect('format', modes, values.format))}
+                        ${record ? `<p class="text-sm catalog-muted">${record.verifyEmail ? '有登記信箱的小組須驗證' : '持有專屬連結即可上傳'}</p>` : ''}
                     </div>
                     ${record ? '' : `<label class="flex items-start gap-2 text-sm"><input name="verifyEmail" type="checkbox" ${values.verifyEmail ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span><strong>要求信箱驗證</strong><br><span class="catalog-muted">只有名冊已有聯絡信箱的小組會收到驗證碼；其他小組以專屬連結繳交。</span></span></label>`}`;
+            } else if (kind === 'delete-item' || kind === 'restore-item') {
+                const deleting = kind === 'delete-item';
+                title = deleting ? '確認刪除收件項目？' : '確認復原收件項目？';
+                fields = `<p class="catalog-break text-sm font-semibold">${escapeHtml(record.title)}</p>
+                    <p class="text-sm catalog-muted">${deleting
+                        ? '項目會移到「已刪除項目」，原本的上傳連結立即失效。已繳交的資料、附件和審核紀錄都會保留。'
+                        : '項目與原有紀錄會回到收件清單，截止時間不變。舊連結不會恢復，如需分享，請建立新連結。'}</p>`;
+                buttons = `<button type="submit" class="catalog-button ${deleting ? 'catalog-button-danger' : 'catalog-button-primary'}">${deleting ? '確認刪除' : '確認復原'}</button>`;
             } else if (kind === 'assign') {
                 title = record ? '改派審核人' : '分配審核人';
                 const openGroups = data.groups.filter(group => !data.rows.some(row => row.item.id === values.itemId && row.group.id === group.id));
@@ -18412,9 +18505,16 @@
             } else if (view.section === 'items') {
                 content = `<section class="catalog-surface"><div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-lg font-bold">收件項目</h3><p class="text-sm catalog-muted">只要設定一次規格，就能分配給多個小組。</p></div>
                     ${catalogButton('建立收件項目', "openCatalogEditor('item')", true, view.busy)}</div>
-                    <div class="mt-4 divide-y divide-[#E4E8EE]">${board.items.length ? board.items.map(item => `<article class="flex flex-wrap items-center justify-between gap-3 py-3"><div class="min-w-0"><h4 class="catalog-break font-semibold">${escapeHtml(item.title)}</h4><p class="text-sm catalog-muted">${catalogDateLabel(item.dueAt)} 截止 ・ ${item.verifyEmail ? '依小組信箱設定驗證' : '專屬連結上傳'}</p></div>
+                    <div class="mt-4 divide-y divide-[#E4E8EE]">${board.items.length ? board.items.map(item => `<article class="flex flex-wrap items-center justify-between gap-3 py-3"><div class="min-w-0"><h4 class="catalog-break font-semibold">${escapeHtml(item.title)}</h4><p class="text-sm catalog-muted">${catalogDateLabel(item.dueAt)} 截止 ・ ${catalogFormatLabel(item.format)}${item.textFields?.length ? ' ・ ' + item.textFields.length + ' 個文字欄位' : ''} ・ ${item.verifyEmail ? '依小組信箱設定驗證' : '專屬連結繳交'}</p></div>
                         <div class="flex flex-wrap gap-2">${catalogButton('編輯', "openCatalogEditor('item','" + escapeInlineJsString(item.id) + "')", false, view.busy)}
-                        ${catalogButton('分配小組', "openCatalogEditor('assign','" + escapeInlineJsString(item.id) + "')", false, view.busy || !board.groups.length)}</div></article>`).join('') : '<p class="py-3 text-sm catalog-muted">尚未有收件項目。</p>'}</div></section>`;
+                        ${catalogButton('分配小組', "openCatalogEditor('assign','" + escapeInlineJsString(item.id) + "')", false, view.busy || !board.groups.length)}
+                        ${Array.isArray(board.deletedItems) ? `<button type="button" class="catalog-button catalog-button-danger" onclick="openCatalogEditor('delete-item','${escapeInlineJsString(item.id)}')" ${view.busy ? 'disabled' : ''}>刪除</button>` : ''}</div></article>`).join('') : '<p class="py-3 text-sm catalog-muted">尚未有收件項目。</p>'}</div>
+                    ${board.deletedItems?.length ? `<details class="mt-4 rounded-2xl border border-[#E4E8EE] bg-[#F7F7FA] px-3" ${view.deletedItemsOpen ? 'open' : ''} ontoggle="catalogWorkspaceForUser().deletedItemsOpen = this.open">
+                        <summary class="cursor-pointer py-3 text-sm font-semibold">已刪除項目（${board.deletedItems.length}）</summary>
+                        <div class="divide-y divide-[#E4E8EE]">${board.deletedItems.map(item => `<article class="flex flex-wrap items-center justify-between gap-2 border-t border-[#E4E8EE] py-3">
+                            <div class="min-w-0"><h4 class="catalog-break text-sm font-semibold">${escapeHtml(item.title)}</h4><p class="text-xs catalog-muted">刪除於 ${catalogDateLabel(item.deletedAt)}</p></div>
+                            ${catalogButton('復原', "openCatalogEditor('restore-item','" + escapeInlineJsString(item.id) + "')", false, view.busy)}</article>`).join('')}</div>
+                    </details>` : ''}</section>`;
             } else if (view.section === 'settings') {
                 const internal = workspaceAccessPolicy.workspaceInternalOnly;
                 content = `<section class="catalog-surface space-y-3"><span class="catalog-chip">${internal ? '僅形印組' : '試跑中'}</span>
@@ -18468,7 +18568,10 @@
                     ${row.versions.length ? row.versions.map((version, index) => `<details class="rounded-xl bg-[#F6F8FB] px-3 py-2.5" ${index === 0 ? 'open' : ''}>
                         <summary class="cursor-pointer text-sm font-semibold">第 ${version.version} 版 ・ ${catalogStatusLabel(version.status)} ・ ${catalogDateLabel(version.submittedAt)}</summary>
                         <div class="space-y-2 pt-2 text-sm">
-                            ${version.text ? `<p class="catalog-break whitespace-pre-wrap">${escapeHtml(version.text)}</p>` : ''}
+                            ${version.textAnswers?.length ? `<dl class="divide-y divide-[#E4E8EE] rounded-xl border border-[#E4E8EE] bg-white">
+                                ${version.textAnswers.map(answer => `<div class="space-y-1 px-3 py-2"><dt class="catalog-break font-semibold">${escapeHtml(answer.label)}</dt>
+                                    <dd class="catalog-break whitespace-pre-wrap">${escapeHtml(answer.value)}</dd></div>`).join('')}
+                            </dl>` : version.text ? `<p class="catalog-break whitespace-pre-wrap">${escapeHtml(version.text)}</p>` : ''}
                             ${version.fileId ? `<div class="flex flex-wrap items-center gap-2"><span class="catalog-break">${escapeHtml(version.fileName)} ・ ${formatFileSize(version.fileSize)}</span>
                                 ${catalogButton('預覽附件', "openFilePreview('catalog-submission','" + escapeInlineJsString(version.id) + "')")}
                                 ${catalogButton(view.downloadId === version.id ? '下載中…' : '下載原檔', "downloadCatalogAttachment(this,'" + escapeInlineJsString(version.id) + "')", false, Boolean(view.downloadId))}</div>` : ''}
@@ -18497,6 +18600,10 @@
                 if (view === catalogWorkspace && !error.sessionExpired) {
                     view.warning = true;
                     view.message = catalogStaffError(error);
+                    if (action === 'catalogSetItemDeleted' && /^CATALOG_CHANGED:/.test(error.message || '')) {
+                        view.form = null;
+                        refresh = true;
+                    }
                 }
             } finally {
                 if (view === catalogWorkspace) {
@@ -18505,6 +18612,31 @@
                     else drawCatalogWorkspace();
                 }
             }
+        }
+
+        function catalogValidateTextFieldDraft(fields, limits) {
+            if (!fields.length || fields.length > limits.fields) throw new Error('請設定 1 至 ' + limits.fields + ' 個文字欄位。');
+            const seen = new Set();
+            let total = 0;
+            return fields.map((field, index) => {
+                const invalid = (key, message) => { throw Object.assign(new Error(message), { fieldId: 'catalog-text-' + index + '-' + key }); };
+                const label = field.label.trim();
+                if (!label) invalid('label', '請填寫第 ' + (index + 1) + ' 個文字欄位的名稱。');
+                const nameKey = label.normalize('NFKC').toLowerCase();
+                if (seen.has(nameKey)) invalid('label', '文字欄位名稱不可重複。');
+                seen.add(nameKey);
+                const minChars = Number(field.minChars);
+                const maxChars = Number(field.maxChars);
+                if (!/^\d+$/.test(String(field.minChars)) || minChars < 1 || minChars > limits.totalChars) {
+                    invalid('minChars', '「' + label + '」的最少字數須為 1 至 ' + limits.totalChars + ' 的整數。');
+                }
+                if (!/^\d+$/.test(String(field.maxChars)) || maxChars < minChars || maxChars > limits.totalChars) {
+                    invalid('maxChars', '「' + label + '」的最多字數不可小於最少字數，且不得超過 ' + limits.totalChars + '。');
+                }
+                total += maxChars;
+                if (total > limits.totalChars) invalid('maxChars', '所有欄位的最多字數加總不得超過 ' + limits.totalChars + ' 字。');
+                return { label, minChars, maxChars };
+            });
         }
 
         function submitCatalogEditor(event) {
@@ -18519,7 +18651,27 @@
                 payload = { ...values, groupId: form.id, requestId: form.requestId };
             } else if (kind === 'item') {
                 action = 'catalogSaveItem';
-                payload = { ...values, itemId: form.id, requestId: form.requestId };
+                const { textFields, ...itemValues } = values;
+                payload = { ...itemValues, itemId: form.id, requestId: form.requestId };
+                if (view.board.textFieldLimits && (!record || record.fieldsLocked === false)) {
+                    try {
+                        const limits = view.board.textFieldLimits;
+                        const rules = values.format === 'file' ? [] : catalogValidateTextFieldDraft(textFields, limits);
+                        const unchangedLegacy = record && record.format === values.format && !record.textFields?.length
+                            && rules.length === 1 && rules[0].label === '文字內容' && rules[0].minChars === 1 && rules[0].maxChars === limits.totalChars;
+                        if (!unchangedLegacy) payload.textFields = rules;
+                    } catch (error) {
+                        view.message = error.message;
+                        view.warning = true;
+                        closeDateTimePicker();
+                        drawCatalogWorkspace();
+                        document.getElementById(error.fieldId)?.focus();
+                        return;
+                    }
+                }
+            } else if (kind === 'delete-item' || kind === 'restore-item') {
+                action = 'catalogSetItemDeleted';
+                payload = { itemId: record.id, revision: record.revision, deleted: kind === 'delete-item', confirm: true };
             } else if (kind === 'assign') {
                 action = 'catalogAssignReviewer';
                 payload = { ...values, targetId: record?.id, revision: record?.revision };
@@ -18544,6 +18696,17 @@
                 if (kind === 'group' && !data.group?.id || kind === 'item' && !data.item?.id || kind === 'assign' && !data.assignedCount
                     || kind === 'review' && (data.submission?.id !== payload.submissionId || data.submission.status !== payload.decision)
                     || kind === 'mode' && data.workspaceInternalOnly !== form.nextMode) throw new Error('未收到完整的操作確認，請重新整理確認。');
+                if (kind === 'item' && payload.textFields && (data.item.format !== payload.format || !Array.isArray(data.item.textFields)
+                    || JSON.stringify(data.item.textFields.map(({ label, minChars, maxChars }) => ({ label, minChars, maxChars }))) !== JSON.stringify(payload.textFields))) {
+                    throw new Error('尚未確認文字欄位已儲存。請保留設定，確認雲端已更新後重試。');
+                }
+                if (action === 'catalogSetItemDeleted') {
+                    if (data.itemId !== payload.itemId || data.deleted !== payload.deleted) throw new Error('尚未確認操作結果，請重試或重新整理。');
+                    view.form = null;
+                    view.deletedItemsOpen = true;
+                    view.message = payload.deleted ? '已移到「已刪除項目」，上傳連結已停用。' : '收件項目已復原，請視需要建立新連結。';
+                    return;
+                }
                 view.form = null;
                 view.message = kind === 'group' ? data.linksRevoked ? '名冊已更新；舊連結已停用，請重新提供給小組。' : '小組名冊已儲存。'
                     : kind === 'item' ? '收件項目已儲存。' : kind === 'assign' ? '已儲存審核分工。'
