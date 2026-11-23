@@ -1,6 +1,6 @@
 # GAS Backend
 
-## 2026.11.23-catalog-intake.1 專刊收件
+## 2026.11.23-catalog-roster.1 專刊名冊與收件
 
 - 正式發布須同步更新既有 GAS Web App 的 `Code.gs`，以及同一靜態網站的 `index.html`、`catalog-upload.html`、`catalog-upload.js`。保留 Web App 的匿名存取，由應用程式分別驗證工作台帳號與上傳連結。未新增 OAuth scopes。
 - 「專刊收件 → 小組名冊」可建立組別、作品、指導老師和聯絡信箱，或連結既有畢製組別以保留利益迴避依據。名冊不會建立登入帳號或修改既有小組。聯絡信箱變更會停用該組所有舊收件連結。

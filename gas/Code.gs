@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.23-catalog-intake.1';
+var APP_RELEASE = '2026.11.23-catalog-roster.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -75,8 +75,9 @@ var TABLE_SCHEMAS = {
     types: {}
   },
   Catalog_Roster: {
-    headers: ['Group_ID', 'Legacy_Team_ID', 'Group_Number', 'Project_Name', 'Advisor_Name', 'Contact_Email', 'Revision'],
-    types: { Revision: 'number' }
+    headers: ['Group_ID', 'Legacy_Team_ID', 'Group_Number', 'Project_Name', 'Advisor_Name', 'Contact_Email', 'Revision',
+      'Member_Count', 'Leader_Name', 'Member_Name'],
+    types: { Revision: 'number', Member_Count: 'number' }
   },
   Catalog_Items: {
     headers: ['Item_ID', 'Title', 'Requirements', 'Format', 'Due_At', 'Verify_Email', 'Revision', 'Created_At'],
@@ -9925,10 +9926,27 @@ function catalogAssertRevision_(row, revision) {
 }
 
 function catalogGroupView_(row) {
+  var members = [row.Leader_Name, row.Member_Name].map(function(name) { return String(name || '').trim(); }).filter(Boolean);
   return {
     id: row.Group_ID, legacyTeamId: row.Legacy_Team_ID, number: row.Group_Number, project: row.Project_Name,
-    advisor: row.Advisor_Name, email: row.Contact_Email, revision: row.Revision
+    displayName: members.join('、') || row.Project_Name || '', memberCount: Number(row.Member_Count) || (members.length > 1 ? 2 : 1),
+    leaderName: row.Leader_Name || '', memberName: row.Member_Name || '', advisor: row.Advisor_Name,
+    revision: row.Revision
   };
+}
+
+function catalogGroupDisplayName_(row) {
+  return [row.Leader_Name, row.Member_Name].map(function(name) { return String(name || '').trim(); })
+    .filter(Boolean).join('、') || String(row.Project_Name || '').trim();
+}
+
+function catalogLegacyTeamIdForNumber_(teams, number) {
+  var matches = ensureArray_(teams).filter(function(team) {
+    if (!team.Team_ID || team.Team_ID === SHAPE_PRINT_TEAM_ID) return false;
+    var match = String(team.Team_Name || '').match(/^(?:第\s*)?(\d{1,4})\s*(?:組)?\s*(.*)$/);
+    return match && String(Number(match[1])).padStart(2, '0') === number;
+  });
+  return matches.length === 1 ? matches[0].Team_ID : '';
 }
 
 function catalogItemView_(row) {
@@ -10009,14 +10027,23 @@ function handleCatalogSaveGroup_(payload) {
   var existing = catalogFind_(groups, 'Group_ID', id);
   if (payload.groupId && !existing) throw new Error('找不到這個小組，請重新載入名冊。');
   var number = String(payload.number || '').trim().toUpperCase();
-  var project = String(payload.project || '').trim();
+  var project = existing ? String(existing.Project_Name || '').trim() : String(payload.project || '').trim();
   var advisor = String(payload.advisor || '').trim();
-  var email = normalizeEmail_(payload.email);
+  var email = normalizeEmail_(payload.email || (existing ? existing.Contact_Email : ''));
+  var memberCount = String(payload.memberCount || (existing && existing.Member_Count) || (existing && existing.Member_Name ? 2 : 1));
+  var leaderName = String(payload.leaderName || '').trim();
+  var memberName = String(payload.memberName || '').trim();
   var legacyTeamId = existing ? existing.Legacy_Team_ID : String(payload.legacyTeamId || '');
   if (!/^[A-Z0-9][A-Z0-9-]{0,11}$/.test(number)) throw new Error('組別請填 1 至 12 個數字、英文字母或連字號。');
   if (/^\d+$/.test(number)) number = String(Number(number)).padStart(2, '0');
-  if (!project || project.length > 120 || !advisor || advisor.length > 80) throw new Error('請填寫作品名稱與指導老師。');
-  if (!/^[^\s@,;<>"()]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email) || email.length > 254) throw new Error('請輸入一個有效的聯絡信箱。');
+  if (!existing && !legacyTeamId) legacyTeamId = catalogLegacyTeamIdForNumber_(tables.Teams, number);
+  if (!advisor || advisor.length > 80) throw new Error('請填寫指導老師姓名。');
+  if (['1', '2'].indexOf(memberCount) < 0) throw new Error('請選擇一人一組或兩人一組。');
+  if (!leaderName || leaderName.length > 80 || (memberCount === '2' && (!memberName || memberName.length > 80))) {
+    throw new Error(memberCount === '2' ? '請填寫組長與組員姓名。' : '請填寫組員姓名。');
+  }
+  if (project.length > 120) throw new Error('作品名稱長度不可超過 120 字。');
+  if (email && (!/^[^\s@,;<>"()]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email) || email.length > 254)) throw new Error('請輸入一個有效的聯絡信箱。');
   if (legacyTeamId && (legacyTeamId === SHAPE_PRINT_TEAM_ID || (!existing && !catalogFind_(tables.Teams, 'Team_ID', legacyTeamId)))) {
     throw new Error('無法連結指定的既有畢製小組。');
   }
@@ -10024,8 +10051,9 @@ function handleCatalogSaveGroup_(payload) {
     return group.Group_ID !== id && (group.Group_Number === number || (legacyTeamId && group.Legacy_Team_ID === legacyTeamId));
   })) throw new Error('這個組別或對應的既有小組已在名冊中。');
   var next = { Group_ID: id, Legacy_Team_ID: legacyTeamId, Group_Number: number,
-    Project_Name: project, Advisor_Name: advisor, Contact_Email: email, Revision: existing ? existing.Revision + 1 : 1 };
-  if (existing && ['Group_Number', 'Project_Name', 'Advisor_Name', 'Contact_Email']
+    Project_Name: project, Advisor_Name: advisor, Contact_Email: email, Revision: existing ? existing.Revision + 1 : 1,
+    Member_Count: Number(memberCount), Leader_Name: leaderName, Member_Name: memberCount === '2' ? memberName : '' };
+  if (existing && ['Group_Number', 'Project_Name', 'Advisor_Name', 'Contact_Email', 'Member_Count', 'Leader_Name', 'Member_Name']
     .every(function(key) { return existing[key] === next[key]; })) return { group: catalogGroupView_(existing), linksRevoked: 0 };
   catalogAssertRevision_(existing, payload.revision);
   var writes = { Catalog_Roster: existing ? groups.map(function(group) { return group.Group_ID === id ? next : group; }) : groups.concat([next]) };
@@ -10232,16 +10260,20 @@ function handleCatalogReview_(payload) {
     writes.Catalog_Targets = tables.Catalog_Targets;
   }
   writeCatalogTables_(writes);
-  try {
-    var link = context.target.Link_Key && context.target.Link_Expires > now ? catalogLinkUrl_(context.target) : '';
-    var heading = status === 'approved' ? '資料審核通過' : '請查看補件說明';
-    catalogSendEmail_(context.group.Contact_Email, heading, [
-      '第 ' + context.group.Group_Number + ' 組｜' + context.item.Title + '：' + heading + '。',
-      link ? '請開啟專屬頁面查看結果：' + link : '目前沒有可用的上傳連結，請向形印組負責人索取。'
-    ]);
-    submission.Mail_Status = 'sent';
-  } catch (error) {
-    submission.Mail_Status = 'failed';
+  if (!String(context.group.Contact_Email || '').trim()) {
+    submission.Mail_Status = 'no-email';
+  } else {
+    try {
+      var link = context.target.Link_Key && context.target.Link_Expires > now ? catalogLinkUrl_(context.target) : '';
+      var heading = status === 'approved' ? '資料審核通過' : '請查看補件說明';
+      catalogSendEmail_(context.group.Contact_Email, heading, [
+        '第 ' + context.group.Group_Number + ' 組｜' + context.item.Title + '：' + heading + '。',
+        link ? '請開啟專屬頁面查看結果：' + link : '目前沒有可用的上傳連結，請向形印組負責人索取。'
+      ]);
+      submission.Mail_Status = 'sent';
+    } catch (error) {
+      submission.Mail_Status = 'failed';
+    }
   }
   try {
     writeCatalogTables_({ Catalog_Submissions: tables.Catalog_Submissions });
@@ -10319,11 +10351,15 @@ function catalogRateLimit_(name, max, seconds) {
 }
 
 function catalogHasGuestGrant_(context, payload) {
-  if (context.item.Verify_Email !== true) return true;
+  if (!catalogGuestRequiresVerification_(context)) return true;
   var grant = String(payload.guestGrant || '');
   if (!/^[a-f0-9]{64}$/.test(grant)) return false;
   var record = catalogCacheRead_('CatalogGrant:' + hashSessionToken_(grant));
   return Boolean(record && record.scope === catalogGuestScope_(context) && record.expires > Date.now());
+}
+
+function catalogGuestRequiresVerification_(context) {
+  return context.item.Verify_Email === true && Boolean(String(context.group.Contact_Email || '').trim());
 }
 
 function requireCatalogGuestGrant_(context, payload) {
@@ -10341,14 +10377,15 @@ function catalogGuestView_(context, verified) {
   var basic = {
     title: context.item.Title,
     groupNumber: context.group.Group_Number,
-    requiresVerification: context.item.Verify_Email === true,
+    requiresVerification: catalogGuestRequiresVerification_(context),
     verified: verified
   };
   if (!verified) return basic;
   var window = catalogGuestWindow_(context);
   var latest = window.latest;
   return Object.assign(basic, {
-    project: context.group.Project_Name,
+    project: catalogGroupDisplayName_(context.group),
+    members: [context.group.Leader_Name, context.group.Member_Name].map(function(name) { return String(name || '').trim(); }).filter(Boolean),
     requirements: context.item.Requirements,
     format: context.item.Format,
     dueAt: window.dueAt,
@@ -10372,7 +10409,7 @@ function catalogOtpKey_(context) {
 function handleCatalogGuestSendCode_(payload) {
   var identity = catalogCheckLink_(payload);
   var context = readCatalogGuestContext_(identity, false);
-  if (context.item.Verify_Email !== true) return { sent: false };
+  if (!catalogGuestRequiresVerification_(context)) return { sent: false };
   var key = catalogOtpKey_(context);
   var previous = catalogCacheRead_(key);
   if (previous && Date.now() - previous.issuedAt < 60000) throw new Error('CATALOG_WAIT: 請等候 1 分鐘後再寄送驗證碼。');
@@ -10401,7 +10438,7 @@ function handleCatalogGuestVerify_(payload) {
   var context = readCatalogGuestContext_(identity, true);
   var key = catalogOtpKey_(context);
   var entry = catalogCacheRead_(key);
-  if (context.item.Verify_Email !== true || !entry || entry.expires <= Date.now() || entry.remaining <= 0) {
+  if (!catalogGuestRequiresVerification_(context) || !entry || entry.expires <= Date.now() || entry.remaining <= 0) {
     throw new Error('CATALOG_CODE_INVALID: 驗證碼已失效，請重新寄送。');
   }
   var code = String(payload.code || '');

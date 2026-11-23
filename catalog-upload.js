@@ -99,7 +99,9 @@
         model = data;
         field('intake-title').textContent = data.title;
         field('group-label').textContent = '第 ' + data.groupNumber + ' 組 ・ 116級 畢業製作';
-        field('project-label').textContent = data.project || '小組專屬上傳頁，不需註冊帳號。';
+        field('project-label').textContent = data.members?.length
+            ? '組員：' + data.members.join('、')
+            : data.project || '小組專屬上傳頁，不需註冊帳號。';
         if (!data.verified) {
             showScreen('verify');
             return;

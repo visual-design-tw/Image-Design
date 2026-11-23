@@ -146,7 +146,8 @@ function fakeWorkspace() {
   const tokens = Object.fromEntries(seed.Users.map(user => [user.User_ID, c.issueSession_(user).token]));
   const staff = (action, payload = {}, user = 'U01') => call(action, { ...payload, sessionToken: tokens[user] });
   const addGroup = (number, legacyTeamId = '') => staff('catalogSaveGroup', { requestId: requestId(), number,
-    project: '專刊作品 ' + number, advisor: '測試老師', email: 'group' + number + '@example.invalid', legacyTeamId }).group;
+    project: '專刊作品 ' + number, advisor: '測試老師', email: 'group' + number + '@example.invalid',
+    memberCount: '2', leaderName: '組長' + number, memberName: '組員' + number, legacyTeamId }).group;
   const addItem = (format = 'text', verifyEmail = false, due = result.clock + day) => staff('catalogSaveItem', { requestId: requestId(),
     title: '專刊圖文', requirements: '請依照規格繳交。', format, verifyEmail, dueAt: taipeiDue(due) }).item;
   const assign = (item, group, reviewerId = 'U05') => {
@@ -170,12 +171,38 @@ test('the roster is management-only, preserves old teams, and never creates exte
   assert.throws(() => f.staff('catalogSaveGroup', {}, 'U05'), /FORBIDDEN/);
   const a = f.addGroup('01', 'T01');
   assert.equal(a.advisor, '測試老師');
+  assert.equal(a.memberCount, 2);
+  assert.equal(a.displayName, '組長01、組員01');
   assert.throws(() => f.addGroup('1'), /已在名冊/);
   assert.throws(() => f.addGroup('02', 'T01'), /已在名冊/);
   assert.deepEqual(f.seed, old);
   assert.equal(f.staff('catalogBoard', {}, 'U05').groups.length, 0);
   assert.throws(() => f.staff('catalogBoard', {}, 'U02'), /FORBIDDEN/);
   assert.throws(() => f.assign(f.addItem(), f.addGroup('02', 'T02'), 'U04'), /畢製組別/);
+});
+
+test('roster requires the right names for one-person and two-person groups', () => {
+  const f = fakeWorkspace();
+  const request = { requestId: requestId(), number: '01', advisor: '老師' };
+  assert.throws(() => f.staff('catalogSaveGroup', { ...request, memberCount: '1' }), /組員姓名/);
+  assert.throws(() => f.staff('catalogSaveGroup', { ...request, memberCount: '2', leaderName: '組長' }), /組長與組員姓名/);
+  assert.throws(() => f.staff('catalogSaveGroup', { ...request, memberCount: '3', leaderName: '組長' }), /一人一組或兩人一組/);
+
+  const one = f.staff('catalogSaveGroup', { requestId: requestId(), number: '01', advisor: '老師', memberCount: '1', leaderName: '單人同學' }).group;
+  const two = f.staff('catalogSaveGroup', { requestId: requestId(), number: '02', advisor: '老師', memberCount: '2', leaderName: '組長同學', memberName: '組員同學' }).group;
+  assert.deepEqual([one.memberCount, one.displayName, one.memberName], [1, '單人同學', '']);
+  assert.deepEqual([two.memberCount, two.displayName], [2, '組長同學、組員同學']);
+});
+
+test('a group number still links to its existing team and blocks self-review', () => {
+  const f = fakeWorkspace();
+  f.seed.Teams.find(team => team.Team_ID === 'T01').Team_Name = '17 專刊小組';
+  f.seed.Users.find(user => user.User_ID === 'U04').Team_ID = 'T01';
+  f.tokens.U04 = f.c.issueSession_(f.seed.Users.find(user => user.User_ID === 'U04')).token;
+  const group = f.staff('catalogSaveGroup', { requestId: requestId(), number: '17', advisor: '老師',
+    memberCount: '1', leaderName: '小組同學' }).group;
+  assert.equal(group.legacyTeamId, 'T01');
+  assert.throws(() => f.assign(f.addItem(), group, 'U04'), /畢製組別/);
 });
 
 test('only a manager can explicitly switch, including invalidating old outside sessions on the API', () => {
@@ -230,7 +257,7 @@ test('optional mail verification binds a time-limited grant to the exact link an
   assert.equal(f.call('catalogGuestDescribe', access).requirements, undefined);
   assert.throws(() => f.call('catalogGuestBegin', { ...access, text: 'Hello', requestId: requestId(), expectedVersion: 0 }), /VERIFY_REQUIRED/);
   assert.equal(f.call('catalogGuestSendCode', { ...access, email: 'wrong@example.invalid' }).sent, true);
-  assert.equal(f.mail[0].to, a.group.email);
+  assert.equal(f.mail[0].to, f.data.Catalog_Roster.find(group => group.Group_ID === a.group.id).Contact_Email);
   assert.throws(() => f.call('catalogGuestSendCode', access), /CATALOG_WAIT/);
   const code = f.mail[0].text.match(/驗證碼：(\d{6})/)[1];
   assert.throws(() => f.call('catalogGuestVerify', { ...access, code: code === '111111' ? '222222' : '111111' }), /CODE_INVALID/);
@@ -240,6 +267,27 @@ test('optional mail verification binds a time-limited grant to the exact link an
   assert.equal(f.call('catalogGuestDescribe', { linkToken: b.linkToken, guestGrant }).verified, false);
   f.clock += 7200001;
   assert.equal(f.call('catalogGuestDescribe', { ...access, guestGrant }).verified, false);
+});
+
+test('a roster without an email uses its private link and reports review results without mail', () => {
+  const f = fakeWorkspace();
+  const group = f.staff('catalogSaveGroup', { requestId: requestId(), number: '19', advisor: '老師',
+    memberCount: '1', leaderName: '單人同學' }).group;
+  const item = f.addItem('text', true);
+  const target = f.assign(item, group);
+  const linkToken = f.share(target);
+  const guest = f.call('catalogGuestDescribe', { linkToken });
+  assert.equal(guest.requiresVerification, false);
+  assert.equal(guest.verified, true);
+  assert.deepEqual(guest.members, ['單人同學']);
+  assert.deepEqual(f.call('catalogGuestSendCode', { linkToken }), { sent: false });
+
+  f.call('catalogGuestBegin', { linkToken, requestId: requestId(), text: '專刊內容', expectedVersion: 0 });
+  const row = f.staff('catalogBoard').rows.find(entry => entry.id === target.id);
+  const reviewed = f.staff('catalogReview', { targetId: row.id, submissionId: row.versions[0].id, decision: 'approved' }, 'U05');
+  assert.equal(reviewed.submission.mailStatus, 'no-email');
+  assert.equal(f.mail.length, 0);
+  assert.equal(f.call('catalogGuestDescribe', { linkToken }).latest.status, 'approved');
 });
 
 test('a reassigned reviewer loses access, reviews are single-use, and correction preserves both versions', () => {
@@ -363,11 +411,20 @@ test('two separate guest pages complete approval and correction and resume a 50 
       await admin().getByRole('button', { name: '新增小組', exact: true }).click();
       const form = manager.locator('#catalog-editor');
       await form.getByLabel('組別', { exact: true }).fill(number);
-      await form.getByLabel('作品名稱').fill('作品 ' + number);
       await form.getByLabel('指導老師').fill('測試老師');
-      await form.getByLabel('聯絡信箱').fill('group' + number + '@example.invalid');
+      if (number === '18') {
+        await form.getByRole('button', { name: '一人一組' }).click();
+        await form.getByRole('button', { name: '兩人一組', exact: true }).click();
+      }
+      if (number === '17') {
+        await form.getByLabel('組員姓名').fill('單人姓名17');
+      } else {
+        await form.getByLabel('組長姓名').fill('組長姓名18');
+        await form.getByLabel('組員姓名').fill('組員姓名18');
+      }
       await form.getByRole('button', { name: '儲存', exact: true }).click();
-      await admin().getByText(number + '｜作品 ' + number, { exact: true }).waitFor();
+      const names = number === '17' ? '單人姓名17' : '組長姓名18、組員姓名18';
+      await admin().getByText(number + '｜' + names, { exact: true }).waitFor();
     }
     await selectSection('收件項目');
     await admin().getByRole('button', { name: '建立收件項目', exact: true }).click();
@@ -379,12 +436,12 @@ test('two separate guest pages complete approval and correction and resume a 50 
     await manager.locator('#date-time-picker-portal').getByRole('button', { name: '完成' }).click();
     await form.getByRole('button', { name: '儲存', exact: true }).click();
     await admin().getByRole('button', { name: '分配小組', exact: true }).click();
-    await form.getByLabel(/17｜作品 17/).check();
-    await form.getByLabel(/18｜作品 18/).check();
+    await form.getByLabel(/17｜單人姓名17/).check();
+    await form.getByLabel(/18｜組長姓名18、組員姓名18/).check();
     await form.getByRole('button', { name: '選擇形印組帳號', exact: true }).click();
     await form.getByRole('button', { name: '收件組員', exact: true }).click();
     await form.getByRole('button', { name: '儲存', exact: true }).click();
-    await admin().getByText('第 17 組｜作品 17', { exact: true }).waitFor();
+    await admin().getByText('第 17 組｜單人姓名17', { exact: true }).waitFor();
     assert.equal(f.data.Catalog_Targets.length, 2);
 
     const reviewer = await staffPage('U05');
@@ -405,16 +462,9 @@ test('two separate guest pages complete approval and correction and resume a 50 
       const guest = await newPage({ guest: true });
       guests.push(guest);
       await guest.goto(url + '/catalog-upload.html' + links[index]);
-      await guest.getByRole('heading', { name: '先確認是這個小組' }).waitFor();
-      assert.equal(await guest.getByText('請提供原檔與作品介紹').isVisible(), false);
-      assert.equal(await guest.locator('nav, #auth-section, #dashboard-section').count(), 0);
-      await guest.getByRole('button', { name: '寄送驗證碼' }).click();
-      await guest.getByText(/驗證碼已寄出/).waitFor();
-      const email = f.mail.at(-1);
-      assert.equal(email.to, 'group' + number + '@example.invalid');
-      await guest.getByLabel('6 位數字驗證碼').fill(email.text.match(/驗證碼：(\d{6})/)[1]);
-      await guest.getByRole('button', { name: '驗證並繼續' }).click();
       await guest.getByText('請提供原檔與作品介紹', { exact: true }).waitFor();
+      await guest.getByText(index === 0 ? '組員：單人姓名17' : '組員：組長姓名18、組員姓名18', { exact: true }).waitFor();
+      assert.equal(await guest.locator('nav, #auth-section, #dashboard-section').count(), 0);
       assert.equal(await guest.locator('#intake-file').isVisible(), false);
       assert.equal(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await guest.getByRole('button', { name: '開始填寫' }).click();
@@ -463,7 +513,7 @@ test('two separate guest pages complete approval and correction and resume a 50 
     await guests[1].getByRole('button', { name: '送出給形印組' }).click();
     await guests[1].getByText(/已確認收到第 2 版/).waitFor();
     assert.deepEqual(f.data.Catalog_Submissions.map(row => row.Status), ['approved', 'returned', 'pending']);
-    assert.equal(f.mail.length, 4);
+    assert.equal(f.mail.length, 0);
 
     await selectSection('開放設定');
     await admin().getByRole('button', { name: '切換為形印組專用', exact: true }).click();
