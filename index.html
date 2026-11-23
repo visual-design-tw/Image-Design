@@ -1151,6 +1151,15 @@
         .catalog-board #catalog-editor, .catalog-board #catalog-link-panel { scroll-margin-top: 88px; }
         .catalog-case-summary::-webkit-details-marker { display: none; }
         [data-catalog-case][open] > .catalog-case-summary .catalog-case-chevron { transform: rotate(180deg); }
+        .fund-hero { background: radial-gradient(ellipse at top right, #e0f2ef, transparent 70%), #fff; border-color: #dce9e8; }
+        .fund-stat { min-width: 0; padding: 12px 14px; border-radius: 14px; background: #f5f7f7; }
+        .fund-progress { height: 7px; overflow: hidden; border-radius: 99px; background: #eaf0ef; }
+        .fund-progress > span { display: block; height: 100%; border-radius: inherit; background: #167a6a; }
+        .fund-payment-row + .fund-payment-row { border-top: 1px solid var(--catalog-border); }
+        [data-competition-fund] [tabindex="-1"], #competition-fund-confirm { scroll-margin-top: 90px; }
+        @media (max-width: 470px) {
+            .fund-stat:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased booting">
@@ -2194,7 +2203,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.23-catalog-forms.1";
+        const APP_RELEASE = "2026.11.24-competition-fund.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2305,6 +2314,7 @@
         let registrationOptionsRefreshFailed = false;
         let workspaceAccessPolicy = { workspaceInternalOnly: false, workspaceModeRevision: -1 };
         let catalogWorkspace = createCatalogWorkspaceState();
+        let competitionFund = createCompetitionFundState();
         let shapePrintInviteToken = "";
         let shapePrintInviteStatus = "idle";
         let shapePrintInviteData = null;
@@ -2365,6 +2375,7 @@
             { id: "work-items", name: "工作事項", icon: "list-checks", roles: ["SuperAdmin", "Admin"] },
             { id: "design-service", name: "形印代做", icon: "briefcase", roles: ["SuperAdmin", "Admin"] },
             { id: "purchase", name: "發包管理", icon: "printer", roles: ["SuperAdmin", "Admin"] },
+            { id: "competition-fund", name: "競賽基金", icon: "wallet", roles: ["SuperAdmin", "Admin"] },
             { id: "activity", name: "操作紀錄", icon: "scroll-text", roles: ["SuperAdmin", "Admin"] },
             { id: "recycle", name: "回收桶", icon: "trash-2", roles: ["SuperAdmin", "Admin"] },
             { id: "teams", name: "小組與成員", icon: "users", roles: ["SuperAdmin", "Admin", "Leader", "Member"] }
@@ -3999,6 +4010,7 @@
             if (document.hidden) return;
             if (!isShapePrintAccount(currentUser)) refreshRegistrationOptions({ force: Boolean(currentUser) });
             else if (activeTab === 'catalog' && !catalogWorkspace.form && !catalogWorkspace.link) refreshCatalogWorkspace();
+            else if (activeTab === 'competition-fund') refreshCompetitionFund();
         });
         setInterval(function() {
             if (!document.hidden && !currentUser && isRemoteSyncEnabled()) refreshRegistrationOptions();
@@ -4267,6 +4279,8 @@
         function clearStoredSession(options = {}) {
             clearFilePreviewSurfaces();
             catalogWorkspace = createCatalogWorkspaceState();
+            releaseCompetitionFundPhoto();
+            competitionFund = createCompetitionFundState();
             notificationReadsInFlight.clear();
             notificationCenterUi = { userId: '', selecting: false, filtersOpen: false };
             clearNotificationSelection();
@@ -4521,7 +4535,7 @@
                 error.sessionExpired = true;
                 throw error;
             }
-            const isIndependentMutation = !['getFilePreview', 'catalogBoard', 'catalogDownload'].includes(action)
+            const isIndependentMutation = !['getFilePreview', 'catalogBoard', 'catalogDownload', 'competitionFundBoard', 'competitionFundAnnouncementPhoto'].includes(action)
                 && !isPublicRegistrationRead && !isAuthAction && !/^(save|bootstrap|health|setup)/i.test(action);
             const hasUnconfirmedChanges = remoteSaveTimer || pendingRemoteSave || remoteSaveInFlight || ["error", "conflict", "saving"].includes(saveFeedbackState);
             if ((isIndependentMutation || action === "bootstrap") && hasUnconfirmedChanges && !requestOptions.discardLocalChanges) {
@@ -4539,7 +4553,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -13857,7 +13871,7 @@
 
         function getNavigationMenusForRole(effectiveRole) {
             return NAVIGATION_MENU_CONFIGS.filter(function(menu) {
-                if (menu.id === "purchase") {
+                if (menu.id === "purchase" || menu.id === "competition-fund") {
                     return isShapePrintAccount(currentUser);
                 }
                 return menu.roles.includes(effectiveRole);
@@ -15964,9 +15978,7 @@
         function switchTab(tabId) {
             const roleContext = getEffectiveRoleContext();
             const targetMenu = NAVIGATION_MENU_CONFIGS.find(function(menu) { return menu.id === tabId; });
-            const canAccessTarget = targetMenu && (targetMenu.id === "purchase"
-                ? isShapePrintAccount(currentUser)
-                : targetMenu.roles.includes(roleContext.effectiveRole));
+            const canAccessTarget = targetMenu && getNavigationMenusForRole(roleContext.effectiveRole).includes(targetMenu);
             if (!targetMenu) {
                 showToast("這個功能已移除，請使用專案工作台的導覽選單。", "info");
                 return;
@@ -15978,6 +15990,7 @@
             if (tabId !== activeTab) {
                 pendingTabEntranceTab = tabId;
                 if (activeTab === 'catalog') catalogWorkspace.link = null;
+                if (activeTab === 'competition-fund') releaseCompetitionFundPhoto();
             }
             activeTab = tabId;
             renderAll();
@@ -15985,6 +15998,7 @@
                 refreshActivityLogs({ silent: true });
             }
             if (tabId === "catalog") refreshCatalogWorkspace();
+            if (tabId === "competition-fund") refreshCompetitionFund();
         }
 
         function calendarPad(value) {
@@ -17350,7 +17364,7 @@
             // E. 總預算大控盤卡片可見度與渲染 (限大會形印組工作台、SuperAdmin 可見)
             const budgetCard = document.getElementById('dashboard-budget-card');
             const activeStage = getCurrentProjectStage();
-            if (canManageAssignmentBoard(effectiveRole) && activeTab !== 'catalog') {
+            if (canManageAssignmentBoard(effectiveRole) && !['catalog', 'competition-fund'].includes(activeTab)) {
                 if (budgetCard) budgetCard.classList.remove('hidden');
                 if (workspaceHydrationInFlight) {
                     renderBudgetProgressBar(null, { loading: true });
@@ -18174,6 +18188,367 @@
             `;
         }
 
+        function createCompetitionFundState() {
+            return { owner: '', board: null, loading: false, busy: false, error: '', message: '', draft: null, payment: null, announcementDraft: null, photo: null };
+        }
+
+        function releaseCompetitionFundPhoto() {
+            if (competitionFund.photo?.url) URL.revokeObjectURL(competitionFund.photo.url);
+            competitionFund.photo = null;
+        }
+
+        function competitionFundForUser() {
+            const owner = currentUser?.User_ID || '';
+            if (competitionFund.owner !== owner) {
+                releaseCompetitionFundPhoto();
+                competitionFund = { ...createCompetitionFundState(), owner };
+            }
+            return competitionFund;
+        }
+
+        function drawCompetitionFund(focusId) {
+            const container = document.getElementById('main-view-container');
+            if (!container || activeTab !== 'competition-fund' || !isShapePrintAccount(currentUser)) return;
+            renderCompetitionFund(container);
+            renderLucideIcons();
+            if (focusId) document.getElementById(focusId)?.focus();
+        }
+
+        function competitionFundError(error) {
+            const message = String(error?.message || '');
+            if (message.includes('Unsupported POST action')) return '競賽基金的雲端功能尚未上線。';
+            if (/^(FUND_|FORBIDDEN|UNSAVED_CHANGES)/.test(message)) return message.replace(/^[A-Z_]+:\s*/, '');
+            return '雲端尚未確認。請保留此頁並重試，系統不會重複計入同一筆。';
+        }
+
+        function competitionFundReadBoard(result) {
+            const board = result?.data;
+            if (!board || typeof board.canConfigure !== 'boolean' || typeof board.canConfirm !== 'boolean'
+                || !Array.isArray(board.rows) || !Array.isArray(board.periods) || !Array.isArray(board.candidates)) throw new Error('FUND_UNAVAILABLE');
+            return board;
+        }
+
+        async function refreshCompetitionFund(month, focusId, keepFeedback = false) {
+            if (!isShapePrintAccount(currentUser)) return;
+            const view = competitionFundForUser();
+            if (view.loading || view.busy || view.draft || view.payment || view.announcementDraft) return;
+            view.loading = true;
+            if (!keepFeedback) view.error = view.message = '';
+            drawCompetitionFund();
+            try {
+                const result = await requestGas('competitionFundBoard', { month: month || view.board?.selectedMonth || '' });
+                if (view === competitionFund) {
+                    const board = competitionFundReadBoard(result);
+                    if (view.photo && board.announcement?.id !== view.photo.id) releaseCompetitionFundPhoto();
+                    view.board = board;
+                }
+            } catch (error) {
+                if (view === competitionFund && !error.sessionExpired) view.error = competitionFundError(error);
+            } finally {
+                if (view === competitionFund) {
+                    view.loading = false;
+                    drawCompetitionFund(focusId);
+                }
+            }
+        }
+
+        function openCompetitionFundSettings() {
+            const view = competitionFundForUser();
+            if (!view.board?.canConfigure || view.loading || view.busy || view.payment || view.announcementDraft) return;
+            const plan = view.board.plan;
+            const startMonth = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7);
+            view.draft = { goal: plan?.goal ?? '', amount: plan?.amount ?? '', count: plan?.count ?? 1,
+                startMonth: plan?.startMonth || startMonth, managerId: plan?.managerInactive ? '' : plan?.managerId || '',
+                announcementDay: plan?.announcementDay || 0,
+                participantIds: new Set((plan?.participants || view.board.candidates).map(member => member.id)), rosterOpen: false };
+            view.error = view.message = '';
+            drawCompetitionFund('competition-fund-goal');
+        }
+
+        function updateCompetitionFundDraft(input) {
+            const view = competitionFundForUser();
+            const draft = view.draft;
+            if (!draft || view.busy) return;
+            if (input.name === 'participantIds') {
+                if (input.checked) draft.participantIds.add(input.value);
+                else draft.participantIds.delete(input.value);
+                const count = document.querySelector('[data-fund-roster-count]');
+                if (count) count.textContent = draft.participantIds.size + ' 人';
+            } else draft[input.name] = input.value;
+            const estimate = document.getElementById('competition-fund-estimate');
+            if (estimate) estimate.textContent = competitionFundEstimate(draft);
+        }
+
+        function competitionFundMoney(value) {
+            return 'NT$ ' + Number(value).toLocaleString('zh-TW');
+        }
+
+        function competitionFundEstimate(draft) {
+            const amount = Number(draft.amount), count = Number(draft.count);
+            return Number.isSafeInteger(amount) && amount > 0 && amount <= 100000000 && Number.isSafeInteger(count) && count > 0 && count <= 36
+                ? '按目前設定預計收取 ' + competitionFundMoney(amount * count * draft.participantIds.size) : '';
+        }
+
+        function competitionFundMonthLabel(month) {
+            const [year, value] = month.split('-');
+            return year + ' 年 ' + Number(value) + ' 月';
+        }
+
+        function cancelCompetitionFundAction() {
+            const view = competitionFundForUser();
+            if (view.busy) return;
+            const focusId = view.draft ? 'competition-fund-settings' : view.announcementDraft ? 'competition-fund-announce' : 'competition-fund-month';
+            view.draft = view.payment = view.announcementDraft = null;
+            view.error = view.message = '';
+            drawCompetitionFund(focusId);
+        }
+
+        function prepareCompetitionFundPayment(button) {
+            const view = competitionFundForUser();
+            const board = view.board;
+            if (!board?.canConfirm || view.loading || view.busy || view.draft || view.payment || view.announcementDraft) return;
+            const row = board.rows.find(member => member.id === button.dataset.fundMember);
+            if (!row) return;
+            view.payment = { memberId: row.id, name: row.name, month: board.selectedMonth, previousEventId: row.eventId,
+                revision: board.plan.revision, paid: !row.paid,
+                requestId: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('') };
+            view.message = view.error = '';
+            drawCompetitionFund('competition-fund-confirm');
+        }
+
+        async function writeCompetitionFund(action, payload, photo = null) {
+            const view = competitionFundForUser();
+            if (view.loading || view.busy) return;
+            view.busy = true;
+            view.error = view.message = '';
+            drawCompetitionFund();
+            let conflict = false;
+            try {
+                if (photo) {
+                    const base64 = await readFileAsBase64(photo);
+                    if (view !== competitionFund) return;
+                    payload.photo = { mimeType: photo.type, size: photo.size, base64 };
+                }
+                const board = competitionFundReadBoard(await requestGas(action, payload));
+                if (view !== competitionFund) return;
+                if (!board.plan || (action === 'competitionFundSetPaid' && (board.selectedMonth !== payload.month
+                    || board.rows.find(row => row.id === payload.memberId)?.paid !== payload.paid))
+                    || (action === 'competitionFundPublishAnnouncement' && board.announcement?.id !== payload.requestId)) throw new Error('FUND_UNAVAILABLE');
+                if (view.photo && board.announcement?.id !== view.photo.id) releaseCompetitionFundPhoto();
+                view.board = board;
+                view.message = action === 'competitionFundSave' ? '基金設定已儲存。' : action === 'competitionFundPublishAnnouncement' ? '本期繳款狀態已公告。'
+                    : payload.paid ? '已確認繳款。' : '已撤銷這筆確認。';
+                view.draft = view.payment = view.announcementDraft = null;
+            } catch (error) {
+                if (view === competitionFund && !error.sessionExpired) {
+                    view.error = competitionFundError(error);
+                    conflict = /^(FUND_CHANGED|FUND_LOCKED|FORBIDDEN):/.test(error.message || '');
+                    if (conflict) view.draft = view.payment = view.announcementDraft = null;
+                }
+            } finally {
+                if (view === competitionFund) {
+                    view.busy = false;
+                    if (conflict) await refreshCompetitionFund(payload.month, 'competition-fund-feedback', true);
+                    else drawCompetitionFund('competition-fund-feedback');
+                }
+            }
+        }
+
+        function submitCompetitionFundSettings(event) {
+            event.preventDefault();
+            const view = competitionFundForUser();
+            const draft = view.draft;
+            if (!draft || !view.board?.canConfigure) return;
+            if (!draft.participantIds.size) {
+                draft.rosterOpen = true;
+                view.error = '請至少選一位繳款成員。';
+                drawCompetitionFund('competition-fund-feedback');
+                return;
+            }
+            return writeCompetitionFund('competitionFundSave', { goal: Number(draft.goal), amount: Number(draft.amount), count: Number(draft.count),
+                startMonth: draft.startMonth, managerId: draft.managerId, participantIds: [...draft.participantIds],
+                announcementDay: Number(draft.announcementDay), revision: view.board.plan?.revision ?? 0, month: view.board.selectedMonth });
+        }
+
+        function confirmCompetitionFundPayment() {
+            const view = competitionFundForUser();
+            if (!view.payment || !view.board?.canConfirm) return;
+            const { name, ...payload } = view.payment;
+            return writeCompetitionFund('competitionFundSetPaid', payload);
+        }
+
+        function openCompetitionFundAnnouncement() {
+            const view = competitionFundForUser();
+            if (!view.board?.canConfirm || !view.board.plan || view.draft || view.payment || view.loading || view.busy) return;
+            view.announcementDraft = { note: view.board.announcement?.note || '', file: null, requestId: '' };
+            view.error = view.message = '';
+            drawCompetitionFund('competition-fund-announcement-note');
+        }
+
+        function updateCompetitionFundAnnouncementNote(input) {
+            const draft = competitionFundForUser().announcementDraft;
+            if (!draft) return;
+            draft.note = input.value;
+            draft.requestId = '';
+        }
+
+        function pickCompetitionFundAnnouncementPhoto(input) {
+            const view = competitionFundForUser();
+            const draft = view.announcementDraft;
+            if (!draft || view.busy) return;
+            const file = input.files[0] || null;
+            draft.requestId = '';
+            if (file && (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || !file.size || file.size > 5 * 1024 * 1024)) {
+                draft.file = null;
+                view.error = '請選擇 5 MB 以內的 JPG、PNG 或 WebP 照片。';
+                drawCompetitionFund('competition-fund-feedback');
+                return;
+            }
+            draft.file = file;
+            view.error = '';
+            drawCompetitionFund('competition-fund-announcement-photo');
+        }
+
+        function submitCompetitionFundAnnouncement(event) {
+            event.preventDefault();
+            const view = competitionFundForUser();
+            const { board, announcementDraft: draft } = view;
+            if (!draft || !board?.canConfirm || view.busy) return;
+            const period = board.periods.find(item => item.month === board.selectedMonth);
+            if (!period || (!draft.file && !board.announcement)) {
+                view.error = '第一次發布請附上照片。';
+                drawCompetitionFund('competition-fund-feedback');
+                return;
+            }
+            if (!draft.requestId) draft.requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+            return writeCompetitionFund('competitionFundPublishAnnouncement', { month: board.selectedMonth, note: draft.note, revision: board.plan.revision,
+                expectedConfirmed: period.confirmed, previousAnnouncementId: board.announcement?.id || '', requestId: draft.requestId }, draft.file);
+        }
+
+        async function toggleCompetitionFundAnnouncementPhoto() {
+            const view = competitionFundForUser();
+            const board = view.board;
+            if (!board?.announcement || view.loading || view.busy || view.photo?.loading) return;
+            if (view.photo?.url) {
+                releaseCompetitionFundPhoto();
+                drawCompetitionFund('competition-fund-show-photo');
+                return;
+            }
+            const photo = { id: board.announcement.id, loading: true, url: '', error: '' };
+            view.photo = photo;
+            drawCompetitionFund();
+            try {
+                const { data } = await requestGas('competitionFundAnnouncementPhoto', { month: board.selectedMonth, announcementId: photo.id });
+                if (view !== competitionFund || view.photo !== photo) return;
+                if (data?.announcementId !== photo.id || !['image/jpeg', 'image/png', 'image/webp'].includes(data.mimeType) ||
+                    !Number.isSafeInteger(data.size) || data.size < 1 || data.size > 5 * 1024 * 1024 || data.contentBase64?.length !== Math.ceil(data.size / 3) * 4) {
+                    throw new Error('FUND_PHOTO_UNAVAILABLE: 照片暫時無法顯示，請重新整理。');
+                }
+                const bytes = Uint8Array.from(atob(data.contentBase64), character => character.charCodeAt(0));
+                if (bytes.length !== data.size) throw new Error('FUND_PHOTO_UNAVAILABLE: 照片資料不完整，請重試。');
+                photo.url = URL.createObjectURL(new Blob([bytes], { type: data.mimeType }));
+            } catch (error) {
+                if (!error.sessionExpired) photo.error = competitionFundError(error);
+            } finally {
+                if (view === competitionFund && view.photo === photo) {
+                    photo.loading = false;
+                    drawCompetitionFund('competition-fund-show-photo');
+                }
+            }
+        }
+
+        function competitionFundAnnouncementMarkup(view, period) {
+            const { board, busy, loading, payment, announcementDraft: draft, photo } = view;
+            const notice = board.announcement;
+            if (!notice && !board.canConfirm && !period.deadline) return '';
+            const deadline = period.deadline ? '截止 ' + period.deadline.replaceAll('-', '/') : '';
+            const badge = notice ? '已公告' : period.announcementStatus === 'overdue' ? '逾期待公告' : '待公告';
+            const disabled = busy || loading || Boolean(payment);
+            return `<section class="space-y-3 rounded-2xl border border-[#DCE9E8] bg-[#F7FAF9] p-3 sm:p-4" aria-label="本期公告"><div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-2"><h4 class="font-bold">本期公告</h4><span class="catalog-chip" data-catalog-status="${notice ? 'approved' : period.announcementStatus === 'overdue' ? 'returned' : 'pending'}">${badge}</span>${deadline ? `<span class="text-xs catalog-muted">${escapeHtml(deadline)}</span>` : ''}</div>
+                ${board.canConfirm && !draft ? `<button id="competition-fund-announce" class="catalog-button" type="button" ${disabled ? 'disabled' : ''} onclick="openCompetitionFundAnnouncement()">${notice ? '更新公告' : '撰寫公告'}</button>` : ''}</div>
+                ${draft ? `<form class="space-y-3" aria-label="發布繳款公告" onsubmit="submitCompetitionFundAnnouncement(event)"><fieldset class="space-y-3" ${busy ? 'disabled' : ''}>
+                    <p class="text-sm catalog-muted">將公告目前的繳款摘要：${period.confirmed} / ${period.count} 人已確認，實收 ${competitionFundMoney(period.confirmed * board.plan.amount)}。</p>
+                    ${catalogField('補充說明（選填）', `<textarea id="competition-fund-announcement-note" class="catalog-input" rows="2" maxlength="500" oninput="updateCompetitionFundAnnouncementNote(this)" placeholder="例如：已更新本月實收金額">${escapeHtml(draft.note)}</textarea>`)}
+                    ${catalogField('公告照片', '<input id="competition-fund-announcement-photo" class="catalog-input text-sm" type="file" accept="image/jpeg,image/png,image/webp" onchange="pickCompetitionFundAnnouncementPhoto(this)">')}
+                    <p class="catalog-break text-xs catalog-muted">${draft.file ? '已選取：' + escapeHtml(draft.file.name) : notice ? '未重選照片時保留原圖。' : '一張 JPG、PNG 或 WebP，最大 5 MB。'} 上傳前請遮蔽姓名、帳號與轉帳資訊。</p>
+                    <div class="flex justify-end gap-2">${catalogButton('取消', 'cancelCompetitionFundAction()')}<button class="catalog-button catalog-button-primary" type="submit">${busy ? '發布中…' : '發布公告'}</button></div>
+                    </fieldset></form>` : notice ? `<div class="space-y-2">
+                    <p class="text-sm font-semibold">${notice.confirmed} / ${notice.count} 人已確認 · 實收 ${competitionFundMoney(notice.collected)}</p>
+                    ${notice.note ? `<p class="catalog-break whitespace-pre-wrap text-sm">${escapeHtml(notice.note)}</p>` : ''}
+                    <p class="catalog-break text-xs catalog-muted">${escapeHtml(catalogDateLabel(notice.publishedAt))} · ${escapeHtml(notice.publisher || '形印組')}</p>
+                    ${board.canConfirm && notice.confirmed !== period.confirmed ? '<p class="text-xs font-semibold text-[#8C4607]">繳款狀態已有更新，可重新發布公告。</p>' : ''}
+                    <button id="competition-fund-show-photo" type="button" class="catalog-button" onclick="toggleCompetitionFundAnnouncementPhoto()" ${disabled || photo?.loading ? 'disabled' : ''}>${photo?.loading ? '載入照片中…' : photo?.url ? '收合照片' : '查看照片'}</button>
+                    ${photo?.url ? `<img class="block max-h-[55vh] max-w-full rounded-xl object-contain" alt="本期繳款公告照片" src="${escapeHtml(photo.url)}">` : ''}
+                    ${photo?.error ? `<p role="alert" class="text-sm text-[#A82520]">${escapeHtml(photo.error)}</p>` : ''}
+                </div>` : ''}</section>`;
+        }
+
+        function competitionFundSettingsMarkup(view) {
+            const { board, draft, busy } = view;
+            const lock = board.plan?.locked ? 'readonly' : '';
+            const controls = (name, max, readonly = '') => `<input id="competition-fund-${name}" name="${name}" class="catalog-input" type="number" min="1" max="${max}" step="1" inputmode="numeric" required ${readonly} value="${escapeHtml(String(draft[name]))}" oninput="updateCompetitionFundDraft(this)">`;
+            const candidates = new Map((board.plan?.participants || []).map(member => [member.id, { ...member, inactive: true }]));
+            board.candidates.forEach(member => candidates.set(member.id, member));
+            return `<form class="catalog-surface space-y-3" aria-label="基金設定" onsubmit="submitCompetitionFundSettings(event)"><h3 class="text-lg font-bold">基金設定</h3>
+                <fieldset ${busy ? 'disabled' : ''} class="space-y-3">
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        ${catalogField('基金目標（NT$）', controls('goal', 100000000))}
+                        ${catalogField('每人每月應繳（NT$）', controls('amount', 100000000, lock))}
+                        ${catalogField('第一期月份', `<input name="startMonth" class="catalog-input" type="text" pattern="20[0-9]{2}-(0[1-9]|1[0-2])" maxlength="7" placeholder="YYYY-MM" title="例如 2026-11" required ${lock} value="${escapeHtml(draft.startMonth)}" oninput="updateCompetitionFundDraft(this)">`)}
+                        ${catalogField('繳款期數（月）', controls('count', 36, lock))}
+                        ${catalogField('管理組員', `<select class="catalog-input" name="managerId" data-soft-select-mode="native" onchange="updateCompetitionFundDraft(this)"><option value="">由組長管理</option>${board.candidates.filter(member => member.canManage).map(member => `<option value="${escapeHtml(member.id)}" ${draft.managerId === member.id ? 'selected' : ''}>${escapeHtml(member.name)}</option>`).join('')}</select>`)}
+                        ${catalogField('每月公告截止日', `<select class="catalog-input" name="announcementDay" data-soft-select-mode="native" onchange="updateCompetitionFundDraft(this)"><option value="0">不設定</option>${Array.from({ length: 31 }, (_, index) => index + 1).map(day => `<option value="${day}" ${Number(draft.announcementDay) === day ? 'selected' : ''}>每月 ${day} 日</option>`).join('')}</select>`)}
+                    </div>
+                    ${lock ? `<p class="text-sm catalog-muted">已有繳款或公告，原定月份、金額、期數與 ${draft.participantIds.size} 位成員維持不變。</p>` :
+                        `<details class="catalog-item-disclosure" ${draft.rosterOpen ? 'open' : ''} ontoggle="if (this.isConnected && competitionFund.draft) competitionFund.draft.rosterOpen = this.open">
+                            <summary class="text-sm font-semibold"><span>繳款成員</span><span data-fund-roster-count class="catalog-chip ml-auto">${draft.participantIds.size} 人</span><i data-lucide="chevron-down" aria-hidden="true" class="h-4 w-4 catalog-muted"></i></summary>
+                            <div class="catalog-item-disclosure-body grid max-h-44 gap-2 overflow-auto sm:grid-cols-2">${[...candidates.values()].map(member => `<label class="flex items-center gap-2 text-sm catalog-break"><input name="participantIds" type="checkbox" value="${escapeHtml(member.id)}" ${draft.participantIds.has(member.id) ? 'checked' : ''} onchange="updateCompetitionFundDraft(this)">${escapeHtml(member.name)}${member.inactive ? '（未啟用）' : ''}</label>`).join('')}</div>
+                        </details>`}
+                    <div class="flex flex-wrap items-center justify-between gap-3"><p id="competition-fund-estimate" class="text-sm catalog-muted">${competitionFundEstimate(draft)}</p><div class="ml-auto flex gap-2">${catalogButton('取消', 'cancelCompetitionFundAction()')}<button class="catalog-button catalog-button-primary" type="submit">${busy ? '儲存中…' : '儲存設定'}</button></div></div>
+                </fieldset></form>`;
+        }
+
+        function competitionFundPaymentsMarkup(view) {
+            const { board, loading, busy, payment } = view;
+            const { plan, rows, periods, selectedMonth, canConfirm } = board;
+            const period = periods.find(entry => entry.month === selectedMonth);
+            const disabled = loading || busy || Boolean(payment || view.announcementDraft);
+            return `<section class="catalog-surface space-y-3" aria-label="每期繳款">
+                <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-lg font-bold">${canConfirm ? '每期繳款' : '我的繳款'}</h3>
+                    <p class="text-sm catalog-muted">全組 ${period.confirmed} / ${period.count} 人已確認 · 每人 ${competitionFundMoney(plan.amount)}</p></div>
+                    <select id="competition-fund-month" aria-label="查看繳款月份" data-soft-select-mode="native" class="catalog-input w-auto" style="width:auto" ${disabled ? 'disabled' : ''} onchange="refreshCompetitionFund(this.value, this.id)">${periods.map(entry => `<option value="${escapeHtml(entry.month)}" ${entry.month === selectedMonth ? 'selected' : ''}>${escapeHtml(competitionFundMonthLabel(entry.month))}${entry.announcementStatus === 'overdue' && canConfirm ? '（待補公告）' : ''}</option>`).join('')}</select></div>
+                ${competitionFundAnnouncementMarkup(view, period)}
+                ${payment ? `<div class="rounded-2xl border border-[#CFE1FA] bg-[#F4F8FF] p-3" aria-label="確認繳款操作"><p class="font-bold catalog-break">${payment.paid ? '確認已收到' : '撤銷這筆確認'}：${escapeHtml(payment.name)}</p>
+                    <p class="mt-1 text-sm catalog-muted">${escapeHtml(competitionFundMonthLabel(payment.month))} · ${competitionFundMoney(plan.amount)}</p>
+                    <div class="mt-3 flex justify-end gap-2">${catalogButton('取消', 'cancelCompetitionFundAction()', false, busy)}<button id="competition-fund-confirm" type="button" class="catalog-button catalog-button-primary" ${busy ? 'disabled' : ''} onclick="confirmCompetitionFundPayment()">${busy ? '儲存中…' : payment.paid ? '確認收到' : '確認撤銷'}</button></div></div>` : ''}
+                ${rows.length ? `<ul>${rows.map(row => `<li class="fund-payment-row flex flex-wrap items-center justify-between gap-2 py-2.5"><div class="min-w-0 flex-1 catalog-break"><p class="font-semibold">${escapeHtml(row.name)}</p>${row.changedAt ? `<p class="text-xs catalog-muted">${escapeHtml(catalogDateLabel(row.changedAt) || row.changedAt)}${row.actorName ? ' · ' + escapeHtml(row.actorName) : ''}</p>` : ''}</div>
+                    <span class="catalog-chip" data-catalog-status="${row.paid ? 'approved' : 'pending'}">${row.paid ? '已確認' : '待繳款'}</span>
+                    ${canConfirm ? `<button type="button" class="catalog-button" data-fund-member="${escapeHtml(row.id)}" aria-label="${row.paid ? '撤銷確認' : '標記已繳'}：${escapeHtml(row.name)}" ${disabled ? 'disabled' : ''} onclick="prepareCompetitionFundPayment(this)">${row.paid ? '撤銷確認' : '標記已繳'}</button>` : ''}</li>`).join('')}</ul>` : '<p class="rounded-xl bg-[#F5F7F7] p-4 text-sm catalog-muted">這期沒有你的繳款紀錄。</p>'}
+                </section>`;
+        }
+
+        function renderCompetitionFund(container) {
+            const view = competitionFundForUser();
+            const board = view.board, plan = board?.plan;
+            const percent = plan ? Math.min(100, Math.round(plan.collected / plan.goal * 100)) : 0;
+            const disabled = view.loading || view.busy || Boolean(view.draft || view.payment || view.announcementDraft);
+            container.innerHTML = `<div class="catalog-board space-y-4" data-competition-fund>
+                <section class="catalog-surface fund-hero space-y-4"><div class="flex flex-wrap items-start justify-between gap-3">
+                    <div><p class="text-xs font-bold text-[#167A6A]">形印組內部</p><h2 class="mt-1 text-2xl font-bold tracking-tight">競賽基金</h2><p class="mt-1 text-sm catalog-muted">${plan ? '管理人：' + escapeHtml(plan.managerName || (plan.managerInactive ? '待重新指派' : '形印組長')) : '記錄每月繳款，不在網站收取款項。'}</p></div>
+                    <div class="flex flex-wrap gap-2">${catalogButton(view.loading ? '更新中…' : '重新整理', 'refreshCompetitionFund()', false, disabled)}
+                    ${board?.canConfigure ? `<button id="competition-fund-settings" type="button" class="catalog-button catalog-button-primary" ${disabled ? 'disabled' : ''} onclick="openCompetitionFundSettings()">${plan ? '基金設定' : '建立基金'}</button>` : ''}</div></div>
+                    ${plan ? `<div class="catalog-summary-grid"><div class="fund-stat"><p class="text-xs catalog-muted">已確認收款</p><p class="catalog-break mt-1 text-lg font-bold text-[#126356]">${competitionFundMoney(plan.collected)}</p></div>
+                        <div class="fund-stat"><p class="text-xs catalog-muted">基金目標</p><p class="catalog-break mt-1 text-lg font-bold">${competitionFundMoney(plan.goal)}</p></div>
+                        <div class="fund-stat"><p class="text-xs catalog-muted">按期預計收取</p><p class="catalog-break mt-1 text-lg font-bold">${competitionFundMoney(plan.expected)}</p></div></div>
+                        <div class="fund-progress" role="progressbar" aria-label="基金目標達成率" aria-valuenow="${percent}"><span style="width:${percent}%"></span></div>` : ''}
+                </section>
+                ${view.error || view.message ? `<p id="competition-fund-feedback" class="catalog-surface text-sm ${view.error ? 'text-[#A82520]' : 'text-[#126356]'}" tabindex="-1" role="${view.error ? 'alert' : 'status'}">${escapeHtml(view.error || view.message)}</p>` : ''}
+                ${view.draft ? competitionFundSettingsMarkup(view) : plan ? competitionFundPaymentsMarkup(view) : !board && view.error ? '' :
+                    `<p class="catalog-surface text-sm catalog-muted">${board ? '尚未建立基金。' : '正在載入基金資料…'}</p>`}
+                </div>`;
+        }
+
         function createCatalogWorkspaceState() {
             return { owner: '', board: null, loading: false, error: '', busy: false, downloadId: '', section: 'cases',
                 filter: 'all', itemId: '', form: null, link: null, message: '', warning: false, expanded: new Set(), deletedItemsOpen: false };
@@ -18844,7 +19219,7 @@
 
             const isExhibitionAdmin = canManageAssignmentBoard(effectiveRole);
 
-            if (activeTab === "purchase" && !isShapePrintAccount(currentUser)) {
+            if ((activeTab === "purchase" || activeTab === "competition-fund") && !isShapePrintAccount(currentUser)) {
                 container.innerHTML = `
                     <section class="rounded-[28px] border border-[#E8E8ED] bg-white px-6 py-14 text-center shadow-sm sm:px-10">
                         <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#E8E8ED] bg-[#F5F5F7] text-[#86868B]">
@@ -18860,6 +19235,10 @@
 
             if (activeTab === "catalog" && isExhibitionAdmin) {
                 renderCatalogWorkspace(container);
+                return;
+            }
+            if (activeTab === "competition-fund") {
+                renderCompetitionFund(container);
                 return;
             }
             if (activeTab === "work-items") {

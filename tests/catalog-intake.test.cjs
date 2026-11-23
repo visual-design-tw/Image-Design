@@ -180,6 +180,241 @@ function fakeWorkspace() {
   return Object.assign(result, { c, seed, dispatch, call, staff, tokens, addGroup, addItem, assign, share, addTarget });
 }
 
+function fundWorkspace() {
+  const f = fakeWorkspace();
+  const teacher = { User_ID: 'U06', Name: '測試教師', Email: f.c.SHAPE_PRINT_TEACHER_EMAIL, Team_ID: 'T00', Role: 'SuperAdmin', Status: 'Active' };
+  f.seed.Users.push(teacher);
+  f.tokens.U06 = f.c.issueSession_(teacher).token;
+  f.c.SpreadsheetApp = { openById: () => ({ getSheetByName: name => Object.hasOwn(f.data, name) ? {} : null }), flush() {} };
+  f.c.ensureSheet_ = (_, name) => { f.data[name] ??= []; };
+  f.c.readFreshWorkspaceTables_ = (_, names) => Object.fromEntries(Array.from(names, name => [name, clone(f.data[name])]));
+  f.c.commitTablesAtomically_ = (_, tables) => f.c.writeCatalogTables_(tables);
+  const owner = { getEmail: () => 'private@example.invalid' };
+  const files = new Map();
+  let folder = null;
+  const iterator = records => ({ hasNext: () => records.length > 0, next: () => records.shift() });
+  const access = () => ({ getOwner: () => owner, isTrashed: () => false, getSharingAccess: () => 'PRIVATE', getEditors: () => [owner], getViewers: () => [] });
+  f.c.Utilities.newBlob = (bytes, mimeType, name) => ({ getBytes: () => bytes, mimeType, name });
+  f.c.DriveApp = { Access: { PRIVATE: 'PRIVATE' }, getFileById: id => files.get(id), getRootFolder: () => ({ ...access(),
+    getFoldersByName: () => iterator(folder ? [folder] : []), createFolder: () => {
+      folder = { ...access(), getId: () => 'fund-folder', getFilesByName: name => iterator([...files.values()].filter(file => file.name === name)),
+        getViewers: () => f.sharedFundFolder ? [{ getEmail: () => 'outside@example.invalid' }] : [],
+        createFile: blob => {
+          const id = 'fund-photo-' + (files.size + 1);
+          const file = { ...access(), name: blob.name, getId: () => id, getMimeType: () => blob.mimeType,
+            getSize: () => blob.getBytes().length, getBlob: () => blob, getParents: () => iterator([folder]) };
+          files.set(id, file);
+          return file;
+        } };
+      return folder;
+    } }) };
+  f.fundPhotos = files;
+  return f;
+}
+
+const fundPlan = { goal: 2400, amount: 200, count: 4, startMonth: '2026-11', managerId: 'U05',
+  participantIds: ['U01', 'U04', 'U05'], revision: 0, month: '2026-11' };
+const fundPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+
+test('fund plans are set by the leader, roll over calendar years, and never enter shared snapshots', () => {
+  const f = fundWorkspace();
+  assert.equal(f.staff('competitionFundBoard').plan, null);
+  assert.equal(Object.hasOwn(f.data, 'Competition_Fund'), false, 'read does not create sheets');
+  assert.throws(() => f.call('competitionFundBoard'), /AUTH_REQUIRED/);
+  assert.throws(() => f.staff('competitionFundBoard', {}, 'U02'), /FORBIDDEN/);
+  for (const actor of ['U04', 'U05', 'U06']) assert.throws(() => f.staff('competitionFundSave', fundPlan, actor), /FORBIDDEN/);
+  for (const input of [{ amount: 1.5 }, { count: 37 }, { startMonth: '2026-13' }, { startMonth: '2099-12' }, { managerId: 'U02' },
+    { participantIds: ['U02'] }, { participantIds: ['U06'] }, { participantIds: ['U04', 'U04'] }]) {
+    assert.throws(() => f.staff('competitionFundSave', { ...fundPlan, ...input }), /FUND_INPUT_INVALID/);
+  }
+  const board = f.staff('competitionFundSave', fundPlan);
+  assert.equal(board.plan.managerName, '收件組員');
+  assert.equal(board.plan.expected, 2400);
+  assert.equal(board.plan.collected, 0);
+  assert.deepEqual(board.periods.map(period => period.month), ['2026-11', '2026-12', '2027-01', '2027-02']);
+  const member = f.staff('competitionFundBoard', {}, 'U04');
+  assert.equal(member.canConfirm, false);
+  assert.deepEqual(member.rows.map(row => row.id), ['U04']);
+  assert.deepEqual(member.plan.participants, []);
+  assert.deepEqual(member.candidates, []);
+  assert.equal(f.staff('competitionFundBoard', {}, 'U05').rows.length, 3);
+  assert.equal(f.staff('competitionFundBoard', {}, 'U06').rows.length, 0);
+  assert.doesNotMatch(JSON.stringify(f.staff('bootstrap')), /Competition_Fund|managerName/);
+  assert.equal(f.mail.length, 0);
+});
+
+test('fund receipts are idempotent, reject stale changes, and keep old amounts and confirmer on reversal', () => {
+  const f = fundWorkspace();
+  f.staff('competitionFundSave', fundPlan);
+  const confirm = { month: '2026-11', memberId: 'U04', paid: true, revision: 1, previousEventId: '', requestId: requestId() };
+  assert.throws(() => f.staff('competitionFundSetPaid', confirm, 'U04'), /FORBIDDEN/);
+  assert.throws(() => f.staff('competitionFundSetPaid', { ...confirm, month: '2026-10' }, 'U05'), /FUND_INPUT_INVALID/);
+  assert.throws(() => f.staff('competitionFundSetPaid', { ...confirm, memberId: 'U02' }, 'U05'), /FUND_INPUT_INVALID/);
+  f.writeFailure = 'after';
+  assert.throws(() => f.staff('competitionFundSetPaid', confirm, 'U05'), /TEST_RESPONSE_LOST/);
+  assert.equal(f.staff('competitionFundSetPaid', confirm, 'U05').plan.collected, 200);
+  assert.equal(f.data.Competition_Fund_Events.length, 1);
+  assert.throws(() => f.staff('competitionFundSetPaid', { ...confirm, requestId: requestId() }), /FUND_CHANGED/);
+  assert.throws(() => f.staff('competitionFundSave', { ...fundPlan, amount: 201, revision: 1 }), /FUND_LOCKED/);
+  assert.throws(() => f.staff('competitionFundSave', { ...fundPlan, participantIds: ['U01'], revision: 1 }), /FUND_LOCKED/);
+  const reassigned = f.staff('competitionFundSave', { ...fundPlan, goal: 2500, managerId: 'U04', revision: 1 });
+  assert.equal(reassigned.plan.revision, 2);
+  const undo = { ...confirm, previousEventId: confirm.requestId, paid: false, requestId: requestId(), revision: 2 };
+  assert.throws(() => f.staff('competitionFundSetPaid', undo, 'U05'), /FORBIDDEN/);
+  assert.equal(f.staff('competitionFundSetPaid', undo, 'U04').plan.collected, 0);
+  assert.throws(() => f.staff('competitionFundSetPaid', confirm, 'U04'), /FUND_CHANGED/);
+  assert.deepEqual(f.data.Competition_Fund_Events.map(event => [event.Amount, event.Paid, event.Actor_ID]), [[200, true, 'U05'], [200, false, 'U04']]);
+  f.seed.Users.find(user => user.User_ID === 'U04').Status = 'Suspended';
+  assert.throws(() => f.staff('competitionFundSetPaid', undo, 'U04'), /AUTH_EXPIRED/);
+  assert.equal(f.staff('competitionFundBoard').plan.managerInactive, true);
+});
+
+test('fund announcements track Taiwan deadlines, snapshot collections, and serve only the latest private photo', () => {
+  const f = fundWorkspace();
+  f.clock = Date.parse('2027-02-27T17:00:00Z');
+  for (const user of f.seed.Users) f.tokens[user.User_ID] = f.c.issueSession_(user).token;
+  assert.throws(() => f.staff('competitionFundSave', { ...fundPlan, announcementDay: 32 }), /FUND_INPUT_INVALID/);
+  const board = f.staff('competitionFundSave', { ...fundPlan, announcementDay: 31 });
+  assert.equal(board.periods[0].announcementStatus, 'overdue');
+  assert.equal(board.periods[3].deadline, '2027-02-28');
+  assert.equal(board.periods[3].announcementStatus, 'pending');
+  assert.equal(f.c.competitionFundAnnouncementDeadline_('2028-02', 31), '2028-02-29');
+  const confirmation = { month: '2027-02', memberId: 'U01', paid: true, revision: 1, previousEventId: '', requestId: requestId() };
+  f.staff('competitionFundSetPaid', confirmation, 'U05');
+  const publish = { month: '2027-02', revision: 1, expectedConfirmed: 1, previousAnnouncementId: '', note: '本期收款摘要', requestId: requestId(),
+    photo: { mimeType: 'image/png', size: fundPng.length, base64: fundPng.toString('base64') } };
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', publish, 'U04'), /FORBIDDEN/);
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', { ...publish, photo: null }, 'U05'), /FUND_PHOTO_INVALID/);
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', { ...publish, photo: { ...publish.photo, mimeType: 'image/jpeg' } }, 'U05'), /FUND_PHOTO_INVALID/);
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', { ...publish, expectedConfirmed: 0 }, 'U05'), /FUND_CHANGED/);
+  f.sharedFundFolder = true;
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', publish, 'U05'), /FUND_PHOTO_UNAVAILABLE/);
+  f.sharedFundFolder = false;
+  f.writeFailure = 'before';
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', publish, 'U05'), /TEST_SHEETS_UNAVAILABLE/);
+  assert.equal(f.fundPhotos.size, 1);
+  f.writeFailure = 'after';
+  assert.throws(() => f.staff('competitionFundPublishAnnouncement', publish, 'U05'), /TEST_RESPONSE_LOST/);
+  const published = f.staff('competitionFundPublishAnnouncement', publish, 'U05');
+  assert.equal(f.fundPhotos.size, 1);
+  assert.equal(f.data.Competition_Fund_Announcements.length, 1);
+  assert.equal(published.announcement.collected, 200);
+  assert.equal(published.periods[3].announcementStatus, 'published');
+  assert.doesNotMatch(JSON.stringify(published), /fund-photo-|Photo_Hash|contentBase64/);
+  const selector = { month: publish.month, announcementId: publish.requestId };
+  assert.throws(() => f.staff('competitionFundAnnouncementPhoto', selector, 'U02'), /FORBIDDEN/);
+  f.sharedFundFolder = true;
+  assert.throws(() => f.staff('competitionFundAnnouncementPhoto', selector, 'U04'), /FUND_PHOTO_UNAVAILABLE/);
+  f.sharedFundFolder = false;
+  assert.equal(f.staff('competitionFundAnnouncementPhoto', selector, 'U04').contentBase64, publish.photo.base64);
+  assert.throws(() => f.staff('competitionFundAnnouncementPhoto', { ...selector, month: '2027-01' }, 'U04'), /FUND_PHOTO_UNAVAILABLE/);
+  f.staff('competitionFundSetPaid', { ...confirmation, memberId: 'U04', requestId: requestId() }, 'U05');
+  assert.equal(f.staff('competitionFundBoard', { month: publish.month }, 'U04').announcement.confirmed, 1);
+  const revised = { ...publish, previousAnnouncementId: publish.requestId, requestId: requestId(), expectedConfirmed: 2, photo: null };
+  assert.equal(f.staff('competitionFundPublishAnnouncement', revised, 'U05').announcement.collected, 400);
+  assert.equal(f.fundPhotos.size, 1);
+  assert.throws(() => f.staff('competitionFundAnnouncementPhoto', selector, 'U04'), /FUND_PHOTO_UNAVAILABLE/);
+  assert.equal(f.staff('competitionFundAnnouncementPhoto', { ...selector, announcementId: revised.requestId }, 'U04').size, fundPng.length);
+});
+
+test('the fund UI supports one month at a time, manager confirmation, and a private member view', { timeout: 60000 }, async () => {
+  const f = fundWorkspace();
+  const { server, url } = await startCatalogServer();
+  const errors = [];
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    async function signIn(userId) {
+      const context = await browser.newContext({ viewport: { width: 1380, height: 960 }, reducedMotion: 'reduce' });
+      await context.route(/https:\/\/script\.(google|googleusercontent)\.com\//, async route => {
+        const request = route.request();
+        const payload = request.method() === 'POST' ? JSON.parse(request.postData()) : Object.fromEntries(new URL(request.url()).searchParams);
+        const result = request.method() === 'POST' ? f.dispatch(payload) : f.c.doGet({ parameter: payload });
+        await route.fulfill({ json: result, headers: { 'access-control-allow-origin': '*' } });
+      });
+      const page = await context.newPage();
+      page.setDefaultTimeout(10000);
+      page.on('pageerror', error => errors.push(error.message));
+      const profile = clone(f.seed.Users.find(user => user.User_ID === userId));
+      delete profile.Password;
+      await page.addInitScript(({ profile, token }) => localStorage.setItem('shapeprint_auth_session_v1',
+        JSON.stringify({ userId: profile.User_ID, profile, workspace: 'admin', sessionToken: token })), { profile, token: f.tokens[userId] });
+      await page.goto(url);
+      await page.locator('#navigation-list button').first().waitFor();
+      return page;
+    }
+    const nav = page => page.locator('#navigation-list').getByRole('button', { name: '競賽基金', exact: true });
+    const view = page => page.locator('[data-competition-fund]');
+    const leader = await signIn('U01');
+    await nav(leader).click();
+    await view(leader).getByRole('button', { name: '建立基金' }).click();
+    const settings = view(leader).getByRole('form', { name: '基金設定' });
+    await settings.getByLabel('基金目標（NT$）').fill('2400');
+    await settings.getByLabel('每人每月應繳（NT$）').fill('200');
+    await settings.getByLabel('第一期月份').fill('2026-11');
+    await settings.getByLabel('繳款期數（月）').fill('4');
+    await settings.getByLabel('管理組員').selectOption('U05');
+    await settings.getByLabel('每月公告截止日').selectOption('31');
+    assert.equal(await settings.getByRole('checkbox', { name: 'Audit dual role' }).isVisible(), false);
+    await settings.locator('summary').click();
+    assert.equal(await settings.getByRole('checkbox', { name: 'Audit dual role' }).isChecked(), true);
+    await settings.getByText('按目前設定預計收取 NT$ 2,400', { exact: true }).waitFor();
+    await settings.getByRole('button', { name: '儲存設定' }).click();
+    await view(leader).getByText('基金設定已儲存。').waitFor();
+    const manager = await signIn('U05');
+    await nav(manager).click();
+    const month = view(manager).getByLabel('查看繳款月份');
+    await month.selectOption('2027-01');
+    await view(manager).getByRole('button', { name: '標記已繳：Audit dual role' }).click();
+    await view(manager).getByText('2027 年 1 月 · NT$ 200', { exact: true }).waitFor();
+    assert.equal(f.data.Competition_Fund_Events.length, 0);
+    await view(manager).getByRole('button', { name: '確認收到', exact: true }).click();
+    await view(manager).getByText('已確認繳款。').waitFor();
+    assert.equal(f.data.Competition_Fund_Events[0].Month, '2027-01');
+    const announcement = page => view(page).getByRole('region', { name: '本期公告' });
+    await announcement(manager).getByText('截止 2027/01/31', { exact: true }).waitFor();
+    await announcement(manager).getByRole('button', { name: '撰寫公告' }).click();
+    const editor = announcement(manager).getByRole('form', { name: '發布繳款公告' });
+    await editor.getByRole('button', { name: '發布公告' }).click();
+    await view(manager).getByRole('alert').getByText('第一次發布請附上照片。').waitFor();
+    await editor.getByLabel('補充說明（選填）').fill('一月繳費紀錄');
+    await editor.getByLabel('公告照片').setInputFiles({ name: 'fund-sample.png', mimeType: 'image/png', buffer: fundPng });
+    await editor.getByText(/已選取：fund-sample\.png/).waitFor();
+    await editor.getByRole('button', { name: '發布公告' }).click();
+    await announcement(manager).getByText('已公告', { exact: true }).waitFor();
+    await view(leader).getByRole('button', { name: '重新整理', exact: true }).click();
+    await view(leader).getByText('NT$ 200', { exact: true }).waitFor();
+    const member = await signIn('U04');
+    await nav(member).click();
+    await view(member).getByLabel('查看繳款月份').selectOption('2027-01');
+    await view(member).getByText('已確認', { exact: true }).waitFor();
+    assert.equal(await view(member).getByRole('listitem').count(), 1);
+    assert.equal(await view(member).getByRole('button', { name: /標記已繳|撤銷確認|基金設定/ }).count(), 0);
+    assert.equal(await announcement(member).getByRole('button', { name: '更新公告' }).count(), 0);
+    await announcement(member).getByText('一月繳費紀錄', { exact: true }).waitFor();
+    await announcement(member).getByRole('button', { name: '查看照片' }).click();
+    await announcement(member).getByRole('img', { name: '本期繳款公告照片' }).waitFor();
+    await member.waitForFunction(() => document.querySelector('img[alt="本期繳款公告照片"]')?.naturalWidth > 0);
+    await member.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await view(member).evaluate(node => node.scrollWidth <= Math.ceil(node.getBoundingClientRect().width)), true);
+    if (process.env.FUND_ARTIFACT_DIR) {
+      fs.mkdirSync(process.env.FUND_ARTIFACT_DIR, { recursive: true });
+      await view(manager).screenshot({ path: path.join(process.env.FUND_ARTIFACT_DIR, 'fund-manager.png'), animations: 'disabled' });
+      await view(member).screenshot({ path: path.join(process.env.FUND_ARTIFACT_DIR, 'fund-mobile.png'), animations: 'disabled' });
+    }
+    await view(manager).getByRole('button', { name: '撤銷確認：Audit dual role' }).click();
+    await view(manager).getByRole('button', { name: '確認撤銷' }).click();
+    await view(manager).getByText('已撤銷這筆確認。').waitFor();
+    await announcement(manager).getByText('繳款狀態已有更新，可重新發布公告。').waitFor();
+    const outside = await signIn('U02');
+    assert.equal(await nav(outside).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally {
+    if (browser) await browser.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test('the roster is management-only, preserves old teams, and never creates external accounts', () => {
   const f = fakeWorkspace();
   const old = clone(f.seed);

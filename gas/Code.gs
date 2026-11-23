@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.23-catalog-forms.1';
+var APP_RELEASE = '2026.11.24-competition-fund.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -50,6 +50,11 @@ var PROJECT_BUSINESS_DATA_COLLECTIONS = [
 ];
 var PROJECT_BUSINESS_DATA_RESET_CONFIRMATION = 'CLEAR_116_PROJECT_BUSINESS_DATA';
 var SHAPE_PRINT_TEAM_ID = 'T00';
+var SHAPE_PRINT_TEACHER_EMAIL = 'te0063@mail.tut.edu.tw';
+var COMPETITION_FUND_MAX_PERIODS = 36;
+var COMPETITION_FUND_MAX_AMOUNT = 100000000;
+var COMPETITION_FUND_PHOTO_LIMIT = 5 * 1024 * 1024;
+var COMPETITION_FUND_PHOTO_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
 var WORKSPACE_ACCESS_POLICY_PROPERTY = 'WORKSPACE_ACCESS_POLICY_V1';
@@ -97,6 +102,20 @@ var TABLE_SCHEMAS = {
       'Reviewed_At', 'Correction_Due_At', 'Mail_Status', 'Text_Answers'],
     types: { Version: 'number', File_Size: 'number', Text_Answers: 'json' },
     optionalColumns: 1
+  },
+  Competition_Fund: {
+    headers: ['Fund_ID', 'Goal_Amount', 'Monthly_Amount', 'Period_Count', 'First_Month', 'Manager_ID', 'Participants', 'Revision', 'Announcement_Day'],
+    types: { Goal_Amount: 'number', Monthly_Amount: 'number', Period_Count: 'number', Participants: 'json', Revision: 'number', Announcement_Day: 'number' },
+    optionalColumns: 1
+  },
+  Competition_Fund_Events: {
+    headers: ['Event_ID', 'Month', 'Member_ID', 'Paid', 'Amount', 'Actor_ID', 'Actor_Name', 'Recorded_At'],
+    types: { Paid: 'boolean', Amount: 'number' }
+  },
+  Competition_Fund_Announcements: {
+    headers: ['Announcement_ID', 'Month', 'Due_On', 'Confirmed', 'Participant_Count', 'Collected', 'Note', 'Published_At', 'Publisher_ID',
+      'Publisher_Name', 'Photo_File_ID', 'Photo_Hash'],
+    types: { Confirmed: 'number', Participant_Count: 'number', Collected: 'number' }
   },
   Purchase_Items: {
     headers: ['Item_ID', 'Stage_ID', 'Item_Name', 'Vendor_Price', 'Quantity', 'Subtotal', 'Created_At'],
@@ -473,6 +492,10 @@ function doPost(e) {
 
     if (/^catalog[A-Z]/.test(action)) {
       return jsonResponse_(true, dispatchCatalogAction_(action, payload));
+    }
+
+    if (/^competitionFund[A-Z]/.test(action)) {
+      return jsonResponse_(true, dispatchCompetitionFundAction_(action, payload));
     }
 
     if (action === 'getRegistrationOptions') {
@@ -9864,6 +9887,330 @@ function handleClearNotifications_(payload) {
       return notification.User_ID === userId;
     })
   });
+}
+
+// Fund records are kept outside the general workspace snapshot.
+function dispatchCompetitionFundAction_(action, payload) {
+  if (action === 'competitionFundBoard' || action === 'competitionFundAnnouncementPhoto') {
+    var auth = requireCatalogStaff_(payload);
+    var data = readCompetitionFundTables_();
+    if (action === 'competitionFundAnnouncementPhoto') return readCompetitionFundAnnouncementPhoto_(data, payload);
+    return competitionFundBoard_(auth, data, payload.month);
+  }
+  if (['competitionFundSave', 'competitionFundSetPaid', 'competitionFundPublishAnnouncement'].indexOf(action) < 0) throw new Error('Unsupported POST action: ' + action);
+  return withLock_(function() {
+    var auth = requireCatalogStaff_(payload);
+    if (action === 'competitionFundSave') return saveCompetitionFund_(auth, payload);
+    if (action === 'competitionFundPublishAnnouncement') return publishCompetitionFundAnnouncement_(auth, payload);
+    return setCompetitionFundPayment_(auth, payload);
+  });
+}
+
+function competitionFundIsLeader_(user) {
+  return user.Role === 'SuperAdmin' && String(user.Email || '').trim().toLowerCase() !== SHAPE_PRINT_TEACHER_EMAIL;
+}
+
+function competitionFundCandidates_(users) {
+  return users.filter(function(user) {
+    return user.Status === 'Active' && user.User_ID && (user.Role === 'Admin' || competitionFundIsLeader_(user));
+  });
+}
+
+function readCompetitionFundTables_() {
+  var config = getConfig_();
+  var sheet = SpreadsheetApp.openById(config.spreadsheetId);
+  var names = ['Competition_Fund', 'Competition_Fund_Events', 'Competition_Fund_Announcements'];
+  var present = names.filter(function(name) { return sheet.getSheetByName(name); });
+  var tables = present.length ? readFreshWorkspaceTables_(config, present) : {};
+  var plans = tables.Competition_Fund || [];
+  var events = tables.Competition_Fund_Events || [];
+  var announcements = tables.Competition_Fund_Announcements || [];
+  if (plans.length > 1 || ((events.length || announcements.length) && !plans.length) || (plans.length && !tables.Competition_Fund_Events)) {
+    throw new Error('FUND_DATA_INVALID: 基金資料不完整，請聯絡管理者確認。');
+  }
+  var plan = plans[0] || null;
+  if (plan && (!Array.isArray(plan.Participants) || !plan.Participants.length || !competitionFundMonthValid_(plan.First_Month)
+    || !plan.Participants.every(function(member) { return member && typeof member.id === 'string' && member.id && typeof member.name === 'string'; })
+    || new Set(plan.Participants.map(function(member) { return member.id; })).size !== plan.Participants.length
+    || !competitionFundAmountValid_(plan.Goal_Amount) || !competitionFundAmountValid_(plan.Monthly_Amount)
+    || !Number.isSafeInteger(plan.Revision) || plan.Revision < 1
+    || !Number.isSafeInteger(plan.Period_Count) || plan.Period_Count < 1 || plan.Period_Count > COMPETITION_FUND_MAX_PERIODS)) {
+    throw new Error('FUND_DATA_INVALID: 基金設定不完整，請聯絡管理者確認。');
+  }
+  return { plan: plan, events: events, announcements: announcements };
+}
+
+function writeCompetitionFundTables_(tables) {
+  var spreadsheet = SpreadsheetApp.openById(getConfig_().spreadsheetId);
+  ['Competition_Fund', 'Competition_Fund_Events', 'Competition_Fund_Announcements'].forEach(function(name) {
+    if (!spreadsheet.getSheetByName(name)) ensureSheet_(spreadsheet, name, TABLE_SCHEMAS[name].headers);
+  });
+  SpreadsheetApp.flush();
+  commitTablesAtomically_(spreadsheet, tables);
+}
+
+function competitionFundMonthValid_(value) {
+  return typeof value === 'string' && /^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+function competitionFundAmountValid_(value) {
+  return Number.isSafeInteger(value) && value > 0 && value <= COMPETITION_FUND_MAX_AMOUNT;
+}
+
+function competitionFundMonths_(plan) {
+  var first = plan.First_Month.split('-').map(Number);
+  return Array.from({ length: plan.Period_Count }, function(_, index) {
+    var month = first[1] - 1 + index;
+    return (first[0] + Math.floor(month / 12)) + '-' + String(month % 12 + 1).padStart(2, '0');
+  });
+}
+
+function competitionFundLatestEvents_(events) {
+  var latest = new Map();
+  events.forEach(function(event) { latest.set(event.Month + ':' + event.Member_ID, event); });
+  return latest;
+}
+
+function competitionFundCanConfirm_(actor, plan) {
+  return competitionFundIsLeader_(actor) || Boolean(plan && actor.Role === 'Admin' && plan.Manager_ID === actor.User_ID);
+}
+
+function competitionFundAnnouncementDeadline_(month, day) {
+  if (!day) return '';
+  var parts = month.split('-').map(Number);
+  var lastDay = new Date(Date.UTC(parts[0], parts[1], 0)).getUTCDate();
+  return month + '-' + String(Math.min(day, lastDay)).padStart(2, '0');
+}
+
+function competitionFundBoard_(auth, data, requestedMonth) {
+  var actor = auth.actor;
+  var canConfigure = competitionFundIsLeader_(actor);
+  var canConfirm = competitionFundCanConfirm_(actor, data.plan);
+  var board = { canConfigure: canConfigure, canConfirm: canConfirm, plan: null, rows: [], periods: [], selectedMonth: '', announcement: null,
+    candidates: canConfigure ? competitionFundCandidates_(auth.users).map(function(user) {
+      return { id: user.User_ID, name: user.Name, canManage: user.Role === 'Admin' };
+    }) : [] };
+  var plan = data.plan;
+  if (!plan) return board;
+  var months = competitionFundMonths_(plan);
+  var today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  var thisMonth = today.slice(0, 7);
+  var selectedMonth = months.indexOf(requestedMonth) >= 0 ? requestedMonth :
+    (months.indexOf(thisMonth) >= 0 ? thisMonth : thisMonth < months[0] ? months[0] : months[months.length - 1]);
+  var latest = competitionFundLatestEvents_(data.events);
+  var notices = new Map();
+  data.announcements.forEach(function(record) { notices.set(record.Month, record); });
+  var manager = auth.users.find(function(user) { return user.User_ID === plan.Manager_ID && user.Role === 'Admin' && user.Status === 'Active'; });
+  var collected = 0;
+  board.periods = months.map(function(month) {
+    var confirmed = plan.Participants.filter(function(member) { return latest.get(month + ':' + member.id)?.Paid === true; }).length;
+    collected += confirmed * plan.Monthly_Amount;
+    var notice = notices.get(month);
+    var deadline = notice ? notice.Due_On : competitionFundAnnouncementDeadline_(month, plan.Announcement_Day);
+    return { month: month, confirmed: confirmed, count: plan.Participants.length, deadline: deadline,
+      announcementStatus: notice ? 'published' : !deadline ? 'unscheduled' : today > deadline ? 'overdue' : 'pending' };
+  });
+  board.plan = { goal: plan.Goal_Amount, amount: plan.Monthly_Amount, count: plan.Period_Count, startMonth: plan.First_Month,
+    managerId: canConfigure ? plan.Manager_ID : '', managerName: manager ? manager.Name : '', managerInactive: Boolean(plan.Manager_ID && !manager),
+    expected: plan.Monthly_Amount * plan.Period_Count * plan.Participants.length, collected: collected,
+    locked: data.events.length > 0 || data.announcements.length > 0,
+    revision: plan.Revision, announcementDay: plan.Announcement_Day || 0,
+    participantCount: plan.Participants.length, participants: canConfigure ? plan.Participants : [] };
+  board.selectedMonth = selectedMonth;
+  var announcement = notices.get(selectedMonth);
+  if (announcement) {
+    board.announcement = { id: announcement.Announcement_ID, confirmed: announcement.Confirmed, count: announcement.Participant_Count,
+      collected: announcement.Collected, note: announcement.Note, publishedAt: announcement.Published_At, publisher: announcement.Publisher_Name };
+  }
+  board.rows = plan.Participants.filter(function(member) { return canConfirm || member.id === actor.User_ID; }).map(function(member) {
+    var event = latest.get(selectedMonth + ':' + member.id);
+    return { id: member.id, name: member.name, paid: event?.Paid === true, eventId: canConfirm && event ? event.Event_ID : '',
+      changedAt: event ? event.Recorded_At : '', actorName: canConfirm && event ? event.Actor_Name : '' };
+  });
+  return board;
+}
+
+function saveCompetitionFund_(auth, payload) {
+  if (!competitionFundIsLeader_(auth.actor)) throw new Error('FORBIDDEN: 只有形印組長可設定競賽基金。');
+  var data = readCompetitionFundTables_();
+  var old = data.plan;
+  var goal = payload.goal, amount = payload.amount, count = payload.count, startMonth = payload.startMonth;
+  var announcementDay = payload.announcementDay === undefined ? old?.Announcement_Day || 0 : payload.announcementDay;
+  if (![goal, amount].every(competitionFundAmountValid_)
+    || !Number.isSafeInteger(count) || count < 1 || count > COMPETITION_FUND_MAX_PERIODS || !competitionFundMonthValid_(startMonth)
+    || Number(startMonth.slice(0, 4)) * 12 + Number(startMonth.slice(5)) + count - 1 >= 2100 * 12 + 1) {
+    throw new Error('FUND_INPUT_INVALID: 請填有效的金額、起繳月份與期數（1 至 36 期）。');
+  }
+  if (!Number.isSafeInteger(announcementDay) || announcementDay < 0 || announcementDay > 31) throw new Error('FUND_INPUT_INVALID: 公告日期請選每月 1 至 31 號，或不設定。');
+  var managerId = payload.managerId;
+  if (typeof managerId !== 'string' || (managerId && !auth.users.some(function(user) {
+    return user.User_ID === managerId && user.Role === 'Admin' && user.Status === 'Active';
+  }))) throw new Error('FUND_INPUT_INVALID: 請選擇可用的形印組員擔任管理人。');
+  var ids = payload.participantIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 120 || new Set(ids).size !== ids.length
+    || !ids.every(function(id) { return typeof id === 'string' && id; })) throw new Error('FUND_INPUT_INVALID: 請選擇 1 至 120 位繳款成員。');
+  var sameRoster = old && ids.length === old.Participants.length && old.Participants.every(function(member) { return ids.indexOf(member.id) >= 0; });
+  var sameSchedule = old && sameRoster && old.First_Month === startMonth && old.Monthly_Amount === amount && old.Period_Count === count;
+  if (sameSchedule && old.Goal_Amount === goal && old.Manager_ID === managerId && (old.Announcement_Day || 0) === announcementDay) return competitionFundBoard_(auth, data, payload.month);
+  if (payload.revision !== (old ? old.Revision : 0)) throw new Error('FUND_CHANGED: 另一位使用者已更新基金設定，請重新整理後再操作。');
+  if ((data.events.length || data.announcements.length) && !sameSchedule) throw new Error('FUND_LOCKED: 已有繳款或公告紀錄，不能更改原定金額、期數、月份或名單。');
+  var candidates = competitionFundCandidates_(auth.users);
+  var participants = sameRoster ? old.Participants : candidates.filter(function(user) { return ids.indexOf(user.User_ID) >= 0; })
+    .map(function(user) { return { id: user.User_ID, name: String(user.Name || '未命名組員') }; });
+  if (participants.length !== ids.length) throw new Error('FUND_INPUT_INVALID: 名單只能選擇啟用中的形印組成員。');
+  var next = { Fund_ID: 'COMPETITION_FUND', Goal_Amount: goal, Monthly_Amount: amount, Period_Count: count, First_Month: startMonth,
+    Manager_ID: managerId, Participants: participants, Revision: (old ? old.Revision : 0) + 1, Announcement_Day: announcementDay };
+  writeCompetitionFundTables_({ Competition_Fund: [next] });
+  data.plan = next;
+  return competitionFundBoard_(auth, data, payload.month);
+}
+
+function setCompetitionFundPayment_(auth, payload) {
+  var data = readCompetitionFundTables_();
+  var plan = data.plan;
+  if (!plan || !competitionFundCanConfirm_(auth.actor, plan)) throw new Error('FORBIDDEN: 只有形印組長與受指派的組員能確認繳款。');
+  if (typeof payload.paid !== 'boolean' || !/^[a-f0-9]{32}$/.test(String(payload.requestId || '')) ||
+    competitionFundMonths_(plan).indexOf(payload.month) < 0 || !plan.Participants.some(function(member) { return member.id === payload.memberId; })) {
+    throw new Error('FUND_INPUT_INVALID: 請選擇有效的月份與繳款成員。');
+  }
+  var latest = competitionFundLatestEvents_(data.events).get(payload.month + ':' + payload.memberId);
+  var seen = data.events.find(function(event) { return event.Event_ID === payload.requestId; });
+  if (seen) {
+    if (seen !== latest || seen.Actor_ID !== auth.actor.User_ID || seen.Paid !== payload.paid) throw new Error('FUND_CHANGED: 這筆繳款已有更新，請重新整理後再確認。');
+    return competitionFundBoard_(auth, data, payload.month);
+  }
+  if (payload.revision !== plan.Revision || payload.previousEventId !== (latest ? latest.Event_ID : '')) {
+    throw new Error('FUND_CHANGED: 資料剛剛更新，請重新整理後再確認繳款。');
+  }
+  if ((latest?.Paid === true) === payload.paid) return competitionFundBoard_(auth, data, payload.month);
+  var events = data.events.concat([{ Event_ID: payload.requestId, Month: payload.month, Member_ID: payload.memberId, Paid: payload.paid,
+    Amount: plan.Monthly_Amount, Actor_ID: auth.actor.User_ID, Actor_Name: auth.actor.Name, Recorded_At: new Date().toISOString() }]);
+  writeCompetitionFundTables_({ Competition_Fund_Events: events });
+  data.events = events;
+  return competitionFundBoard_(auth, data, payload.month);
+}
+
+function competitionFundLatestAnnouncement_(data, month) {
+  return data.announcements.filter(function(record) { return record.Month === month; }).pop() || null;
+}
+
+function competitionFundPhotoMatches_(mimeType, bytes) {
+  function signature(offset, values) {
+    return values.every(function(value, index) { return ((bytes[offset + index] || 0) & 255) === value; });
+  }
+  if (mimeType === 'image/jpeg') return bytes.length > 4 && signature(0, [255, 216, 255]);
+  if (mimeType === 'image/png') return bytes.length > 8 && signature(0, [137, 80, 78, 71, 13, 10, 26, 10]);
+  return mimeType === 'image/webp' && bytes.length > 12 && signature(0, [82, 73, 70, 70]) && signature(8, [87, 69, 66, 80]);
+}
+
+function parseCompetitionFundPhoto_(photo) {
+  var error = 'FUND_PHOTO_INVALID: 請上傳 5 MB 以內的 JPG、PNG 或 WebP 照片。';
+  if (!photo || typeof photo.mimeType !== 'string' || !Object.prototype.hasOwnProperty.call(COMPETITION_FUND_PHOTO_TYPES, photo.mimeType)
+    || !Number.isSafeInteger(photo.size) || photo.size < 1 || photo.size > COMPETITION_FUND_PHOTO_LIMIT
+    || typeof photo.base64 !== 'string' || photo.base64.length !== Math.ceil(photo.size / 3) * 4
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(photo.base64)) throw new Error(error);
+  var bytes;
+  try { bytes = Utilities.base64Decode(photo.base64); } catch (decodeError) { throw new Error(error); }
+  if (bytes.length !== photo.size || !competitionFundPhotoMatches_(photo.mimeType, bytes)) throw new Error(error);
+  return { bytes: bytes, mimeType: photo.mimeType, hash: hashSessionToken_(Utilities.base64Encode(bytes)) };
+}
+
+function assertCompetitionFundPhotoPrivate_(item, ownerEmail) {
+  var owner = item.getOwner();
+  var email = owner && owner.getEmail();
+  if (!email || (ownerEmail && ownerEmail !== email) || item.isTrashed() || item.getSharingAccess() !== DriveApp.Access.PRIVATE ||
+    item.getEditors().concat(item.getViewers()).some(function(user) { return user.getEmail() !== email; })) {
+    throw new Error('FUND_PHOTO_UNAVAILABLE: 公告照片的 Drive 資料夾或檔案需為擁有者私人存取，請聯絡管理者。');
+  }
+  return email;
+}
+
+function competitionFundPhotoFolder_(create) {
+  // Keep announcement photos outside the general project folders and their inherited sharing.
+  var root = DriveApp.getRootFolder();
+  var rootOwner = root.getOwner();
+  var owner = rootOwner && rootOwner.getEmail();
+  if (!owner) throw new Error('FUND_PHOTO_UNAVAILABLE: 無法確認公告照片的私人 Drive 擁有者。');
+  var name = '競賽基金公告照片-' + hashSessionToken_(getConfig_().spreadsheetId).slice(0, 12);
+  var matches = root.getFoldersByName(name);
+  var folder = matches.hasNext() ? matches.next() : create ? root.createFolder(name) : null;
+  if (!folder) throw new Error('FUND_PHOTO_UNAVAILABLE: 公告照片目前無法讀取。');
+  assertCompetitionFundPhotoPrivate_(folder, owner);
+  return { folder: folder, owner: owner };
+}
+
+function competitionFundPhotoContents_(file, location) {
+  assertCompetitionFundPhotoPrivate_(file, location.owner);
+  var parents = file.getParents();
+  if (!parents.hasNext() || parents.next().getId() !== location.folder.getId() || parents.hasNext()
+    || file.getSize() < 1 || file.getSize() > COMPETITION_FUND_PHOTO_LIMIT) {
+    throw new Error('FUND_PHOTO_UNAVAILABLE: 公告照片目前無法讀取。');
+  }
+  var mimeType = file.getMimeType();
+  var bytes = file.getBlob().getBytes();
+  if (bytes.length > COMPETITION_FUND_PHOTO_LIMIT || !competitionFundPhotoMatches_(mimeType, bytes)) {
+    throw new Error('FUND_PHOTO_UNAVAILABLE: 公告照片格式已變更，請重新選擇照片再發布。');
+  }
+  return { mimeType: mimeType, contentBase64: Utilities.base64Encode(bytes), size: bytes.length };
+}
+
+function saveCompetitionFundPhoto_(requestId, photo) {
+  var location = competitionFundPhotoFolder_(true);
+  var name = 'fund-' + requestId + '.' + COMPETITION_FUND_PHOTO_TYPES[photo.mimeType];
+  var matches = location.folder.getFilesByName(name);
+  if (matches.hasNext()) {
+    var previous = matches.next();
+    var saved = competitionFundPhotoContents_(previous, location);
+    if (hashSessionToken_(saved.contentBase64) !== photo.hash) throw new Error('FUND_PHOTO_INVALID: 照片已變更，請重新選取照片後再試。');
+    return previous.getId();
+  }
+  // Keep an unconfirmed upload private and reuse it if Sheets did not acknowledge publication.
+  var file = location.folder.createFile(Utilities.newBlob(photo.bytes, photo.mimeType, name));
+  assertCompetitionFundPhotoPrivate_(file, location.owner);
+  return file.getId();
+}
+
+function readCompetitionFundAnnouncementPhoto_(data, payload) {
+  var latest = competitionFundLatestAnnouncement_(data, payload.month);
+  if (!latest || latest.Announcement_ID !== payload.announcementId) throw new Error('FUND_PHOTO_UNAVAILABLE: 找不到這期最新公告的照片，請重新整理。');
+  try {
+    var photo = competitionFundPhotoContents_(DriveApp.getFileById(latest.Photo_File_ID), competitionFundPhotoFolder_(false));
+    if (hashSessionToken_(photo.contentBase64) !== latest.Photo_Hash) throw new Error('changed');
+    return Object.assign({ announcementId: latest.Announcement_ID }, photo);
+  } catch (error) {
+    if (/^FUND_/.test(String(error.message || ''))) throw error;
+    throw new Error('FUND_PHOTO_UNAVAILABLE: 公告照片無法讀取，請聯絡負責人更新公告。');
+  }
+}
+
+function publishCompetitionFundAnnouncement_(auth, payload) {
+  var data = readCompetitionFundTables_();
+  if (!data.plan || !competitionFundCanConfirm_(auth.actor, data.plan)) throw new Error('FORBIDDEN: 只有組長與負責組員可以發布基金公告。');
+  if (typeof payload.requestId !== 'string' || !/^[a-f0-9]{32}$/.test(payload.requestId) || typeof payload.note !== 'string' || payload.note.length > 500
+    || competitionFundMonths_(data.plan).indexOf(payload.month) < 0) throw new Error('FUND_INPUT_INVALID: 請確認公告月份與補充說明（最多 500 字）。');
+  var board = competitionFundBoard_(auth, data, payload.month);
+  var period = board.periods.find(function(entry) { return entry.month === payload.month; });
+  var latest = competitionFundLatestAnnouncement_(data, payload.month);
+  var previous = data.announcements.find(function(record) { return record.Announcement_ID === payload.requestId; });
+  var note = payload.note.trim();
+  var photo = payload.photo == null ? null : parseCompetitionFundPhoto_(payload.photo);
+  if (previous) {
+    if (previous === latest && previous.Publisher_ID === auth.actor.User_ID && previous.Note === note
+      && previous.Confirmed === payload.expectedConfirmed && (!photo || previous.Photo_Hash === photo.hash)) return board;
+    throw new Error('FUND_CHANGED: 這期已有更新公告，請重新整理後再操作。');
+  }
+  if (payload.revision !== data.plan.Revision || payload.previousAnnouncementId !== (latest ? latest.Announcement_ID : '') || payload.expectedConfirmed !== period.confirmed) {
+    throw new Error('FUND_CHANGED: 繳款或公告狀態剛剛更新，請先確認最新資料再發布。');
+  }
+  if (!photo && !latest) throw new Error('FUND_PHOTO_INVALID: 第一次發布請附上照片。');
+  if (!photo) readCompetitionFundAnnouncementPhoto_(data, { month: payload.month, announcementId: latest.Announcement_ID });
+  var next = { Announcement_ID: payload.requestId, Month: payload.month, Due_On: latest ? latest.Due_On : period.deadline,
+    Confirmed: period.confirmed, Participant_Count: period.count, Collected: period.confirmed * data.plan.Monthly_Amount,
+    Note: note, Published_At: new Date().toISOString(), Publisher_ID: auth.actor.User_ID, Publisher_Name: auth.actor.Name,
+    Photo_File_ID: photo ? saveCompetitionFundPhoto_(payload.requestId, photo) : latest.Photo_File_ID, Photo_Hash: photo ? photo.hash : latest.Photo_Hash };
+  data.announcements = data.announcements.concat([next]);
+  writeCompetitionFundTables_({ Competition_Fund_Announcements: data.announcements });
+  return competitionFundBoard_(auth, data, payload.month);
 }
 
 // Catalog records never travel through the general workspace snapshot.
