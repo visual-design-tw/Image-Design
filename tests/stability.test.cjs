@@ -38,7 +38,8 @@ function submission(team = 'T02', user = 'U03') {
   return { Submission_ID:'SUB01', Assignment_ID:'A01', Team_ID:team, User_ID:user, Submission_Mode:'text', Text_Content:'Audit text', Submission_No:1, Status:'已繳交' };
 }
 function backend() {
-  const c = vm.createContext({console, Utilities:{getUuid:() => crypto.randomUUID()}});
+  const c = vm.createContext({console, Utilities:{getUuid:() => crypto.randomUUID()},
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) }});
   vm.runInContext(fs.readFileSync(path.join(root,'gas/Code.gs'),'utf8'),c);
   c.nowString_ = () => '2026-09-05 12:00';
   c.getConfig_ = () => ({timeZone:'Asia/Taipei'});

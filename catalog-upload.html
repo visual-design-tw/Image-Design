@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex, nofollow">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+    <title>專刊收件｜116級 畢業製作</title>
+    <style>
+        :root { color-scheme: light; --ink: #1d1d1f; --quiet: #586273; --blue: #0066cc; --line: #dce5ee; --surface: #fff; }
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body { margin: 0; min-height: 100dvh; color: var(--ink); background: radial-gradient(ellipse at 84% 0, #dcecff, transparent 43rem), linear-gradient(160deg, #f4f8fd, #f4f5f8 70%); font-family: "PingFang TC", "Noto Sans TC", -apple-system, BlinkMacSystemFont, sans-serif; }
+        main { width: min(calc(100% - 28px), 680px); margin-inline: auto; padding-block: clamp(20px, 6vw, 64px); }
+        .card { min-width: 0; padding: clamp(17px, 4vw, 32px); border: 1px solid var(--line); border-radius: clamp(20px, 4vw, 32px); background: var(--surface); box-shadow: 0 12px 40px #173f6c0a; }
+        .hero { background: linear-gradient(140deg, #fff 35%, #f7faff); margin-bottom: 12px; }
+        .eyebrow { color: #0050a2; font-size: .81rem; font-weight: 750; letter-spacing: .08em; }
+        h1, h2, h3, p { margin: 0; overflow-wrap: anywhere; }
+        h1 { margin-top: 8px; font-size: clamp(1.75rem, 5vw, 2.55rem); letter-spacing: -.035em; line-height: 1.14; }
+        h2 { font-size: clamp(1.15rem, 4vw, 1.45rem); line-height: 1.3; }
+        h3 { font-size: 1rem; }
+        .quiet { color: var(--quiet); line-height: 1.65; font-size: .91rem; }
+        .flow > * + *, .fields > * + * { margin-top: 14px; }
+        .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 9px; border: 1px solid var(--line); margin: 0 0 12px; border-radius: 17px; background: #f8fafc; list-style: none; }
+        .steps li { padding: 7px 3px; color: var(--quiet); border-radius: 11px; font-size: clamp(.69rem, 2.9vw, .85rem); font-weight: 650; text-align: center; }
+        .steps [aria-current="step"] { color: #004e9e; background: #e5f0ff; }
+        .details { padding: 14px; background: #f4f8fd; border: 1px solid var(--line); border-radius: 16px; }
+        .multiline { white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
+        .status { display: inline-flex; width: fit-content; background: #edf2f8; color: #445365; padding: 4px 10px; border-radius: 50px; font-size: .78rem; font-weight: 750; }
+        .status[data-tone="approved"] { background: #e6f6ee; color: #146342; }
+        .status[data-tone="returned"] { background: #fff0dc; color: #87430c; }
+        .feedback { margin-bottom: 12px; padding: 12px 15px; border-radius: 14px; border: 1px solid #d5e5f8; color: #064d95; background: #eff6ff; font-size: .88rem; line-height: 1.55; overflow-wrap: anywhere; }
+        .feedback[data-error="true"] { color: #872d1a; border-color: #f1d2c9; background: #fff3ee; }
+        .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .actions button { flex: 0 1 auto; }
+        button, .file-button { min-height: 44px; padding: 9px 15px; border: 1px solid #cfdce9; border-radius: 13px; background: #fff; color: #304258; font: inherit; font-size: .88rem; font-weight: 720; cursor: pointer; }
+        button:hover, .file-button:hover { background: #eef5ff; }
+        button.primary, .file-button { border-color: var(--blue); color: #fff; background: var(--blue); }
+        button.primary:hover, .file-button:hover { background: #0056ad; }
+        button:disabled { opacity: .48; cursor: not-allowed; }
+        label { display: block; font-weight: 680; }
+        input:not([type="file"]), textarea { display: block; width: 100%; font: inherit; background: #fff; color: var(--ink); min-height: 44px; border: 1px solid #cfdce9; padding: 9px 12px; border-radius: 12px; }
+        textarea { resize: vertical; min-height: 110px; }
+        input:focus-visible, textarea:focus-visible, button:focus-visible, .file-picker:focus-within .file-button { outline: 2px solid var(--blue); outline-offset: 2px; }
+        input.code { text-align: center; letter-spacing: .35em; font-variant-numeric: tabular-nums; max-width: 16rem; margin-top: 6px; }
+        .file-picker { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; border: 1px dashed #91b9e7; border-radius: 16px; background: #f3f8ff; }
+        .file-picker input { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
+        .file-button { display: inline-flex; align-items: center; }
+        .file-picker p { flex: 1 1 150px; min-width: 0; }
+        progress { display: block; width: 100%; height: 12px; accent-color: var(--blue); }
+        footer { padding: 18px 4px; color: var(--quiet); font-size: .76rem; text-align: center; }
+        @media (prefers-reduced-motion: no-preference) { .card { animation: appear .22s ease-out; } @keyframes appear { from { opacity: 0; transform: translateY(4px); } } }
+    </style>
+    <script defer src="./catalog-upload.js"></script>
+</head>
+<body>
+    <main>
+        <header class="hero card">
+            <p id="group-label" class="eyebrow">116級 畢業製作 ・ 形印組</p>
+            <h1 id="intake-title">專刊收件</h1>
+            <p id="project-label" class="quiet" style="margin-top:8px">小組專屬上傳頁，不需註冊帳號。</p>
+        </header>
+        <ol class="steps" id="intake-steps" aria-label="繳交流程" hidden>
+            <li data-step="overview">1. 看規格</li>
+            <li data-step="edit">2. 填寫與選檔</li>
+            <li data-step="confirm">3. 確認送出</li>
+        </ol>
+        <p id="intake-feedback" class="feedback" role="status" aria-live="polite" hidden></p>
+        <section id="screen-loading" class="card flow" aria-labelledby="loading-title" aria-busy="true">
+            <h2 id="loading-title">正在確認上傳連結…</h2>
+            <p class="quiet">只會載入這個連結所屬小組的資訊。</p>
+            <noscript>請啟用 JavaScript 後再開啟連結。</noscript>
+        </section>
+        <section id="screen-unavailable" class="card flow" aria-labelledby="unavailable-title" hidden>
+            <h2 id="unavailable-title" tabindex="-1">無法開啟上傳頁</h2>
+            <p class="quiet" id="unavailable-note">請確認連結完整，或向形印組負責人索取新連結。</p>
+            <button id="retry-load" type="button" data-lock>重新檢查</button>
+        </section>
+        <section id="screen-verify" class="card flow" aria-labelledby="verify-title" hidden>
+            <h2 id="verify-title" tabindex="-1">先確認是這個小組</h2>
+            <p class="quiet">驗證碼只會寄到小組已登記的聯絡信箱，不需要登入或輸入信箱。</p>
+            <button id="request-code" type="button" data-lock>寄送驗證碼</button>
+            <form id="verify-form" class="fields">
+                <label for="verify-code">6 位數字驗證碼<input class="code" id="verify-code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required data-lock></label>
+                <button type="submit" class="primary" data-lock>驗證並繼續</button>
+            </form>
+        </section>
+        <section id="screen-overview" class="card flow" aria-labelledby="overview-title" hidden>
+            <div id="latest-summary" class="details flow" hidden>
+                <span class="status" id="latest-status"></span>
+                <h3 id="latest-when"></h3>
+                <p class="multiline" id="latest-note" hidden></p>
+            </div>
+            <h2 id="overview-title" tabindex="-1">這次要交什麼？</h2>
+            <p id="requirements" class="multiline"></p>
+            <p class="quiet" id="due-label"></p>
+            <div class="actions">
+                <button id="start-intake" class="primary" type="button" data-lock>開始填寫</button>
+                <button type="button" id="refresh-intake" data-lock>更新狀態</button>
+            </div>
+        </section>
+        <section id="screen-edit" class="card flow" aria-labelledby="edit-title" hidden>
+            <h2 id="edit-title" tabindex="-1">填寫繳交資料</h2>
+            <p id="edit-instructions" class="quiet"></p>
+            <form id="details-form" class="fields">
+                <div class="fields" id="text-fields">
+                    <label for="intake-text">文字內容 <span class="quiet">（最多 5,000 字）</span></label>
+                    <textarea id="intake-text" maxlength="5000" placeholder="依收件規格填寫" data-lock></textarea>
+                </div>
+                <div class="fields" id="file-fields">
+                    <label for="intake-file">附件</label>
+                    <p class="quiet" id="file-hint">支援 AI、PDF、PSD、INDD、JPG、PNG、TIFF、ZIP，最多 100 MB。多份檔案請打包成一個 ZIP。</p>
+                    <div class="file-picker">
+                        <input type="file" id="intake-file" accept=".ai,.pdf,.psd,.indd,.jpg,.jpeg,.png,.tif,.tiff,.zip" aria-describedby="file-hint" data-lock>
+                        <label class="file-button" for="intake-file">選擇檔案</label>
+                        <p id="file-selection" class="quiet" aria-live="polite">尚未選擇檔案</p>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button type="submit" class="primary" data-lock>下一步：確認內容</button>
+                    <button type="button" id="back-to-overview" data-lock>返回規格</button>
+                </div>
+            </form>
+        </section>
+        <section id="screen-confirm" class="card flow" aria-labelledby="confirm-title" hidden>
+            <h2 id="confirm-title" tabindex="-1">確認後送出</h2>
+            <p class="quiet">請確認是正確版本；送出後只有收到形印組的補件通知，才能再次上傳。</p>
+            <div class="details flow" id="confirm-summary">
+                <p id="confirm-file" class="multiline" hidden></p>
+                <p id="confirm-text" class="multiline" hidden></p>
+            </div>
+            <div id="upload-progress" class="flow" hidden>
+                <progress id="progress-value" max="100" aria-label="附件上傳進度"></progress>
+                <p id="progress-label" class="quiet" role="status"></p>
+            </div>
+            <div class="actions">
+                <button class="primary" id="send-intake" type="button" data-lock>送出給形印組</button>
+                <button id="back-to-edit" type="button" data-lock>返回修改</button>
+                <button id="check-latest" type="button" data-lock hidden>查看最新狀態</button>
+            </div>
+        </section>
+        <section id="screen-received" class="card flow" aria-labelledby="received-title" hidden>
+            <span class="status" data-tone="approved">已收到</span>
+            <h2 id="received-title" tabindex="-1">資料已送出</h2>
+            <p id="receipt-label" class="quiet"></p>
+            <p class="quiet">審核結果會寄到小組聯絡信箱，也可以從這個連結查看。</p>
+            <button id="view-current" type="button" data-lock>查看收件狀態</button>
+        </section>
+        <footer>116級 畢業製作 ・ 專刊收件由形印組處理</footer>
+    </main>
+</body>
+</html>

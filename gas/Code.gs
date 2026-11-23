@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.06-single-project.3';
+var APP_RELEASE = '2026.11.23-catalog-intake.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -52,6 +52,11 @@ var PROJECT_BUSINESS_DATA_RESET_CONFIRMATION = 'CLEAR_116_PROJECT_BUSINESS_DATA'
 var SHAPE_PRINT_TEAM_ID = 'T00';
 var SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS = 14;
 var SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS = 30;
+var WORKSPACE_ACCESS_POLICY_PROPERTY = 'WORKSPACE_ACCESS_POLICY_V1';
+var CATALOG_SIGNING_KEY_PROPERTY = 'CATALOG_LINK_SIGNING_KEY_V1';
+var CATALOG_DAY_MS = 24 * 60 * 60 * 1000;
+var CATALOG_FILE_LIMIT = 100 * 1024 * 1024;
+var CATALOG_DRAFT_TTL = 6 * 60 * 60;
 
 var TABLE_SCHEMAS = {
   Config_Stages: {
@@ -68,6 +73,24 @@ var TABLE_SCHEMAS = {
   Teams: {
     headers: ['Team_ID', 'Team_Name', 'Invite_Code'],
     types: {}
+  },
+  Catalog_Roster: {
+    headers: ['Group_ID', 'Legacy_Team_ID', 'Group_Number', 'Project_Name', 'Advisor_Name', 'Contact_Email', 'Revision'],
+    types: { Revision: 'number' }
+  },
+  Catalog_Items: {
+    headers: ['Item_ID', 'Title', 'Requirements', 'Format', 'Due_At', 'Verify_Email', 'Revision', 'Created_At'],
+    types: { Verify_Email: 'boolean', Revision: 'number' }
+  },
+  Catalog_Targets: {
+    headers: ['Target_ID', 'Item_ID', 'Group_ID', 'Reviewer_ID', 'Link_Key', 'Link_Expires', 'Revision'],
+    types: { Revision: 'number', Link_Expires: 'number' }
+  },
+  Catalog_Submissions: {
+    headers: ['Submission_ID', 'Target_ID', 'Request_ID', 'Link_Key', 'Input_Hash', 'Version', 'Text_Content',
+      'File_Name', 'File_Size', 'Drive_File_ID', 'Submitted_At', 'Status', 'Review_Note', 'Reviewed_By',
+      'Reviewed_At', 'Correction_Due_At', 'Mail_Status'],
+    types: { Version: 'number', File_Size: 'number' }
   },
   Purchase_Items: {
     headers: ['Item_ID', 'Stage_ID', 'Item_Name', 'Vendor_Price', 'Quantity', 'Subtotal', 'Created_At'],
@@ -436,10 +459,15 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var action;
   try {
     var payload = parsePayload_(e);
-    var action = getAction_(e, payload);
+    action = getAction_(e, payload);
     var result;
+
+    if (/^catalog[A-Z]/.test(action)) {
+      return jsonResponse_(true, dispatchCatalogAction_(action, payload));
+    }
 
     if (action === 'getRegistrationOptions') {
       return jsonResponse_(true, handleGetRegistrationOptions_());
@@ -829,6 +857,9 @@ function doPost(e) {
 
     throw new Error('Unsupported POST action: ' + action);
   } catch (error) {
+    if (/^catalogGuest/.test(action) && !/^CATALOG_[A-Z_]+:/.test(String(error && error.message || ''))) {
+      error = new Error('CATALOG_UNAVAILABLE: 暫時無法確認收件，請保留此頁並稍後重試。');
+    }
     return jsonResponse_(false, null, error);
   }
 }
@@ -2044,6 +2075,10 @@ function readFreshStateTables_(config) {
     'Assignment_Resources', 'Assignment_Submissions', 'Files', 'Notifications',
     'Discussion_Comments', 'Design_Service_Settings', 'Design_Service_Orders',
     'Calendar_Events', 'Work_Items', 'Recycle_Bin', 'Meta'];
+  return readFreshWorkspaceTables_(config, names);
+}
+
+function readFreshWorkspaceTables_(config, names) {
   var ranges = names.map(function(name) {
     var width = TABLE_SCHEMAS[name].headers.length;
     var column = '';
@@ -2194,6 +2229,22 @@ function resolveAuditActor_(state, userId) {
 
 function isShapePrintUser_(user) {
   return Boolean(user) && ['SuperAdmin', 'Admin'].indexOf(String(user.Role || '')) >= 0;
+}
+
+function getWorkspaceAccessPolicy_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(WORKSPACE_ACCESS_POLICY_PROPERTY);
+  if (!raw) return { workspaceInternalOnly: false, workspaceModeRevision: 0 };
+  var policy;
+  try { policy = JSON.parse(raw); } catch (error) {}
+  if (!policy || typeof policy.workspaceInternalOnly !== 'boolean' || !Number.isSafeInteger(policy.workspaceModeRevision)
+    || policy.workspaceModeRevision < 1) throw new Error('ACCESS_POLICY_UNAVAILABLE: 無法確認工作台開放設定。');
+  return { workspaceInternalOnly: policy.workspaceInternalOnly, workspaceModeRevision: policy.workspaceModeRevision };
+}
+
+function assertLegacyTeamWorkspaceOpen_() {
+  if (getWorkspaceAccessPolicy_().workspaceInternalOnly) {
+    throw new Error('WORKSPACE_INTERNAL_ONLY: 工作台僅限形印組登入。其他畢製小組請使用負責組員提供的專屬上傳連結。');
+  }
 }
 
 function getStudentRoleForUser_(user) {
@@ -2347,11 +2398,14 @@ function getRegistrationOptionsRevision_(state) {
 }
 
 function getRegistrationOptionsPayload_(state) {
-  return {
-    registrationOptions: getRegistrationOptions_(state),
+  var policy = getWorkspaceAccessPolicy_();
+  var options = getRegistrationOptions_(state);
+  if (policy.workspaceInternalOnly) options.leader = options.member = options.activation = false;
+  return Object.assign({
+    registrationOptions: options,
     registrationOptionsRevision: getRegistrationOptionsRevision_(state),
     release: APP_RELEASE
-  };
+  }, policy);
 }
 
 function handleGetRegistrationOptions_() {
@@ -2361,6 +2415,7 @@ function handleGetRegistrationOptions_() {
 }
 
 function assertRegistrationOpen_(state, key) {
+  if (key !== 'shapePrint') assertLegacyTeamWorkspaceOpen_();
   var labels = { leader: '組長建組', member: '組員註冊', activation: '信箱開通', shapePrint: '形印組加入' };
   if (getRegistrationOptions_(state)[key] !== true) {
     throw new Error('REGISTRATION_CLOSED: 「' + labels[key] + '」目前暫停開放，請聯絡形印組長或指導老師。已有帳號可直接登入。');
@@ -2382,6 +2437,9 @@ function handleUpdateRegistrationOptions_(payload) {
     throw new Error('SETTINGS_CONFLICT: 請重新載入註冊設定後再儲存。');
   }
   var currentOptions = getRegistrationOptions_(previousState);
+  if (getWorkspaceAccessPolicy_().workspaceInternalOnly) {
+    options = Object.assign({}, currentOptions, { shapePrint: options.shapePrint });
+  }
   if (keys.every(function(key) { return currentOptions[key] === options[key]; })) {
     return buildClientStateResultForUser_(previousState, actor);
   }
@@ -2854,6 +2912,7 @@ function handleSaveState_(payload) {
 function handleSubmitAssignment_(payload) {
   var previousState = loadState_();
   var actor = requireSessionUser_(previousState, payload);
+  assertLegacyTeamWorkspaceOpen_();
   if (!hasStudentTeamForUser_(actor)) throw new Error('FORBIDDEN: 請使用畢製小組身分繳交。');
   var requestId = String(payload.requestId || '');
   if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) throw new Error('請重新開啟繳交視窗後再試。');
@@ -5238,6 +5297,7 @@ function cleanupAuthSessions_(records) {
 }
 
 function issueSession_(user) {
+  if (!isShapePrintUser_(user)) assertLegacyTeamWorkspaceOpen_();
   var sessions = cleanupAuthSessions_(loadAuthSessions_());
   var now = new Date();
   var expiresAt = new Date(now.getTime() + (AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000));
@@ -5297,6 +5357,7 @@ function requireSessionContext_(state, payload, allowedRoles) {
   if (!user || String(user.Status || '') !== 'Active') {
     throw new Error('AUTH_EXPIRED: 帳號目前無法使用，請重新登入。');
   }
+  if (!isShapePrintUser_(user)) assertLegacyTeamWorkspaceOpen_();
   if (ensureArray_(allowedRoles).length > 0 && ensureArray_(allowedRoles).indexOf(String(user.Role || '')) === -1) {
     throw new Error('FORBIDDEN: 你沒有執行這項操作的權限。');
   }
@@ -5340,6 +5401,7 @@ function revokeAllSessionsForUser_(userId) {
 
 function requireStudentUploadActor_(state, payload) {
   var actor = requireSessionUser_(state, payload);
+  assertLegacyTeamWorkspaceOpen_();
   if (!hasStudentTeamForUser_(actor)) {
     throw new Error('FORBIDDEN: 只有已加入正式小組的帳號可以上傳檔案。');
   }
@@ -5457,8 +5519,7 @@ function buildClientStateResultForUser_(state, user, extraData, options) {
   result.currentUser = sanitizeUserRecord_(user);
   result.stateRevision = getStateRevision_(state);
   result.release = APP_RELEASE;
-  result.registrationOptions = getRegistrationOptions_(state);
-  result.registrationOptionsRevision = getRegistrationOptionsRevision_(state);
+  Object.assign(result, getRegistrationOptionsPayload_(state));
   if (options.includeHeatmap !== false) {
     result.heatmap = buildHeatmapStats_(buildHeatmapSourceStateForUser_(state, user));
   }
@@ -6232,6 +6293,7 @@ function sendAssignmentAnnouncementEmail_(state, assignment) {
 
 function sendPendingAssignmentAnnouncementEmails_(state) {
   var results = [];
+  if (getWorkspaceAccessPolicy_().workspaceInternalOnly) return results;
   ensureArray_(state && state.Assignments).forEach(function(assignment) {
     if (!assignment || assignment.Notify_By_Email !== true || assignment.Email_Notification_Sent === true) {
       return;
@@ -6675,7 +6737,7 @@ function runScheduledAssignmentRemindersInternal_(state) {
     sweepAt: sweepAt
   };
 
-  if (!settings.enabled) {
+  if (!settings.enabled || getWorkspaceAccessPolicy_().workspaceInternalOnly) {
     state.Meta.LastReminderSweepAt = sweepAt;
     state.Meta.LastReminderSweepSummary = summary;
     summary.changed = true;
@@ -7393,13 +7455,15 @@ function handleLogin_(payload) {
   }
 
   if (String(user.Status || '') === 'Pending') {
+    if (!isShapePrintUser_(user)) assertLegacyTeamWorkspaceOpen_();
     recordFailedLoginAttempt_(email);
     throw new Error('此帳號尚未啟用，請改用信箱開通流程。');
   }
 
-  if (!verifyPassword_(password, user.Password)) {
+  if (String(user.Status || '') !== 'Active' || !verifyPassword_(password, user.Password)) {
     throwLoginFailure_(email);
   }
+  if (!isShapePrintUser_(user)) assertLegacyTeamWorkspaceOpen_();
 
   clearFailedLoginAttempts_(email);
 
@@ -7462,11 +7526,11 @@ function throwLoginFailure_(email) {
 
 function buildAuthenticatedIdentityResult_(user) {
   var session = issueSession_(user);
-  return {
+  return Object.assign({
     sessionToken: session.token,
     sessionExpiresAt: session.expiresAt,
     currentUser: sanitizeUserRecord_(user)
-  };
+  }, getWorkspaceAccessPolicy_());
 }
 
 function buildAuthenticatedClientResult_(state, user, extraData, options) {
@@ -7838,6 +7902,7 @@ function handleRegisterShapePrintMember_(payload) {
 function handleJoinStudentTeam_(payload) {
   var state = loadState_();
   var actor = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  assertLegacyTeamWorkspaceOpen_();
   var inviteCode = String(payload && payload.inviteCode || '').trim();
   if (!canRegisterAsShapePrintDualRole_(actor)) {
     throw new Error('目前帳號已經綁定正式小組，無法再加入其他畢製小組。');
@@ -7875,6 +7940,7 @@ function handleJoinStudentTeam_(payload) {
 function handleCreateStudentTeam_(payload) {
   var state = loadState_();
   var actor = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  assertLegacyTeamWorkspaceOpen_();
   var teamName = String(payload && payload.teamName || '').trim();
   if (!teamName) {
     throw new Error('請輸入畢製小組名稱。');
@@ -7913,6 +7979,7 @@ function handleCreateStudentTeam_(payload) {
 function handleInviteStudentMember_(payload) {
   var state = loadState_();
   var actor = requireSessionUser_(state, payload);
+  assertLegacyTeamWorkspaceOpen_();
   var email = normalizeEmail_(payload && payload.email);
   if (getStudentRoleForUser_(actor) !== 'Leader' || !hasStudentTeamForUser_(actor)) {
     throw new Error('FORBIDDEN: 只有畢製小組組長可以直接邀請組員。');
@@ -7997,7 +8064,8 @@ function handleRequestPasswordReset_(payload) {
 
   var state = loadState_();
   var user = findUserByEmail_(state.Users, email);
-  if (!user || String(user.Status || '') !== 'Active') {
+  if (!user || String(user.Status || '') !== 'Active'
+    || (!isShapePrintUser_(user) && getWorkspaceAccessPolicy_().workspaceInternalOnly)) {
     return {
       message: genericMessage
     };
@@ -8065,6 +8133,7 @@ function handlePreviewPasswordReset_(payload) {
   if (!user || String(user.Status || '') !== 'Active') {
     throw new Error('此重設連結已失效或已過期。');
   }
+  if (!isShapePrintUser_(user)) assertLegacyTeamWorkspaceOpen_();
 
   return {
     email: normalizeEmail_(user.Email || record.Email),
@@ -8103,6 +8172,7 @@ function handleResetPassword_(payload) {
   if (!user || String(user.Status || '') !== 'Active') {
     throw new Error('此重設連結已失效或已過期。');
   }
+  if (!isShapePrintUser_(user)) assertLegacyTeamWorkspaceOpen_();
 
   user.Password = hashPassword_(password);
   revokeAllSessionsForUser_(user.User_ID);
@@ -9768,7 +9838,785 @@ function handleClearNotifications_(payload) {
   });
 }
 
+// Catalog records never travel through the general workspace snapshot.
+function dispatchCatalogAction_(action, payload) {
+  var handlers = {
+    catalogBoard: handleCatalogBoard_,
+    catalogSaveGroup: handleCatalogSaveGroup_,
+    catalogSaveItem: handleCatalogSaveItem_,
+    catalogAssignReviewer: handleCatalogAssignReviewer_,
+    catalogLink: handleCatalogLink_,
+    catalogReview: handleCatalogReview_,
+    catalogDownload: handleCatalogDownload_,
+    catalogWorkspaceMode: handleCatalogWorkspaceMode_,
+    catalogGuestDescribe: handleCatalogGuestDescribe_,
+    catalogGuestSendCode: handleCatalogGuestSendCode_,
+    catalogGuestVerify: handleCatalogGuestVerify_,
+    catalogGuestBegin: handleCatalogGuestBegin_,
+    catalogGuestChunk: handleCatalogGuestChunk_
+  };
+  if (!Object.prototype.hasOwnProperty.call(handlers, action)) throw new Error('Unsupported POST action: ' + action);
+  var handler = handlers[action];
+  if (['catalogBoard', 'catalogDownload', 'catalogGuestDescribe', 'catalogGuestChunk'].indexOf(action) >= 0) return handler(payload);
+  return withLock_(function() { return handler(payload); });
+}
+
+function catalogIdPart_() {
+  return Utilities.getUuid().replace(/-/g, '').toLowerCase();
+}
+
+function catalogRequestId_(payload) {
+  var id = String(payload && payload.requestId || '');
+  if (!/^[a-f0-9]{32}$/.test(id)) throw new Error('CATALOG_INPUT_INVALID: 請重新開啟表單後再試。');
+  return id;
+}
+
+function requireCatalogStaff_(payload, managerOnly) {
+  if (!payload || !payload.sessionToken) throw new Error('AUTH_REQUIRED: 請先以形印組帳號登入。');
+  var auth = loadResumableUploadAuthState_();
+  return { actor: requireSessionUser_(auth, payload, managerOnly ? ['SuperAdmin'] : ['SuperAdmin', 'Admin']), users: auth.Users };
+}
+
+function readCatalogTables_(names, initialize) {
+  var config = getConfig_();
+  if (initialize) {
+    var spreadsheet = SpreadsheetApp.openById(config.spreadsheetId);
+    names.forEach(function(name) {
+      if (name.indexOf('Catalog_') === 0) ensureSheet_(spreadsheet, name, TABLE_SCHEMAS[name].headers);
+    });
+    SpreadsheetApp.flush();
+  }
+  return readFreshWorkspaceTables_(config, names);
+}
+
+function writeCatalogTables_(tables) {
+  commitTablesAtomically_(SpreadsheetApp.openById(getConfig_().spreadsheetId), tables);
+}
+
+function readCatalogBoardData_(includeLegacyTeams) {
+  var names = ['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions'];
+  if (includeLegacyTeams) names.push('Teams');
+  return readCatalogTables_(names, true);
+}
+
+function catalogFind_(records, key, id) {
+  return ensureArray_(records).find(function(row) { return row[key] === String(id || ''); }) || null;
+}
+
+function catalogLatest_(records, targetId) {
+  return records.filter(function(row) { return row.Target_ID === targetId; })
+    .sort(function(a, b) { return Number(b.Version) - Number(a.Version); });
+}
+
+function catalogDueAt_(value) {
+  var text = String(value || '');
+  var date = new Date(text + ':00+08:00');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text) || !Number.isFinite(date.getTime()) ||
+    new Date(date.getTime() + 8 * 3600000).toISOString().slice(0, 16) !== text) {
+    throw new Error('請選擇有效的截止日期與時間（台灣時間）。');
+  }
+  return date.toISOString();
+}
+
+function catalogAssertRevision_(row, revision) {
+  if (row && (!Number.isSafeInteger(revision) || Number(row.Revision) !== revision)) {
+    throw new Error('CATALOG_CHANGED: 資料已在另一個裝置更新，請重新載入後再操作。');
+  }
+}
+
+function catalogGroupView_(row) {
+  return {
+    id: row.Group_ID, legacyTeamId: row.Legacy_Team_ID, number: row.Group_Number, project: row.Project_Name,
+    advisor: row.Advisor_Name, email: row.Contact_Email, revision: row.Revision
+  };
+}
+
+function catalogItemView_(row) {
+  return { id: row.Item_ID, title: row.Title, requirements: row.Requirements, format: row.Format,
+    dueAt: row.Due_At, verifyEmail: row.Verify_Email === true, revision: row.Revision };
+}
+
+function catalogSubmissionView_(row, users) {
+  var reviewer = catalogFind_(users, 'User_ID', row.Reviewed_By);
+  return {
+    id: row.Submission_ID, version: row.Version, status: row.Status, text: row.Text_Content,
+    fileName: row.File_Name, fileSize: row.File_Size, fileId: row.Drive_File_ID, submittedAt: row.Submitted_At,
+    note: row.Review_Note, reviewedAt: row.Reviewed_At, reviewerName: reviewer ? reviewer.Name : '',
+    correctionDueAt: row.Correction_Due_At, mailStatus: row.Mail_Status
+  };
+}
+
+function catalogIsEligibleReviewer_(user, group) {
+  return isShapePrintUser_(user) && user.Status === 'Active' &&
+    !(group.Legacy_Team_ID && String(user.Team_ID || '') === group.Legacy_Team_ID);
+}
+
+function catalogTargetView_(target, group, item, submissions, users, actor) {
+  var reviewer = catalogFind_(users, 'User_ID', target.Reviewer_ID);
+  var assigned = actor.User_ID === target.Reviewer_ID && catalogIsEligibleReviewer_(actor, group);
+  var eligible = catalogIsEligibleReviewer_(reviewer, group);
+  var activeLink = Boolean(target.Link_Key && Number(target.Link_Expires) > Date.now());
+  var latest = submissions[0];
+  return {
+    id: target.Target_ID, group: catalogGroupView_(group), item: catalogItemView_(item),
+    revision: target.Revision, reviewerId: target.Reviewer_ID, reviewerName: reviewer ? reviewer.Name : '',
+    reviewerAvailable: eligible, assignedToMe: assigned,
+    canShare: eligible && (assigned || actor.Role === 'SuperAdmin'),
+    canReview: assigned && Boolean(latest && latest.Status === 'pending'),
+    linkStatus: activeLink ? 'active' : target.Link_Key ? 'expired' : 'inactive',
+    status: latest ? latest.Status : 'waiting',
+    versions: submissions.map(function(row) { return catalogSubmissionView_(row, users); })
+  };
+}
+
+function handleCatalogBoard_(payload) {
+  var auth = requireCatalogStaff_(payload);
+  var manager = auth.actor.Role === 'SuperAdmin';
+  var tables = readCatalogBoardData_(manager);
+  var groups = tables.Catalog_Roster;
+  var items = tables.Catalog_Items;
+  var submissionsByTarget = Object.create(null);
+  tables.Catalog_Submissions.forEach(function(row) {
+    (submissionsByTarget[row.Target_ID] || (submissionsByTarget[row.Target_ID] = [])).push(row);
+  });
+  var rows = tables.Catalog_Targets.filter(function(target) {
+    return manager || target.Reviewer_ID === auth.actor.User_ID;
+  }).map(function(target) {
+    var group = catalogFind_(groups, 'Group_ID', target.Group_ID);
+    var item = catalogFind_(items, 'Item_ID', target.Item_ID);
+    if (!group || !item || (!manager && !catalogIsEligibleReviewer_(auth.actor, group))) return null;
+    var versions = (submissionsByTarget[target.Target_ID] || []).sort(function(a, b) { return b.Version - a.Version; });
+    return catalogTargetView_(target, group, item, versions, auth.users, auth.actor);
+  }).filter(Boolean);
+  return Object.assign({
+    manager: manager,
+    rows: rows,
+    groups: manager ? groups.map(catalogGroupView_) : [],
+    items: manager ? items.map(catalogItemView_) : [],
+    reviewers: manager ? auth.users.filter(function(user) {
+      return isShapePrintUser_(user) && user.Status === 'Active';
+    }).map(function(user) { return { id: user.User_ID, name: user.Name, legacyTeamId: user.Team_ID }; }) : [],
+    legacyTeams: manager ? ensureArray_(tables.Teams).filter(function(team) { return team.Team_ID && team.Team_ID !== SHAPE_PRINT_TEAM_ID; })
+      .map(function(team) { return { id: team.Team_ID, name: team.Team_Name }; }) : []
+  }, getWorkspaceAccessPolicy_());
+}
+
+function handleCatalogSaveGroup_(payload) {
+  requireCatalogStaff_(payload, true);
+  var tables = readCatalogTables_(['Catalog_Roster', 'Catalog_Targets', 'Teams'], true);
+  var groups = tables.Catalog_Roster;
+  var id = String(payload.groupId || '') || 'PCG_' + catalogRequestId_(payload);
+  var existing = catalogFind_(groups, 'Group_ID', id);
+  if (payload.groupId && !existing) throw new Error('找不到這個小組，請重新載入名冊。');
+  var number = String(payload.number || '').trim().toUpperCase();
+  var project = String(payload.project || '').trim();
+  var advisor = String(payload.advisor || '').trim();
+  var email = normalizeEmail_(payload.email);
+  var legacyTeamId = existing ? existing.Legacy_Team_ID : String(payload.legacyTeamId || '');
+  if (!/^[A-Z0-9][A-Z0-9-]{0,11}$/.test(number)) throw new Error('組別請填 1 至 12 個數字、英文字母或連字號。');
+  if (/^\d+$/.test(number)) number = String(Number(number)).padStart(2, '0');
+  if (!project || project.length > 120 || !advisor || advisor.length > 80) throw new Error('請填寫作品名稱與指導老師。');
+  if (!/^[^\s@,;<>"()]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email) || email.length > 254) throw new Error('請輸入一個有效的聯絡信箱。');
+  if (legacyTeamId && (legacyTeamId === SHAPE_PRINT_TEAM_ID || (!existing && !catalogFind_(tables.Teams, 'Team_ID', legacyTeamId)))) {
+    throw new Error('無法連結指定的既有畢製小組。');
+  }
+  if (groups.some(function(group) {
+    return group.Group_ID !== id && (group.Group_Number === number || (legacyTeamId && group.Legacy_Team_ID === legacyTeamId));
+  })) throw new Error('這個組別或對應的既有小組已在名冊中。');
+  var next = { Group_ID: id, Legacy_Team_ID: legacyTeamId, Group_Number: number,
+    Project_Name: project, Advisor_Name: advisor, Contact_Email: email, Revision: existing ? existing.Revision + 1 : 1 };
+  if (existing && ['Group_Number', 'Project_Name', 'Advisor_Name', 'Contact_Email']
+    .every(function(key) { return existing[key] === next[key]; })) return { group: catalogGroupView_(existing), linksRevoked: 0 };
+  catalogAssertRevision_(existing, payload.revision);
+  var writes = { Catalog_Roster: existing ? groups.map(function(group) { return group.Group_ID === id ? next : group; }) : groups.concat([next]) };
+  var linksRevoked = 0;
+  if (existing && existing.Contact_Email !== email) {
+    writes.Catalog_Targets = tables.Catalog_Targets.map(function(target) {
+      if (target.Group_ID !== id || !target.Link_Key) return target;
+      linksRevoked++;
+      return Object.assign({}, target, { Link_Key: '', Link_Expires: 0, Revision: target.Revision + 1 });
+    });
+  }
+  writeCatalogTables_(writes);
+  return { group: catalogGroupView_(next), linksRevoked: linksRevoked };
+}
+
+function handleCatalogSaveItem_(payload) {
+  requireCatalogStaff_(payload, true);
+  var items = readCatalogTables_(['Catalog_Items'], true).Catalog_Items;
+  var id = String(payload.itemId || '') || 'PCI_' + catalogRequestId_(payload);
+  var existing = catalogFind_(items, 'Item_ID', id);
+  if (payload.itemId && !existing) throw new Error('找不到這個收件項目，請重新載入。');
+  var title = String(payload.title || '').trim();
+  var requirements = String(payload.requirements || '').trim();
+  var due = catalogDueAt_(payload.dueAt);
+  var format = existing ? existing.Format : String(payload.format || '');
+  if (!title || title.length > 120 || !requirements || requirements.length > 5000) throw new Error('請填寫收件名稱與繳交規格。');
+  if (['text', 'file', 'both'].indexOf(format) === -1) throw new Error('請選擇收件格式。');
+  if ((!existing || existing.Due_At !== due) && (Date.parse(due) <= Date.now() || Date.parse(due) > Date.now() + 366 * CATALOG_DAY_MS)) {
+    throw new Error('截止時間須晚於現在，且在一年以內。');
+  }
+  var next = { Item_ID: id, Title: title, Requirements: requirements, Format: format, Due_At: due,
+    Verify_Email: existing ? existing.Verify_Email : payload.verifyEmail !== false,
+    Revision: existing ? existing.Revision + 1 : 1, Created_At: existing ? existing.Created_At : new Date().toISOString() };
+  if (existing && ['Title', 'Requirements', 'Due_At'].every(function(key) { return existing[key] === next[key]; })) {
+    return { item: catalogItemView_(existing) };
+  }
+  catalogAssertRevision_(existing, payload.revision);
+  writeCatalogTables_({ Catalog_Items: existing ? items.map(function(item) { return item.Item_ID === id ? next : item; }) : items.concat([next]) });
+  return { item: catalogItemView_(next) };
+}
+
+function handleCatalogAssignReviewer_(payload) {
+  var auth = requireCatalogStaff_(payload, true);
+  var tables = readCatalogTables_(['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets'], true);
+  var targets = tables.Catalog_Targets;
+  var reviewer = catalogFind_(auth.users, 'User_ID', payload.reviewerId);
+  if (!isShapePrintUser_(reviewer) || reviewer.Status !== 'Active') throw new Error('請選擇可使用的形印組帳號。');
+  if (payload.targetId) {
+    var target = catalogFind_(targets, 'Target_ID', payload.targetId);
+    var group = target && catalogFind_(tables.Catalog_Roster, 'Group_ID', target.Group_ID);
+    if (!group) throw new Error('找不到這筆收件分配。');
+    if (!catalogIsEligibleReviewer_(reviewer, group)) throw new Error('不可將自己的畢製小組交由自己審核。');
+    if (target.Reviewer_ID === reviewer.User_ID) return { assignedCount: 1 };
+    catalogAssertRevision_(target, payload.revision);
+    target.Reviewer_ID = reviewer.User_ID;
+    target.Revision += 1;
+    writeCatalogTables_({ Catalog_Targets: targets });
+    return { assignedCount: 1 };
+  }
+  var item = catalogFind_(tables.Catalog_Items, 'Item_ID', payload.itemId);
+  var ids = ensureArray_(payload.groupIds).map(String);
+  if (!item || !ids.length || ids.length > 100 || new Set(ids).size !== ids.length) throw new Error('請選擇收件項目與要分配的小組。');
+  ids.forEach(function(groupId) {
+    var group = catalogFind_(tables.Catalog_Roster, 'Group_ID', groupId);
+    if (!group) throw new Error('有小組已不存在，請重新載入名冊。');
+    if (!catalogIsEligibleReviewer_(reviewer, group)) throw new Error('有小組是這位審核人的畢製組別，請改派其他組員。');
+    var existing = targets.find(function(row) { return row.Item_ID === item.Item_ID && row.Group_ID === groupId; });
+    if (existing && existing.Reviewer_ID !== reviewer.User_ID) throw new Error('小組已分配給其他審核人，請從個別小組調整。');
+    if (!existing) targets.push({ Target_ID: 'PCT_' + catalogIdPart_(), Item_ID: item.Item_ID, Group_ID: groupId,
+      Reviewer_ID: reviewer.User_ID, Link_Key: '', Link_Expires: 0, Revision: 1 });
+  });
+  writeCatalogTables_({ Catalog_Targets: targets });
+  return { assignedCount: ids.length };
+}
+
+function catalogSecret_(create) {
+  var properties = PropertiesService.getScriptProperties();
+  var secret = properties.getProperty(CATALOG_SIGNING_KEY_PROPERTY);
+  if (!secret && create) {
+    secret = catalogIdPart_() + catalogIdPart_();
+    properties.setProperty(CATALOG_SIGNING_KEY_PROPERTY, secret);
+  }
+  return secret || '';
+}
+
+function catalogSignature_(value, secret) {
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(value, secret)).replace(/=+$/, '');
+}
+
+function catalogSecureMatch_(left, right) {
+  var different = left.length ^ right.length;
+  for (var i = 0; i < left.length; i++) different |= left.charCodeAt(i) ^ (right.charCodeAt(i) || 0);
+  return different === 0;
+}
+
+function catalogLinkUrl_(target) {
+  var base = String(getConfig_().frontendBaseUrl).split(/[?#]/)[0].replace(/\/index\.html$/i, '').replace(/\/+$/, '');
+  if (!/^https:\/\/[^/]+(?:\/|$)/.test(base)) throw new Error('尚未設定安全的正式網站網址。');
+  var prefix = target.Target_ID + '.' + target.Link_Key;
+  return base + '/catalog-upload.html#' + prefix + '.' + catalogSignature_('link:' + prefix, catalogSecret_(true));
+}
+
+function catalogCheckLink_(payload) {
+  var token = String(payload && payload.linkToken || '');
+  var match = /^(PCT_[a-f0-9]{32})\.([a-f0-9]{32})\.([A-Za-z0-9_-]{43})$/.exec(token);
+  var secret = match && catalogSecret_(false);
+  if (!secret || !catalogSecureMatch_(catalogSignature_('link:' + match[1] + '.' + match[2], secret), match[3])) {
+    throw new Error('CATALOG_LINK_INVALID: 上傳連結無效，請向形印組負責人索取新連結。');
+  }
+  return { targetId: match[1], linkKey: match[2], secret: secret };
+}
+
+function catalogTargetContext_(tables, targetId) {
+  var target = catalogFind_(tables.Catalog_Targets, 'Target_ID', targetId);
+  var group = target && catalogFind_(tables.Catalog_Roster, 'Group_ID', target.Group_ID);
+  var item = target && catalogFind_(tables.Catalog_Items, 'Item_ID', target.Item_ID);
+  return group && item ? { target: target, group: group, item: item,
+    versions: catalogLatest_(tables.Catalog_Submissions || [], targetId) } : null;
+}
+
+function requireCatalogTargetAccess_(context, actor, onlyAssigned) {
+  if (!context || (actor.Role !== 'SuperAdmin' || onlyAssigned) &&
+    (actor.User_ID !== context.target.Reviewer_ID || !catalogIsEligibleReviewer_(actor, context.group))) {
+    throw new Error('FORBIDDEN: 只能操作分配給您的專刊收件。');
+  }
+}
+
+function handleCatalogLink_(payload) {
+  var auth = requireCatalogStaff_(payload);
+  var tables = readCatalogTables_(['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets']);
+  var context = catalogTargetContext_(tables, payload.targetId);
+  requireCatalogTargetAccess_(context, auth.actor, false);
+  var target = context.target;
+  if (['copy', 'rotate', 'revoke'].indexOf(payload.operation) < 0) throw new Error('無法處理這項連結操作。');
+  if (payload.operation === 'revoke') {
+    if (!target.Link_Key) return { linkStatus: 'inactive' };
+    catalogAssertRevision_(target, payload.revision);
+    Object.assign(target, { Link_Key: '', Link_Expires: 0, Revision: target.Revision + 1 });
+    writeCatalogTables_({ Catalog_Targets: tables.Catalog_Targets });
+    return { linkStatus: 'inactive' };
+  }
+  if (!catalogIsEligibleReviewer_(catalogFind_(auth.users, 'User_ID', target.Reviewer_ID), context.group)) {
+    throw new Error('請組長重新分配有效的審核人後再建立連結。');
+  }
+  if (!target.Link_Key || target.Link_Expires <= Date.now() || payload.operation === 'rotate') {
+    catalogAssertRevision_(target, payload.revision);
+    target.Link_Key = catalogIdPart_();
+    target.Link_Expires = Math.max(Date.now(), Date.parse(context.item.Due_At) || 0) + 30 * CATALOG_DAY_MS;
+    target.Revision += 1;
+    var newUrl = catalogLinkUrl_(target);
+    writeCatalogTables_({ Catalog_Targets: tables.Catalog_Targets });
+    return { linkStatus: 'active', url: newUrl };
+  }
+  return { linkStatus: 'active', url: catalogLinkUrl_(target) };
+}
+
+function handleCatalogWorkspaceMode_(payload) {
+  requireCatalogStaff_(payload, true);
+  if (typeof payload.internalOnly !== 'boolean' || payload.confirm !== true) throw new Error('請先確認工作台切換範圍。');
+  var current = getWorkspaceAccessPolicy_();
+  if (current.workspaceInternalOnly === payload.internalOnly) return current;
+  if (payload.revision !== current.workspaceModeRevision) throw new Error('CATALOG_CHANGED: 工作台設定已變更，請先重新載入。');
+  var next = { workspaceInternalOnly: payload.internalOnly, workspaceModeRevision: current.workspaceModeRevision + 1 };
+  PropertiesService.getScriptProperties().setProperty(WORKSPACE_ACCESS_POLICY_PROPERTY, JSON.stringify(next));
+  return next;
+}
+
+function catalogSendEmail_(email, subject, lines) {
+  sendSystemEmail_(email, '【專刊收件】' + subject, lines.join('\n'),
+    '<p>' + lines.map(escapeHtml_).join('<br>') + '</p>');
+}
+
+function handleCatalogReview_(payload) {
+  var auth = requireCatalogStaff_(payload);
+  var tables = readCatalogBoardData_(false);
+  var context = catalogTargetContext_(tables, payload.targetId);
+  requireCatalogTargetAccess_(context, auth.actor, true);
+  var submission = context.versions[0];
+  var status = String(payload.decision || '');
+  var note = String(payload.note || '').trim();
+  var correctionDays = Number(payload.correctionDays || 7);
+  if (!submission || submission.Submission_ID !== payload.submissionId) {
+    throw new Error('CATALOG_CHANGED: 小組已有更新的繳交版本。請重新載入再審核。');
+  }
+  if (['approved', 'returned'].indexOf(status) < 0 || note.length > 2000 ||
+    (status === 'returned' && (!note || [3, 7, 14].indexOf(correctionDays) < 0))) {
+    throw new Error('退回時請填寫補件原因並選擇期限；審核意見最多 2000 字。');
+  }
+  if (submission.Status === status && submission.Review_Note === note && submission.Reviewed_By === auth.actor.User_ID) {
+    return { submission: catalogSubmissionView_(submission, auth.users) };
+  }
+  if (submission.Status !== 'pending') throw new Error('CATALOG_CHANGED: 這個版本已審核，請重新載入。');
+  var now = Date.now();
+  Object.assign(submission, {
+    Status: status, Review_Note: note, Reviewed_By: auth.actor.User_ID, Reviewed_At: new Date(now).toISOString(),
+    Correction_Due_At: status === 'returned' ? new Date(now + correctionDays * CATALOG_DAY_MS).toISOString() : '',
+    Mail_Status: 'unconfirmed'
+  });
+  var writes = { Catalog_Submissions: tables.Catalog_Submissions };
+  if (submission.Correction_Due_At && context.target.Link_Key &&
+    context.target.Link_Expires > now && context.target.Link_Expires < Date.parse(submission.Correction_Due_At) + CATALOG_DAY_MS) {
+    context.target.Link_Expires = Date.parse(submission.Correction_Due_At) + CATALOG_DAY_MS;
+    context.target.Revision += 1;
+    writes.Catalog_Targets = tables.Catalog_Targets;
+  }
+  writeCatalogTables_(writes);
+  try {
+    var link = context.target.Link_Key && context.target.Link_Expires > now ? catalogLinkUrl_(context.target) : '';
+    var heading = status === 'approved' ? '資料審核通過' : '請查看補件說明';
+    catalogSendEmail_(context.group.Contact_Email, heading, [
+      '第 ' + context.group.Group_Number + ' 組｜' + context.item.Title + '：' + heading + '。',
+      link ? '請開啟專屬頁面查看結果：' + link : '目前沒有可用的上傳連結，請向形印組負責人索取。'
+    ]);
+    submission.Mail_Status = 'sent';
+  } catch (error) {
+    submission.Mail_Status = 'failed';
+  }
+  try {
+    writeCatalogTables_({ Catalog_Submissions: tables.Catalog_Submissions });
+  } catch (error) {
+    submission.Mail_Status = 'unconfirmed';
+  }
+  return { submission: catalogSubmissionView_(submission, auth.users) };
+}
+
+function getCatalogPreviewRecord_(payload) {
+  var auth = requireCatalogStaff_(payload);
+  var tables = readCatalogTables_(['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions']);
+  var row = catalogFind_(tables.Catalog_Submissions, 'Submission_ID', payload.recordId);
+  var context = row && catalogTargetContext_(tables, row.Target_ID);
+  requireCatalogTargetAccess_(context, auth.actor, false);
+  return row;
+}
+
+function handleCatalogDownload_(payload) {
+  var row = getCatalogPreviewRecord_(payload);
+  var start = payload.offset;
+  var total = Number(row.File_Size);
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(row.Drive_File_ID || '') || !Number.isSafeInteger(total) ||
+    total < 1 || total > CATALOG_FILE_LIMIT || !Number.isSafeInteger(start) || start < 0 || start >= total) {
+    throw new Error('找不到可下載的附件，請重新載入。');
+  }
+  var file = getDriveFileInRoot_(row.Drive_File_ID);
+  if (file.isTrashed() || Number(file.getSize()) !== total) throw new Error('附件已移動或更新，請聯絡組長確認。');
+  var end = Math.min(start + 4 * 1024 * 1024, total) - 1;
+  var response = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(row.Drive_File_ID)
+    + '?alt=media&supportsAllDrives=true', {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), Range: 'bytes=' + start + '-' + end },
+    muteHttpExceptions: true
+  });
+  var status = response.getResponseCode();
+  if (!(status === 206 && getHttpHeaderValue_(response.getAllHeaders(), 'Content-Range') === 'bytes ' + start + '-' + end + '/' + total)
+    && !(status === 200 && start === 0 && end === total - 1)) {
+    throw new Error('尚未取得完整附件，請稍後再下載。');
+  }
+  var bytes = response.getContent();
+  if (bytes.length !== end - start + 1) throw new Error('附件下載中斷，請重新下載。');
+  return { recordId: row.Submission_ID, offset: start, nextByte: end + 1, total: total, contentBase64: Utilities.base64Encode(bytes) };
+}
+
+function readCatalogGuestContext_(identity, includeVersions) {
+  var names = ['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets'];
+  if (includeVersions) names.push('Catalog_Submissions');
+  var tables = readCatalogTables_(names);
+  var context = catalogTargetContext_(tables, identity.targetId);
+  if (!context || context.target.Link_Key !== identity.linkKey || context.target.Link_Expires <= Date.now()) {
+    throw new Error('CATALOG_LINK_INVALID: 上傳連結已停用或過期，請向負責人索取新連結。');
+  }
+  context.tables = tables;
+  return context;
+}
+
+function catalogGuestScope_(context) {
+  return context.target.Target_ID + ':' + context.target.Link_Key + ':' + context.group.Contact_Email;
+}
+
+function catalogCacheRead_(key) {
+  var raw = CacheService.getScriptCache().get(key);
+  try { return raw ? JSON.parse(raw) : null; } catch (error) { return null; }
+}
+
+function catalogCacheWrite_(key, value, seconds) {
+  CacheService.getScriptCache().put(key, JSON.stringify(value), seconds);
+}
+
+function catalogRateLimit_(name, max, seconds) {
+  var key = 'CatalogRate:' + name + ':' + Math.floor(Date.now() / (1000 * seconds));
+  var count = Number(catalogCacheRead_(key) || 0);
+  if (count >= max) throw new Error('CATALOG_WAIT: 操作太頻繁，請稍後再試。');
+  catalogCacheWrite_(key, count + 1, seconds);
+}
+
+function catalogHasGuestGrant_(context, payload) {
+  if (context.item.Verify_Email !== true) return true;
+  var grant = String(payload.guestGrant || '');
+  if (!/^[a-f0-9]{64}$/.test(grant)) return false;
+  var record = catalogCacheRead_('CatalogGrant:' + hashSessionToken_(grant));
+  return Boolean(record && record.scope === catalogGuestScope_(context) && record.expires > Date.now());
+}
+
+function requireCatalogGuestGrant_(context, payload) {
+  if (!catalogHasGuestGrant_(context, payload)) throw new Error('CATALOG_VERIFY_REQUIRED: 請先使用小組的聯絡信箱完成驗證。');
+}
+
+function catalogGuestWindow_(context) {
+  var latest = context.versions[0];
+  var dueAt = latest && latest.Status === 'returned' ? latest.Correction_Due_At : context.item.Due_At;
+  var canSubmit = (!latest || latest.Status === 'returned') && Date.parse(dueAt) > Date.now();
+  return { dueAt: dueAt, canSubmit: canSubmit, latest: latest || null };
+}
+
+function catalogGuestView_(context, verified) {
+  var basic = {
+    title: context.item.Title,
+    groupNumber: context.group.Group_Number,
+    requiresVerification: context.item.Verify_Email === true,
+    verified: verified
+  };
+  if (!verified) return basic;
+  var window = catalogGuestWindow_(context);
+  var latest = window.latest;
+  return Object.assign(basic, {
+    project: context.group.Project_Name,
+    requirements: context.item.Requirements,
+    format: context.item.Format,
+    dueAt: window.dueAt,
+    canSubmit: window.canSubmit,
+    maxFileBytes: CATALOG_FILE_LIMIT,
+    latest: latest ? { version: latest.Version, status: latest.Status,
+      submittedAt: latest.Submitted_At, note: latest.Review_Note } : null
+  });
+}
+
+function handleCatalogGuestDescribe_(payload) {
+  var identity = catalogCheckLink_(payload);
+  var context = readCatalogGuestContext_(identity, true);
+  return catalogGuestView_(context, catalogHasGuestGrant_(context, payload));
+}
+
+function catalogOtpKey_(context) {
+  return 'CatalogOtp:' + hashSessionToken_(catalogGuestScope_(context));
+}
+
+function handleCatalogGuestSendCode_(payload) {
+  var identity = catalogCheckLink_(payload);
+  var context = readCatalogGuestContext_(identity, false);
+  if (context.item.Verify_Email !== true) return { sent: false };
+  var key = catalogOtpKey_(context);
+  var previous = catalogCacheRead_(key);
+  if (previous && Date.now() - previous.issuedAt < 60000) throw new Error('CATALOG_WAIT: 請等候 1 分鐘後再寄送驗證碼。');
+  catalogRateLimit_('mail:' + identity.targetId, 5, 3600);
+  catalogRateLimit_('mail', 80, 3600);
+  var code = String(parseInt(catalogIdPart_().slice(0, 8), 16) % 1000000).padStart(6, '0');
+  var issuedAt = Date.now();
+  catalogCacheWrite_(key, {
+    issuedAt: issuedAt, expires: issuedAt + 10 * 60000, remaining: 5,
+    codeProof: catalogSignature_(key + ':' + code, identity.secret)
+  }, 600);
+  try {
+    catalogSendEmail_(context.group.Contact_Email, '專刊上傳驗證碼', [
+      '第 ' + context.group.Group_Number + ' 組的上傳驗證碼：' + code,
+      '驗證碼 10 分鐘內有效。若非您所申請，請忽略此信。'
+    ]);
+  } catch (error) {
+    CacheService.getScriptCache().remove(key);
+    throw new Error('CATALOG_MAIL_UNAVAILABLE: 目前無法寄送驗證碼，請稍後再試或聯絡負責人。');
+  }
+  return { sent: true };
+}
+
+function handleCatalogGuestVerify_(payload) {
+  var identity = catalogCheckLink_(payload);
+  var context = readCatalogGuestContext_(identity, true);
+  var key = catalogOtpKey_(context);
+  var entry = catalogCacheRead_(key);
+  if (context.item.Verify_Email !== true || !entry || entry.expires <= Date.now() || entry.remaining <= 0) {
+    throw new Error('CATALOG_CODE_INVALID: 驗證碼已失效，請重新寄送。');
+  }
+  var code = String(payload.code || '');
+  if (!/^\d{6}$/.test(code) || !catalogSecureMatch_(entry.codeProof, catalogSignature_(key + ':' + code, identity.secret))) {
+    entry.remaining -= 1;
+    catalogCacheWrite_(key, entry, Math.max(1, Math.ceil((entry.expires - Date.now()) / 1000)));
+    throw new Error('CATALOG_CODE_INVALID: 驗證碼不符' + (entry.remaining ? '，請確認信中最新的 6 位數字。' : '，請重新寄送。'));
+  }
+  var grant = catalogIdPart_() + catalogIdPart_();
+  catalogCacheWrite_('CatalogGrant:' + hashSessionToken_(grant),
+    { scope: catalogGuestScope_(context), expires: Date.now() + 2 * 3600000 }, 7200);
+  CacheService.getScriptCache().remove(key);
+  return { guestGrant: grant, intake: catalogGuestView_(context, true) };
+}
+
+function catalogMIMEType_(name) {
+  var types = { '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.png': 'image/png',
+    '.tif': 'image/tiff', '.tiff': 'image/tiff', '.pdf': 'application/pdf', '.zip': 'application/zip' };
+  return types[parseFileMeta_(name).extension] || 'application/octet-stream';
+}
+
+function catalogGuestInputs_(context, payload) {
+  var format = context.item.Format;
+  var text = String(payload.text || '').trim();
+  var fileName = String(payload.fileName || '').trim();
+  var fileSize = payload.fileSize === undefined ? 0 : payload.fileSize;
+  if (['text', 'file', 'both'].indexOf(format) < 0
+    || (format === 'file' && text) || (format !== 'file' && (!text || text.length > 5000))) {
+    throw new Error('CATALOG_INPUT_INVALID: 請依指定格式填寫內容，文字最多 5000 字。');
+  }
+  if (format !== 'text') {
+    if (!fileName || fileName.length > 180 || /[\x00-\x1f\x7f]/.test(fileName) ||
+      !isSupportedUploadExtension_(parseFileMeta_(fileName).extension) ||
+      !Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > CATALOG_FILE_LIMIT) {
+      throw new Error('CATALOG_INPUT_INVALID: 附件須為支援的格式，且不可超過 100 MB。多個檔案可打包成 ZIP。');
+    }
+    fileName = sanitizeDriveEntryName_(fileName, 'upload.bin');
+  } else if (fileName || fileSize) {
+    throw new Error('CATALOG_INPUT_INVALID: 此項目只收文字，不需上傳附件。');
+  }
+  return { text: text, fileName: fileName, fileSize: fileSize };
+}
+
+function catalogUploadKey_(identity, requestId) {
+  return 'CatalogUpload:' + identity.targetId + ':' + identity.linkKey + ':' + requestId;
+}
+
+function catalogPreviousReceipt_(context, identity, requestId) {
+  return context.versions.find(function(row) {
+    return row.Request_ID === requestId && row.Link_Key === identity.linkKey;
+  });
+}
+
+function catalogReceipt_(context, submission) {
+  return { status: 'received', receipt: { version: submission.Version, submittedAt: submission.Submitted_At },
+    intake: catalogGuestView_(context, true) };
+}
+
+function catalogAssertCanSubmit_(context, expectedVersion) {
+  var window = catalogGuestWindow_(context);
+  if (!window.canSubmit) throw new Error('CATALOG_CLOSED: 目前不開放送出，請先確認最新狀態或聯絡負責人。');
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== (window.latest ? window.latest.Version : 0)) {
+    throw new Error('CATALOG_CHANGED: 這組已有更新的繳交紀錄，請確認最新狀態再送出。');
+  }
+}
+
+function commitCatalogGuestSubmission_(context, identity, draft) {
+  var prior = catalogPreviousReceipt_(context, identity, draft.requestId);
+  if (prior) {
+    if (prior.Input_Hash !== draft.inputHash) throw new Error('CATALOG_CHANGED: 已確認前一次繳交，請先查看最新狀態。');
+    return catalogReceipt_(context, prior);
+  }
+  catalogAssertCanSubmit_(context, draft.expectedVersion);
+  var submission = {
+    Submission_ID: 'PCS_' + catalogIdPart_(), Target_ID: identity.targetId, Request_ID: draft.requestId,
+    Link_Key: identity.linkKey, Input_Hash: draft.inputHash, Version: draft.expectedVersion + 1, Text_Content: draft.text,
+    File_Name: draft.fileName, File_Size: draft.fileSize, Drive_File_ID: draft.driveFileId || '',
+    Submitted_At: new Date().toISOString(), Status: 'pending', Review_Note: '', Reviewed_By: '',
+    Reviewed_At: '', Correction_Due_At: '', Mail_Status: ''
+  };
+  if (draft.fileSize && !submission.Drive_File_ID) throw new Error('CATALOG_UPLOAD_RETRY: 附件尚未確認，請重試。');
+  writeCatalogTables_({ Catalog_Submissions: context.tables.Catalog_Submissions.concat([submission]) });
+  context.versions.unshift(submission);
+  return catalogReceipt_(context, submission);
+}
+
+function getCatalogUploadFolder_(context) {
+  var folder = DriveApp.getFolderById(getConfig_().driveRootFolderId);
+  function assertPrivate(candidate) {
+    if (candidate.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+      throw new Error('CATALOG_UPLOAD_UNAVAILABLE: 收件資料夾尚未設定為私人，請聯絡形印組。');
+    }
+  }
+  assertPrivate(folder);
+  ['專刊收件', context.item.Item_ID, context.group.Group_ID].forEach(function(name) {
+    folder = getOrCreateFolder_(folder, name);
+    assertPrivate(folder);
+  });
+  return folder;
+}
+
+function catalogProbeUpload_(draft) {
+  var response = UrlFetchApp.fetch(draft.uploadUrl, {
+    method: 'put', headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'Content-Range': 'bytes */' + draft.fileSize
+    }, payload: '', muteHttpExceptions: true
+  });
+  return { responseCode: response.getResponseCode(), headers: response.getAllHeaders(), body: response.getContentText() };
+}
+
+function catalogApplyDriveResponse_(key, draft, result) {
+  if (result.responseCode === 200 || result.responseCode === 201) {
+    var saved = JSON.parse(result.body || '{}');
+    if (!/^[A-Za-z0-9_-]{10,200}$/.test(String(saved.id || '')) || Number(saved.size) !== draft.fileSize
+      || ensureArray_(saved.parents).indexOf(draft.folderId) < 0) {
+      throw new Error('CATALOG_UPLOAD_RETRY: 已傳輸但尚未確認附件，請保留頁面並重試。');
+    }
+    draft.driveFileId = saved.id;
+    catalogCacheWrite_(key, draft, CATALOG_DRAFT_TTL);
+    return draft.fileSize;
+  }
+  if (result.responseCode === 308) {
+    var nextByte = getResumableNextByte_(result.headers, 0);
+    if (Number.isSafeInteger(nextByte) && nextByte >= 0 && nextByte < draft.fileSize && nextByte % (256 * 1024) === 0) return nextByte;
+  }
+  if (result.responseCode === 404 || result.responseCode === 410) {
+    CacheService.getScriptCache().remove(key);
+    throw new Error('CATALOG_UPLOAD_RESTART: 本次上傳已過期。已保留選檔與文字，再送出即可重新上傳。');
+  }
+  throw new Error('CATALOG_UPLOAD_RETRY: 暫時無法確認上傳進度，請重試以接續已完成的部分。');
+}
+
+function handleCatalogGuestBegin_(payload) {
+  var identity = catalogCheckLink_(payload);
+  var context = readCatalogGuestContext_(identity, true);
+  requireCatalogGuestGrant_(context, payload);
+  var requestId = catalogRequestId_(payload);
+  var values = catalogGuestInputs_(context, payload);
+  var inputHash = hashSessionToken_(JSON.stringify(values));
+  var prior = catalogPreviousReceipt_(context, identity, requestId);
+  if (prior) {
+    if (prior.Input_Hash !== inputHash) throw new Error('CATALOG_CHANGED: 已確認前一次繳交，請先查看最新狀態。');
+    return catalogReceipt_(context, prior);
+  }
+  catalogAssertCanSubmit_(context, payload.expectedVersion);
+  var draft = Object.assign({}, values, { requestId: requestId, inputHash: inputHash, expectedVersion: payload.expectedVersion });
+  if (!draft.fileSize) return commitCatalogGuestSubmission_(context, identity, draft);
+  var key = catalogUploadKey_(identity, requestId);
+  var previous = catalogCacheRead_(key);
+  var nextByte = 0;
+  if (previous) {
+    if (previous.inputHash !== inputHash || previous.expectedVersion !== draft.expectedVersion) {
+      throw new Error('CATALOG_CHANGED: 此次上傳只供原本的文字及檔案使用，請重新確認。');
+    }
+    draft = previous;
+    if (!draft.driveFileId) nextByte = catalogApplyDriveResponse_(key, draft, catalogProbeUpload_(draft));
+    if (draft.driveFileId) return commitCatalogGuestSubmission_(context, identity, draft);
+  } else {
+    catalogRateLimit_('upload:' + identity.targetId, 8, 600);
+    var folder = getCatalogUploadFolder_(context);
+    draft.folderId = folder.getId();
+    draft.mimeType = catalogMIMEType_(draft.fileName);
+    var storedName = 'v' + (draft.expectedVersion + 1) + '-' + draft.fileName;
+    draft.uploadUrl = createDriveResumableSession_(storedName, draft.mimeType, draft.fileSize, draft.folderId);
+    catalogCacheWrite_(key, draft, CATALOG_DRAFT_TTL);
+  }
+  return { status: 'uploading', nextByte: nextByte, chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES };
+}
+
+function handleCatalogGuestChunk_(payload) {
+  var identity = catalogCheckLink_(payload);
+  var context = readCatalogGuestContext_(identity, true);
+  requireCatalogGuestGrant_(context, payload);
+  var requestId = catalogRequestId_(payload);
+  var prior = catalogPreviousReceipt_(context, identity, requestId);
+  if (prior) return catalogReceipt_(context, prior);
+  var key = catalogUploadKey_(identity, requestId);
+  var draft = catalogCacheRead_(key);
+  if (!draft) throw new Error('CATALOG_UPLOAD_RESTART: 上傳已中斷，請再次送出以重新上傳。');
+  catalogAssertCanSubmit_(context, draft.expectedVersion);
+  if (!draft.driveFileId) {
+    var start = payload.start;
+    var end = payload.end;
+    var content = String(payload.base64 || '');
+    var length = end - start + 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end >= draft.fileSize ||
+      start % (256 * 1024) || (end !== draft.fileSize - 1 && length % (256 * 1024)) ||
+      length > RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES || content.length !== Math.ceil(length / 3) * 4) {
+      throw new Error('CATALOG_UPLOAD_RETRY: 上傳分段未通過檢查，請重新送出。');
+    }
+    var bytes = Utilities.base64Decode(content);
+    if (bytes.length !== length) throw new Error('CATALOG_UPLOAD_RETRY: 附件分段不完整，請重試。');
+    var result = uploadDriveResumableChunk_(draft.uploadUrl, draft.mimeType, start, end, draft.fileSize, bytes);
+    if (result.responseCode >= 400) {
+      throw new Error('CATALOG_UPLOAD_RETRY: 暫時無法寫入附件，請重試以確認已上傳的進度。');
+    }
+    var nextByte = catalogApplyDriveResponse_(key, draft, result);
+    if (!draft.driveFileId) {
+      if (nextByte <= start || nextByte > end + 1) throw new Error('CATALOG_UPLOAD_RETRY: 此段尚未確認，請重新送出。');
+      return { status: 'uploading', nextByte: nextByte };
+    }
+  }
+  return withLock_(function() {
+    var latest = readCatalogGuestContext_(identity, true);
+    requireCatalogGuestGrant_(latest, payload);
+    return commitCatalogGuestSubmission_(latest, identity, draft);
+  });
+}
+
 function handleGetFilePreview_(payload) {
+  if (payload && payload.recordType === 'catalog-submission') {
+    var catalogRecord = getCatalogPreviewRecord_(payload);
+    return buildServerFilePreview_('catalog-submission', catalogRecord.Submission_ID, catalogRecord.Drive_File_ID);
+  }
   var state = loadState_();
   var actor = requireSessionUser_(state, payload);
   var recordType = String(payload.recordType || '');
@@ -9792,6 +10640,10 @@ function handleGetFilePreview_(payload) {
     return String(item[definition[1]] || '') === recordId;
   });
   var fileId = record && (String(record.Drive_File_ID || '').trim() || extractDriveFileId_(record.Google_Drive_URL));
+  return buildServerFilePreview_(recordType, recordId, fileId);
+}
+
+function buildServerFilePreview_(recordType, recordId, fileId) {
   if (!fileId || !/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) {
     throw new Error('PREVIEW_NOT_FOUND: 找不到可觀看的檔案，請重新整理項目後再試。');
   }

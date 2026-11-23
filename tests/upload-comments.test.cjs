@@ -232,7 +232,10 @@ async function browserTests() {
         discussionCommentDrafts.clear(); discussionCommentInFlight = false;
         assignmentSubmitInFlight = false; assignmentSubmitDrafts.clear(); assignmentWizardStep = 1;
         window.toasts = []; window.sentComments = [];
-        showToast = (message, type) => window.toasts.push({ message, type });
+        showToast = (message, type) => {
+          // The delayed startup toast is unrelated to the comment acknowledgement.
+          if (message !== '已連線至 GAS 雲端資料庫。') window.toasts.push({ message, type });
+        };
         requestGas = async (action, payload) => {
           if (action !== 'postDiscussionComment') throw new Error('Unexpected action ' + action);
           window.sentComments.push(JSON.parse(JSON.stringify(payload)));

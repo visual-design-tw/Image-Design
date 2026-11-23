@@ -1116,6 +1116,26 @@
         }
         @keyframes assignment-step-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @media (prefers-reduced-motion: reduce) { .assignment-wizard-panel { animation: none; } }
+        .catalog-board { --catalog-accent: #0066cc; --catalog-border: #e4e8ee; --catalog-ink: #1d1d1f; --catalog-muted: #626975; min-width: 0; color: var(--catalog-ink); }
+        .catalog-hero { background: radial-gradient(ellipse at 100% 0, #dcecff, transparent 70%), linear-gradient(140deg, #fff 35%, #f3f7fd); border: 1px solid #dbe7f7; border-radius: 28px; padding: clamp(18px, 3vw, 28px); }
+        .catalog-surface { background: #fff; border: 1px solid var(--catalog-border); border-radius: 22px; padding: clamp(14px, 2vw, 22px); min-width: 0; }
+        .catalog-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; padding: 8px 14px; border: 1px solid var(--catalog-border); border-radius: 13px; background: #fff; font-size: .82rem; font-weight: 700; }
+        .catalog-button:hover, .catalog-button[aria-pressed=true] { background: #edf5ff; border-color: #cfe1fa; color: var(--catalog-accent); }
+        .catalog-button-primary { background: var(--catalog-accent); color: #fff; border-color: var(--catalog-accent); }
+        .catalog-button-primary:hover { background: #0056ad; color: #fff; }
+        .catalog-button:disabled { opacity: .48; cursor: not-allowed; }
+        .catalog-input { width: 100%; min-width: 0; min-height: 42px; padding: 9px 12px; border: 1px solid var(--catalog-border); border-radius: 12px; background: #fff; color: var(--catalog-ink); }
+        .catalog-button:focus-visible, .catalog-input:focus-visible, .catalog-board summary:focus-visible { outline: 2px solid var(--catalog-accent); outline-offset: 2px; }
+        .catalog-chip { display: inline-flex; align-items: center; width: fit-content; border-radius: 100px; background: #eef1f6; color: #4e5663; font-size: .75rem; font-weight: 750; padding: 4px 10px; }
+        .catalog-chip[data-catalog-status=pending] { background: #e8f2ff; color: #0054a9; }
+        .catalog-chip[data-catalog-status=returned] { background: #fff2e3; color: #8c4607; }
+        .catalog-chip[data-catalog-status=approved] { background: #e7f6ed; color: #186642; }
+        .catalog-muted { color: var(--catalog-muted); }
+        .catalog-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 126px), 1fr)); gap: 8px; }
+        .catalog-break { overflow-wrap: anywhere; }
+        .catalog-board #catalog-editor, .catalog-board #catalog-link-panel { scroll-margin-top: 88px; }
+        .catalog-case-summary::-webkit-details-marker { display: none; }
+        [data-catalog-case][open] > .catalog-case-summary .catalog-case-chevron { transform: rotate(180deg); }
     </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased booting">
@@ -2159,7 +2179,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.06-single-project.3";
+        const APP_RELEASE = "2026.11.23-catalog-intake.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2268,6 +2288,8 @@
         let registrationOptionsSaveInFlight = false;
         let registrationOptionsSaveMessage = '';
         let registrationOptionsRefreshFailed = false;
+        let workspaceAccessPolicy = { workspaceInternalOnly: false, workspaceModeRevision: -1 };
+        let catalogWorkspace = createCatalogWorkspaceState();
         let shapePrintInviteToken = "";
         let shapePrintInviteStatus = "idle";
         let shapePrintInviteData = null;
@@ -2321,6 +2343,7 @@
         const PROJECT_BUSINESS_DATA_RESET_SESSION_KEY = "shapeprint_project_data_reset_request:";
         const NAVIGATION_MENU_CONFIGS = [
             { id: "overview", name: "專案總覽", icon: "layout-dashboard", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
+            { id: "catalog", name: "專刊收件", icon: "book-open-check", roles: ["SuperAdmin", "Admin"] },
             { id: "notifications", name: "通知中心", icon: "bell", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "files", name: "繳交專區", icon: "clipboard-list", roles: ["SuperAdmin", "Admin", "Leader", "Member"] },
             { id: "calendar", name: "工作行事曆", icon: "calendar-days", roles: ["SuperAdmin", "Admin"] },
@@ -3958,7 +3981,9 @@
         });
         window.addEventListener('focus', function() { if (!currentUser) refreshRegistrationOptions(); });
         document.addEventListener('visibilitychange', function() {
-            if (!document.hidden && !currentUser) refreshRegistrationOptions();
+            if (document.hidden) return;
+            if (!isShapePrintAccount(currentUser)) refreshRegistrationOptions({ force: Boolean(currentUser) });
+            else if (activeTab === 'catalog' && !catalogWorkspace.form && !catalogWorkspace.link) refreshCatalogWorkspace();
         });
         setInterval(function() {
             if (!document.hidden && !currentUser && isRemoteSyncEnabled()) refreshRegistrationOptions();
@@ -4001,7 +4026,13 @@
             }
 
             const storedSession = getStoredSession();
-            const cachedState = readRemoteStateCache(storedSession && storedSession.userId);
+            if (!isShapePrintAccount(storedSession?.profile)) {
+                // Verify an older outside-team login before showing any cached records.
+                const bootstrapped = await bootstrapRemoteState({ skipRender: true });
+                if (bootstrapped && currentUser) scheduleHeatmapRefresh({ userId: currentUser.User_ID, silent: true });
+                return { fromCache: false };
+            }
+            const cachedState = readRemoteStateCache(storedSession.userId);
             if (cachedState && hydrateRemoteStateCache(cachedState, storedSession.userId)) {
                 gasConnectionStatus = "connecting";
                 setBootLoaderPhase("cache", {
@@ -4220,6 +4251,7 @@
 
         function clearStoredSession(options = {}) {
             clearFilePreviewSurfaces();
+            catalogWorkspace = createCatalogWorkspaceState();
             notificationReadsInFlight.clear();
             notificationCenterUi = { userId: '', selecting: false, filtersOpen: false };
             clearNotificationSelection();
@@ -4270,6 +4302,17 @@
             activityLogErrorMessage = "";
         }
 
+        function closeOutsideWorkspace(message) {
+            clearStoredSession();
+            state = createUnauthenticatedState();
+            currentUser = null;
+            activeTab = 'overview';
+            authScreenMode = 'login';
+            gasConnectionStatus = 'remote';
+            renderAll();
+            document.getElementById('login-feedback').textContent = message;
+        }
+
         function persistCurrentSession() {
             if (!currentUser) {
                 clearStoredSession();
@@ -4303,7 +4346,8 @@
         }
 
         function hasStudentWorkspace(user) {
-            return Boolean(getStudentRoleForAccount(user))
+            return !workspaceAccessPolicy.workspaceInternalOnly
+                && Boolean(getStudentRoleForAccount(user))
                 && Boolean(String(user && user.Team_ID || "").trim())
                 && String(user && user.Team_ID || "") !== "T00";
         }
@@ -4462,7 +4506,8 @@
                 error.sessionExpired = true;
                 throw error;
             }
-            const isIndependentMutation = action !== 'getFilePreview' && !isPublicRegistrationRead && !isAuthAction && !/^(save|bootstrap|health|setup)/i.test(action);
+            const isIndependentMutation = !['getFilePreview', 'catalogBoard', 'catalogDownload'].includes(action)
+                && !isPublicRegistrationRead && !isAuthAction && !/^(save|bootstrap|health|setup)/i.test(action);
             const hasUnconfirmedChanges = remoteSaveTimer || pendingRemoteSave || remoteSaveInFlight || ["error", "conflict", "saving"].includes(saveFeedbackState);
             if ((isIndependentMutation || action === "bootstrap") && hasUnconfirmedChanges && !requestOptions.discardLocalChanges) {
                 throw new Error("UNSAVED_CHANGES: 頁面還有未確認的修改，請先完成上方的儲存或重試，再進行這項操作。");
@@ -4479,7 +4524,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -4540,6 +4585,15 @@
                     })
                 ]);
             } catch (error) {
+                if (/^WORKSPACE_INTERNAL_ONLY:/.test(String(error?.message || ''))) {
+                    error.message = error.message.replace(/^WORKSPACE_INTERNAL_ONLY:\s*/, '');
+                    if (!isAuthAction && expectedEpoch === authEpoch && authSessionToken
+                        && requestPayload.sessionToken === authSessionToken && !isShapePrintAccount(currentUser)) {
+                        closeOutsideWorkspace(error.message);
+                        error.sessionExpired = true;
+                    }
+                    refreshRegistrationOptions({ force: true });
+                }
                 if (/REGISTRATION_CLOSED/.test(String(error?.message || ''))) {
                     refreshRegistrationOptions({ force: true });
                     error.message = error.message.replace(/^REGISTRATION_CLOSED:\s*/, '');
@@ -5008,6 +5062,7 @@
             if (expectedEpoch !== authEpoch) throw new Error("STALE_REQUEST: 已忽略先前的登入回應。");
             const nextState = response && response.data ? response.data.state : null;
             const nextUser = response && response.data ? response.data.currentUser : null;
+            captureWorkspaceAccessPolicy(response?.data);
             authSessionToken = String(response && response.data && response.data.sessionToken || "");
             activityLogs = [];
             activityLogStatus = "idle";
@@ -10059,6 +10114,12 @@
         function getPreviewRecord(recordType, recordId) {
             const id = String(recordId || "");
             if (!id) return null;
+            if (recordType === 'catalog-submission') {
+                if (!isShapePrintAccount(currentUser) || catalogWorkspace.owner !== currentUser.User_ID) return null;
+                const entry = catalogWorkspace.board?.rows.flatMap(row => row.versions).find(row => row.id === id);
+                return entry?.fileId ? { File_Name: entry.fileName, File_Size: entry.fileSize, Drive_File_ID: entry.fileId,
+                    Submitted_At: entry.submittedAt } : null;
+            }
             if (recordType === 'assignment-guide') {
                 const assignment = state.Assignments.find(function(item) { return item.Assignment_ID === id; });
                 const role = getEffectiveRoleContext();
@@ -13117,15 +13178,35 @@
         }
 
         function captureRegistrationOptions(data) {
+            captureWorkspaceAccessPolicy(data);
             const options = data?.registrationOptions;
             const revision = data?.registrationOptionsRevision;
             if (!options || REGISTRATION_ENTRIES.some(function(entry) { return typeof options[entry.key] !== 'boolean'; })
                 || typeof revision !== 'number' || !Number.isInteger(revision) || revision < registrationOptionsRevision) return false;
             registrationOptions = Object.fromEntries(REGISTRATION_ENTRIES.map(function(entry) { return [entry.key, options[entry.key]]; }));
+            if (workspaceAccessPolicy.workspaceInternalOnly) registrationOptions.leader = registrationOptions.member = registrationOptions.activation = false;
             registrationOptionsRevision = revision;
             registrationOptionsStatus = 'ready';
             registrationOptionsRefreshFailed = false;
             return true;
+        }
+
+        function captureWorkspaceAccessPolicy(data) {
+            if (typeof data?.workspaceInternalOnly !== 'boolean' || !Number.isSafeInteger(data.workspaceModeRevision)
+                || data.workspaceModeRevision < workspaceAccessPolicy.workspaceModeRevision) return;
+            const changed = workspaceAccessPolicy.workspaceInternalOnly !== data.workspaceInternalOnly;
+            workspaceAccessPolicy = {
+                workspaceInternalOnly: data.workspaceInternalOnly,
+                workspaceModeRevision: data.workspaceModeRevision
+            };
+            if (changed) registrationOptionsDraft = null;
+            if (data.workspaceInternalOnly) {
+                activeWorkspace = 'admin';
+                registrationOptions.leader = registrationOptions.member = registrationOptions.activation = false;
+                if (currentUser && !isShapePrintAccount(currentUser)) {
+                    closeOutsideWorkspace('工作台已改為形印組專用。請使用負責組員提供的專屬上傳連結。');
+                }
+            }
         }
 
         async function refreshRegistrationOptions(options = {}) {
@@ -13342,11 +13423,13 @@
             const draft = registrationOptionsDraft;
             const values = draft?.options || registrationOptions;
             const conflict = draft && draft.revision !== registrationOptionsRevision;
+            const entries = workspaceAccessPolicy.workspaceInternalOnly
+                ? REGISTRATION_ENTRIES.filter(entry => entry.key === 'shapePrint') : REGISTRATION_ENTRIES;
             return `<section class="rounded-3xl border border-[#DCE8F8] bg-[#F7FAFF] p-5 shadow-sm md:p-6">
-                <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i></span><div><h3 class="text-base font-bold text-[#1D1D1F]">註冊入口顯示設定</h3><p class="mt-1 text-xs leading-relaxed text-[#6E6E73]">由形印組長與指導老師控制登入頁的四種註冊方式。關閉後會隱藏入口並暫停該方式註冊；已有帳號仍可登入。</p></div></div>
+                <div class="flex items-start gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i></span><div><h3 class="text-base font-bold text-[#1D1D1F]">註冊入口顯示設定</h3><p class="mt-1 text-xs leading-relaxed text-[#6E6E73]">${workspaceAccessPolicy.workspaceInternalOnly ? '目前只開放形印組加入。其他畢製小組無須註冊，請由「專刊收件」提供上傳連結。' : '由形印組長與指導老師控制登入頁的四種註冊方式。關閉某種方式不影響原有帳號登入。'}</p></div></div>
                 ${ready ? `<form id="registration-settings-form" onsubmit="saveRegistrationOptions(event)" aria-busy="${registrationOptionsSaveInFlight}" class="mt-4">
                     <fieldset ${registrationOptionsSaveInFlight ? 'disabled' : ''} class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
-                        ${REGISTRATION_ENTRIES.map(function(entry) { return `<label class="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-[#E0E7F0] bg-white p-4"><span class="min-w-0"><span class="block text-sm font-bold text-[#1D1D1F]">${entry.label}</span><span class="mt-1 block text-xs leading-relaxed text-[#6E6E73]">${entry.description}</span></span><input name="${entry.key}" type="checkbox" role="switch" aria-label="顯示${entry.label}" ${values[entry.key] ? 'checked' : ''} onchange="updateRegistrationOptionsDraft()" class="registration-switch"></label>`; }).join('')}
+                        ${entries.map(function(entry) { return `<label class="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-[#E0E7F0] bg-white p-4"><span class="min-w-0"><span class="block text-sm font-bold text-[#1D1D1F]">${entry.label}</span><span class="mt-1 block text-xs leading-relaxed text-[#6E6E73]">${entry.description}</span></span><input name="${entry.key}" type="checkbox" role="switch" aria-label="顯示${entry.label}" ${values[entry.key] ? 'checked' : ''} onchange="updateRegistrationOptionsDraft()" class="registration-switch"></label>`; }).join('')}
                     </fieldset>
                     <p id="registration-settings-feedback" role="status" aria-live="polite" class="mt-3 text-xs leading-relaxed ${conflict || registrationOptionsSaveMessage || registrationOptionsRefreshFailed ? 'text-[#C65A00]' : 'text-[#6E6E73]'}">${escapeHtml(registrationOptionsSaveMessage || (conflict ? '其他裝置已更新設定。您的調整仍保留，請重新載入設定後再修改。' : registrationOptionsRefreshFailed ? '無法確認最新設定，目前保留上次取得的內容。請重新載入設定後再調整。' : draft ? '尚未儲存；按「儲存設定」後才會套用到其他裝置。' : '目前顯示的是已儲存的設定。'))}</p>
                     <div class="mt-4 flex flex-wrap justify-end gap-2"><button type="button" onclick="reloadRegistrationOptions()" ${registrationOptionsSaveInFlight ? 'disabled' : ''} class="rounded-xl border border-[#D9E2EE] bg-white px-4 py-2.5 text-xs font-bold text-[#6E6E73] disabled:opacity-50">重新載入設定</button><button id="registration-settings-save" type="submit" ${!draft || conflict || registrationOptionsSaveInFlight ? 'disabled' : ''} class="inline-flex items-center gap-2 rounded-xl bg-[#0066CC] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-40">${registrationOptionsSaveInFlight ? '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>儲存中…' : '儲存設定'}</button></div>
@@ -13362,7 +13445,9 @@
         function updateRegistrationOptionsDraft() {
             if (!canManageRegistrationOptions() || registrationOptionsSaveInFlight) return;
             const form = document.getElementById('registration-settings-form');
-            const options = Object.fromEntries(REGISTRATION_ENTRIES.map(function(entry) { return [entry.key, form.elements[entry.key].checked]; }));
+            const options = Object.fromEntries(REGISTRATION_ENTRIES.map(function(entry) {
+                return [entry.key, form.elements[entry.key]?.checked ?? registrationOptions[entry.key]];
+            }));
             const revision = registrationOptionsDraft?.owner === currentUser.User_ID ? registrationOptionsDraft.revision : registrationOptionsRevision;
             registrationOptionsDraft = REGISTRATION_ENTRIES.every(function(entry) { return options[entry.key] === registrationOptions[entry.key]; })
                 ? null : { owner: currentUser.User_ID, options: options, revision: revision };
@@ -13492,8 +13577,10 @@
             }
 
             if (title) title.textContent = "畢展形印組管理系統";
-            if (subtitle) subtitle.textContent = registrationOptionsStatus === 'ready' && Object.values(registrationOptions).some(Boolean)
-                ? "請輸入您的電子郵件與密碼登入，或選擇開放的方式註冊" : "請使用已註冊的電子郵件與密碼登入";
+            if (subtitle) subtitle.textContent = workspaceAccessPolicy.workspaceInternalOnly
+                ? "工作台僅限形印組登入。其他畢製小組請使用負責組員提供的專屬上傳連結。"
+                : registrationOptionsStatus === 'ready' && Object.values(registrationOptions).some(Boolean)
+                    ? "請輸入您的電子郵件與密碼登入，或選擇開放的方式註冊" : "請使用已註冊的電子郵件與密碼登入";
             if (tabs) tabs.classList.remove('hidden');
 
             if (authScreenMode === "register") {
@@ -15875,12 +15962,14 @@
             }
             if (tabId !== activeTab) {
                 pendingTabEntranceTab = tabId;
+                if (activeTab === 'catalog') catalogWorkspace.link = null;
             }
             activeTab = tabId;
             renderAll();
             if (tabId === "activity") {
                 refreshActivityLogs({ silent: true });
             }
+            if (tabId === "catalog") refreshCatalogWorkspace();
         }
 
         function calendarPad(value) {
@@ -17246,7 +17335,7 @@
             // E. 總預算大控盤卡片可見度與渲染 (限大會形印組工作台、SuperAdmin 可見)
             const budgetCard = document.getElementById('dashboard-budget-card');
             const activeStage = getCurrentProjectStage();
-            if (canManageAssignmentBoard(effectiveRole)) {
+            if (canManageAssignmentBoard(effectiveRole) && activeTab !== 'catalog') {
                 if (budgetCard) budgetCard.classList.remove('hidden');
                 if (workspaceHydrationInFlight) {
                     renderBudgetProgressBar(null, { loading: true });
@@ -18070,6 +18159,481 @@
             `;
         }
 
+        function createCatalogWorkspaceState() {
+            return { owner: '', board: null, loading: false, error: '', busy: false, downloadId: '', section: 'cases',
+                filter: 'all', itemId: '', form: null, link: null, message: '', warning: false, expanded: new Set() };
+        }
+
+        function catalogWorkspaceForUser() {
+            const id = currentUser?.User_ID || '';
+            if (catalogWorkspace.owner !== id) {
+                catalogWorkspace = createCatalogWorkspaceState();
+                catalogWorkspace.owner = id;
+            }
+            return catalogWorkspace;
+        }
+
+        function drawCatalogWorkspace() {
+            const container = document.getElementById('main-view-container');
+            if (activeTab === 'catalog' && container && isShapePrintAccount(currentUser)) {
+                renderCatalogWorkspace(container);
+                enhanceNativeSoftSelects(container);
+                syncDateTimePickerControls(container);
+                renderLucideIcons();
+            }
+        }
+
+        function catalogStaffError(error) {
+            const message = String(error?.message || '');
+            if (/Unsupported POST action/.test(message)) return '雲端尚未更新專刊收件功能。請確認網站與雲端已發布同一版本。';
+            if (/SYNC_NOT_CONFIRMED/.test(message)) return '尚未取得專刊收件的最新資料。請稍後重試或通知管理者。';
+            return message.replace(/^[A-Z_]+:\s*/, '') || '暫時無法完成操作，請稍後再試。';
+        }
+
+        async function refreshCatalogWorkspace() {
+            if (!isShapePrintAccount(currentUser) || !canManageAssignmentBoard(getEffectiveRoleContext().effectiveRole)) return;
+            const view = catalogWorkspaceForUser();
+            if (view.loading || view.busy) return;
+            view.loading = true;
+            view.error = '';
+            drawCatalogWorkspace();
+            try {
+                const result = await requestGas('catalogBoard', {});
+                if (catalogWorkspace !== view) return;
+                const board = result.data;
+                if (!Array.isArray(board?.rows) || typeof board.manager !== 'boolean') throw new Error('未取得完整的收件清單。');
+                captureWorkspaceAccessPolicy(board);
+                view.board = board;
+                if (!board.manager) view.section = 'cases';
+            } catch (error) {
+                if (catalogWorkspace === view && !error.sessionExpired) view.error = catalogStaffError(error);
+            } finally {
+                if (catalogWorkspace === view) {
+                    view.loading = false;
+                    drawCatalogWorkspace();
+                }
+            }
+        }
+
+        function catalogDateLabel(value) {
+            const date = new Date(value);
+            if (!value || !Number.isFinite(date.getTime())) return '';
+            return new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric',
+                month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+        }
+
+        function catalogTaipeiInput(value) {
+            const millis = new Date(value).getTime();
+            return Number.isFinite(millis) ? new Date(millis + 8 * 3600000).toISOString().slice(0, 16) : '';
+        }
+
+        function catalogStatusLabel(status) {
+            return ({ waiting: '待上傳', pending: '待審核', returned: '待補件', approved: '已通過' })[status] || '待上傳';
+        }
+
+        function catalogChooseSection(section) {
+            const view = catalogWorkspaceForUser();
+            if (view.busy || !view.board || (section !== 'cases' && !view.board.manager)) return;
+            view.section = section;
+            view.form = view.link = null;
+            view.message = '';
+            drawCatalogWorkspace();
+        }
+
+        function catalogChooseFilter(filter) {
+            catalogWorkspaceForUser().filter = filter;
+            drawCatalogWorkspace();
+            document.querySelector('[data-catalog-filter="' + filter + '"]')?.focus({ preventScroll: true });
+        }
+
+        function openCatalogEditor(kind, id) {
+            const view = catalogWorkspaceForUser();
+            if (!view.board || view.busy) return;
+            const data = view.board;
+            if (kind !== 'review' && !data.manager) return;
+            const row = data.rows.find(entry => entry.id === id);
+            let values = {};
+            let record = null;
+            if (kind === 'group') {
+                record = data.groups.find(entry => entry.id === id);
+                values = record ? { ...record } : {};
+            } else if (kind === 'item') {
+                record = data.items.find(entry => entry.id === id);
+                values = { ...record, dueAt: catalogTaipeiInput(record?.dueAt || Date.now() + 7 * 86400000),
+                    format: record?.format || 'both', verifyEmail: record ? record.verifyEmail : true };
+            } else if (kind === 'assign') {
+                record = row;
+                values = { itemId: row?.item.id || id || data.items[0]?.id || '', reviewerId: row?.reviewerId || '', groupIds: [] };
+            } else if (kind === 'review') {
+                if (!row?.canReview) return;
+                record = row;
+                values = { note: '', correctionDays: '7' };
+            } else if (kind === 'mode') {
+                values = { confirm: false };
+            } else return;
+            view.form = { kind, id: record?.id || '', record, values,
+                modeRevision: workspaceAccessPolicy.workspaceModeRevision, nextMode: !workspaceAccessPolicy.workspaceInternalOnly,
+                requestId: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('') };
+            view.link = null;
+            view.message = '';
+            drawCatalogWorkspace();
+            const editor = document.getElementById('catalog-editor');
+            editor?.scrollIntoView({ block: 'nearest' });
+            editor?.querySelector('h3')?.focus({ preventScroll: true });
+        }
+
+        function closeCatalogEditor() {
+            const view = catalogWorkspaceForUser();
+            if (view.busy) return;
+            if (document.getElementById('catalog-due-picker')) closeDateTimePicker();
+            view.form = view.link = null;
+            view.message = '';
+            drawCatalogWorkspace();
+        }
+
+        function catalogDraftChange(input) {
+            const form = catalogWorkspaceForUser().form;
+            if (!form) return;
+            if (input.name === 'groupIds') {
+                const selected = new Set(form.values.groupIds || []);
+                if (input.checked) selected.add(input.value); else selected.delete(input.value);
+                form.values.groupIds = Array.from(selected);
+                return;
+            }
+            form.values[input.name] = input.type === 'checkbox' ? input.checked : input.value;
+            if (form.kind === 'assign' && input.name === 'itemId') {
+                form.values.groupIds = [];
+                drawCatalogWorkspace();
+                document.getElementById('catalog-assign-item')?.focus({ preventScroll: true });
+            }
+            if (form.kind === 'group' && input.name === 'legacyTeamId' && input.value) {
+                const match = catalogWorkspace.board.legacyTeams.find(team => team.id === input.value)?.name.match(/^(?:第\s*)?(\d{1,4})\s*(?:組)?\s*(.*)$/);
+                if (!form.values.number && match) form.values.number = match[1];
+                if (!form.values.project && match?.[2]) form.values.project = match[2];
+                drawCatalogWorkspace();
+                document.getElementById('catalog-group-number')?.focus({ preventScroll: true });
+            }
+        }
+
+        function catalogButton(label, action, primary = false, disabled = false) {
+            return '<button type="button" class="catalog-button' + (primary ? ' catalog-button-primary' : '') + '" onclick="'
+                + action + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
+        }
+
+        function catalogField(label, field) {
+            return '<label class="block min-w-0 text-sm font-semibold"><span class="mb-1.5 block">' + label + '</span>' + field + '</label>';
+        }
+
+        function catalogSelect(name, values, selected, id = '', blank = '') {
+            return `<select name="${name}" id="${id}" class="catalog-input" onchange="catalogDraftChange(this)" required>
+                ${blank ? `<option value="" ${selected ? '' : 'selected'}>${escapeHtml(blank)}</option>` : ''}
+                ${values.map(value => `<option value="${escapeHtml(value.id)}" ${value.id === selected ? 'selected' : ''}>${escapeHtml(value.name)}</option>`).join('')}
+            </select>`;
+        }
+
+        function catalogEditorMarkup(view) {
+            const form = view.form;
+            if (!form) return '';
+            const { values, kind, record } = form;
+            const data = view.board;
+            const input = (name, max, placeholder, type = 'text', id = '') => `<input class="catalog-input" id="${id}" name="${name}" maxlength="${max}" type="${type}" value="${escapeHtml(values[name] || '')}" placeholder="${escapeHtml(placeholder)}" required oninput="catalogDraftChange(this)">`;
+            let title, fields, buttons;
+            if (kind === 'group') {
+                title = record ? '編輯小組' : '新增小組';
+                const available = data.legacyTeams.filter(team => !data.groups.some(group => group.legacyTeamId === team.id));
+                const legacyTeam = data.legacyTeams.find(team => team.id === record?.legacyTeamId);
+                fields = `<p class="text-sm catalog-muted">名冊不會建立登入帳號。若已有既有組別，請連結以避免審核到自己的小組；更換聯絡信箱會停用舊連結。</p>
+                    ${!record && available.length ? catalogField('沿用既有組別（選填）', catalogSelect('legacyTeamId', [{id:'', name:'不連結，建立獨立名冊'}].concat(available), values.legacyTeamId || '').replace(' required>', '>')) : ''}
+                    ${legacyTeam ? `<p class="text-sm catalog-muted">對應既有組別：${escapeHtml(legacyTeam.name)}</p>` : ''}
+                    <div class="grid gap-3 sm:grid-cols-2">${catalogField('組別', input('number', 12, '例如：17', 'text', 'catalog-group-number'))}
+                    ${catalogField('作品名稱', input('project', 120, '例如：島嶼記憶'))}
+                    ${catalogField('指導老師', input('advisor', 80, '請輸入老師姓名'))}
+                    ${catalogField('聯絡信箱', input('email', 254, '請填小組聯絡人的信箱', 'email'))}</div>`;
+            } else if (kind === 'item') {
+                title = record ? '編輯收件項目' : '建立收件項目';
+                const modes = [{ id: 'both', name: '檔案與文字' }, { id: 'file', name: '只有檔案' }, { id: 'text', name: '只有文字' }];
+                fields = `${catalogField('收件名稱', input('title', 120, '例如：專刊作品圖文'))}
+                    ${catalogField('繳交規格', `<textarea class="catalog-input" name="requirements" required maxlength="5000" rows="4" placeholder="例如：100 字作品介紹、原圖請打包成 ZIP" oninput="catalogDraftChange(this)">${escapeHtml(values.requirements || '')}</textarea>`)}
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div><p class="mb-1.5 text-sm font-semibold">截止時間（台灣）</p><div data-date-time-picker-root data-date-time-picker-native-for="catalog-due-picker">
+                            <input type="hidden" name="dueAt" id="catalog-due-picker" data-date-time-picker-input value="${escapeHtml(values.dueAt)}" onchange="catalogDraftChange(this)">
+                            <button class="catalog-input flex items-center justify-between text-sm font-semibold" type="button" aria-label="選擇收件截止時間" aria-haspopup="dialog" aria-expanded="false" data-date-time-picker-trigger onclick="toggleDateTimePicker('catalog-due-picker')"><span data-date-time-picker-label>${formatDateTimePickerLabel(values.dueAt)}</span><i data-lucide="calendar-clock" class="h-4 w-4 text-[#0066CC]"></i></button>
+                        </div></div>
+                        ${record ? `<p class="text-sm catalog-muted">收件格式：${modes.find(mode => mode.id === record.format)?.name || ''}<br>${record.verifyEmail ? '須驗證聯絡信箱' : '持有專屬連結即可上傳'}</p>` : catalogField('收件格式', catalogSelect('format', modes, values.format))}
+                    </div>
+                    ${record ? '' : `<label class="flex items-start gap-2 text-sm"><input name="verifyEmail" type="checkbox" ${values.verifyEmail ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span><strong>要求信箱驗證（建議）</strong><br><span class="catalog-muted">只向名冊中的聯絡信箱寄驗證碼。關閉後，拿到連結的人就可查看結果與交件。</span></span></label>`}`;
+            } else if (kind === 'assign') {
+                title = record ? '改派審核人' : '分配審核人';
+                const openGroups = data.groups.filter(group => !data.rows.some(row => row.item.id === values.itemId && row.group.id === group.id));
+                const names = data.reviewers.filter(reviewer => !record?.group.legacyTeamId || reviewer.legacyTeamId !== record.group.legacyTeamId);
+                fields = `${record ? `<p class="text-sm catalog-muted">第 ${escapeHtml(record.group.number)} 組｜${escapeHtml(record.item.title)}。既有上傳連結與紀錄不變。</p>`
+                    : catalogField('收件項目', catalogSelect('itemId', data.items.map(item => ({ id: item.id, name: item.title })), values.itemId, 'catalog-assign-item'))}
+                    ${record ? '' : `<fieldset><legend class="mb-1.5 text-sm font-semibold">要分配的小組（可複選）</legend>
+                        <div class="max-h-44 space-y-1 overflow-auto rounded-xl border border-[#E4E8EE] p-2">${openGroups.length ? openGroups.map(group => `<label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-[#F4F7FC]"><input type="checkbox" name="groupIds" value="${escapeHtml(group.id)}" ${values.groupIds.includes(group.id) ? 'checked' : ''} onchange="catalogDraftChange(this)"><span class="catalog-break">${escapeHtml(group.number + '｜' + group.project)}</span></label>`).join('') : '<p class="p-2 text-sm catalog-muted">此項目的小組已分配完畢。</p>'}</div></fieldset>`}
+                    ${catalogField('審核人', catalogSelect('reviewerId', names, values.reviewerId, 'catalog-reviewer', '選擇形印組帳號'))}`;
+            } else if (kind === 'review') {
+                title = '審核繳交資料';
+                fields = `<p class="text-sm catalog-muted">第 ${escapeHtml(record.group.number)} 組｜${escapeHtml(record.item.title)}・第 ${record.versions[0].version} 版。意見會顯示在小組的專屬頁。</p>
+                    ${catalogField('審核意見（退回時必填）', `<textarea class="catalog-input" name="note" maxlength="2000" rows="3" placeholder="請寫明要修改或補上的資料" oninput="catalogDraftChange(this)">${escapeHtml(values.note || '')}</textarea>`)}
+                    ${catalogField('退回時的補件期限', catalogSelect('correctionDays', [3, 7, 14].map(days => ({ id: String(days), name: '退回後 ' + days + ' 天' })), values.correctionDays))}`;
+                buttons = '<button type="submit" name="decision" value="returned" class="catalog-button">退回補件</button><button type="submit" name="decision" value="approved" class="catalog-button catalog-button-primary">通過</button>';
+            } else {
+                title = form.nextMode ? '切換為形印組專用' : '恢復試跑模式';
+                fields = `<p class="catalog-break text-sm catalog-muted">${form.nextMode ? '其他畢製小組的舊帳號與已登入的工作台將無法使用。專屬上傳連結仍可使用，帳號、歷史紀錄和檔案不會刪除。'
+                    : '將恢復舊畢製小組帳號的工作台權限，註冊方式依原本的設定開放。已發出的專刊上傳連結不受影響。'}</p>
+                    <label class="flex gap-2 text-sm font-semibold"><input type="checkbox" name="confirm" required ${values.confirm ? 'checked' : ''} onchange="catalogDraftChange(this)">我已確認這次切換的影響</label>`;
+            }
+            return `<section id="catalog-editor" class="catalog-surface border-[#CFE1FA]"><h3 class="mb-4 text-lg font-bold" tabindex="-1">${title}</h3>
+                <form onsubmit="submitCatalogEditor(event)" aria-busy="${view.busy}"><fieldset ${view.busy ? 'disabled' : ''} class="min-w-0 space-y-3">${fields}
+                    <div class="flex flex-wrap justify-end gap-2">${catalogButton('取消', 'closeCatalogEditor()')}
+                        ${buttons || `<button type="submit" class="catalog-button catalog-button-primary">${kind === 'mode' ? '確認切換' : '儲存'}</button>`}</div>
+                </fieldset></form></section>`;
+        }
+
+        function renderCatalogWorkspace(container) {
+            const view = catalogWorkspaceForUser();
+            const board = view.board;
+            const rows = board?.rows || [];
+            const labels = { cases: '收件進度', groups: '小組名冊', items: '收件項目', settings: '開放設定' };
+            const filters = [['all', '全部'], ['pending', '待審核'], ['waiting', '待上傳'], ['returned', '待補件'], ['approved', '已通過']];
+            const cases = rows.filter(row => (view.filter === 'all' || row.status === view.filter) && (!view.itemId || row.item.id === view.itemId))
+                .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || a.group.number.localeCompare(b.group.number, 'zh-TW', { numeric: true }));
+            let content = '';
+            if (!board) content = `<div class="catalog-surface text-sm catalog-muted">${view.error ? '請重新載入清單。' : '正在準備專刊收件清單…'}</div>`;
+            else if (view.section === 'groups') {
+                content = `<section class="catalog-surface"><div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-lg font-bold">小組名冊</h3><p class="text-sm catalog-muted">小組和指導老師只列入名冊，不會取得後台帳號。</p></div>
+                    ${catalogButton('新增小組', "openCatalogEditor('group')", true, view.busy)}</div>
+                    <div class="mt-4 divide-y divide-[#E4E8EE]">${board.groups.length ? board.groups.slice().sort((a, b) => a.number.localeCompare(b.number, 'zh-TW', { numeric: true })).map(group =>
+                        `<article class="flex flex-wrap items-center justify-between gap-3 py-3"><div class="min-w-0"><h4 class="catalog-break font-semibold">${escapeHtml(group.number + '｜' + group.project)}</h4><p class="catalog-break text-sm catalog-muted">指導：${escapeHtml(group.advisor)} ・ ${escapeHtml(group.email)}</p></div>
+                        ${catalogButton('編輯', "openCatalogEditor('group','" + escapeInlineJsString(group.id) + "')", false, view.busy)}</article>`).join('') : '<p class="py-3 text-sm catalog-muted">尚未建立小組。先新增名冊，再分配收件。</p>'}</div></section>`;
+            } else if (view.section === 'items') {
+                content = `<section class="catalog-surface"><div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-lg font-bold">收件項目</h3><p class="text-sm catalog-muted">只要設定一次規格，就能分配給多個小組。</p></div>
+                    ${catalogButton('建立收件項目', "openCatalogEditor('item')", true, view.busy)}</div>
+                    <div class="mt-4 divide-y divide-[#E4E8EE]">${board.items.length ? board.items.map(item => `<article class="flex flex-wrap items-center justify-between gap-3 py-3"><div class="min-w-0"><h4 class="catalog-break font-semibold">${escapeHtml(item.title)}</h4><p class="text-sm catalog-muted">${catalogDateLabel(item.dueAt)} 截止 ・ ${item.verifyEmail ? '須驗證信箱' : '連結上傳'}</p></div>
+                        <div class="flex flex-wrap gap-2">${catalogButton('編輯', "openCatalogEditor('item','" + escapeInlineJsString(item.id) + "')", false, view.busy)}
+                        ${catalogButton('分配小組', "openCatalogEditor('assign','" + escapeInlineJsString(item.id) + "')", false, view.busy || !board.groups.length)}</div></article>`).join('') : '<p class="py-3 text-sm catalog-muted">尚未有收件項目。</p>'}</div></section>`;
+            } else if (view.section === 'settings') {
+                const internal = workspaceAccessPolicy.workspaceInternalOnly;
+                content = `<section class="catalog-surface space-y-3"><span class="catalog-chip">${internal ? '僅形印組' : '試跑中'}</span>
+                    <h3 class="text-lg font-bold">工作台開放對象</h3><p class="max-w-xl text-sm catalog-muted">${internal ? '其他畢製小組只能使用各自的上傳連結，無法登入工作台。' : '試跑期間舊帳號仍可登入。建議先選兩個小組，測一次通過、一次退回補件，再切換為形印組專用。'}</p>
+                    ${catalogButton(internal ? '恢復試跑模式' : '切換為形印組專用', "openCatalogEditor('mode')", !internal, view.busy)}</section>`;
+            } else {
+                const items = Array.from(new Map(rows.map(row => [row.item.id, row.item])).values());
+                content = `<section class="catalog-surface space-y-3"><div class="flex flex-wrap items-start justify-between gap-3"><div>
+                    <h3 class="text-lg font-bold">${board.manager ? '所有小組收件' : '我負責的小組'}</h3>
+                    <p class="text-sm catalog-muted">${board.manager ? '分配後，由負責人分享專屬連結並審核。' : '先提供連結，待小組繳交後，從這裡開啟資料審核。'}</p></div>
+                    ${board.manager ? catalogButton('分配審核', "openCatalogEditor('assign')", true, view.busy || !board.groups.length || !board.items.length) : ''}</div>
+                    <div class="catalog-summary-grid">${filters.slice(1).map(([key, label]) =>
+                        `<button type="button" class="rounded-xl border border-[#E4E8EE] bg-[#F7F9FC] p-2.5 text-left disabled:opacity-50" ${view.busy ? 'disabled' : ''} data-catalog-filter="${key}" aria-pressed="${view.filter === key}" onclick="catalogChooseFilter('${key}')"><strong class="block text-xl text-[#005DBB]">${rows.filter(row => row.status === key).length}</strong><span class="text-xs font-semibold catalog-muted">${label}${key === 'pending' && !board.manager ? '給我' : ''}</span></button>`).join('')}</div>
+                    <div class="flex flex-wrap items-center gap-2">${view.filter !== 'all' ? catalogButton('顯示全部狀態', "catalogChooseFilter('all')", false, view.busy) : ''}${items.length > 1 ? `<label class="flex min-w-0 items-center gap-2 text-xs font-bold">收件項目<select class="catalog-input" onchange="catalogWorkspace.itemId = this.value; drawCatalogWorkspace()" ${view.busy ? 'disabled' : ''}><option value="">全部項目</option>${items.map(item => `<option value="${escapeHtml(item.id)}" ${view.itemId === item.id ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></label>` : ''}</div>
+                    ${cases.length ? cases.map(row => catalogCaseMarkup(row, view)).join('') : `<p class="py-3 text-sm catalog-muted">${rows.length ? '沒有符合目前篩選的收件。' : board.manager ? '先建立小組名冊和收件項目，再分配審核人。' : '還沒有分配給你的小組。'}</p>`}
+                </section>`;
+            }
+            const share = view.link ? `<section id="catalog-link-panel" class="catalog-surface"><h3 class="font-bold">第 ${escapeHtml(view.link.number)} 組的專屬連結</h3><p class="my-2 text-sm catalog-muted">只傳給該小組。連結無需登入工作台。</p>
+                <div class="flex flex-wrap gap-2"><input id="catalog-share-url" class="catalog-input max-w-md text-xs" aria-label="專屬上傳連結" readonly value="${escapeHtml(view.link.url)}" onclick="this.select()">
+                ${catalogButton('複製連結', 'copyCatalogShareLink()', true)}${catalogButton('關閉', 'closeCatalogEditor()')}</div></section>` : '';
+            container.innerHTML = `<div class="catalog-board space-y-4" data-catalog-workspace><section class="catalog-hero">
+                    <div class="flex flex-wrap items-start justify-between gap-3"><div>
+                    <div class="flex flex-wrap gap-2"><span class="catalog-chip"><i data-lucide="book-open-check" class="mr-1 h-4 w-4 text-[#0066CC]" aria-hidden="true"></i>116級 畢業製作</span>
+                    ${board?.manager ? `<span class="catalog-chip">${workspaceAccessPolicy.workspaceInternalOnly ? '形印組專用' : '試跑模式'}</span>` : ''}</div>
+                    <h2 class="mt-2 text-2xl font-bold tracking-tight">專刊收件</h2><p class="mt-1 text-sm catalog-muted">收件、分工與補件集中在這裡。外組只使用自己的上傳頁。</p></div>
+                    ${catalogButton(view.loading ? '更新中…' : '重新整理', 'refreshCatalogWorkspace()', false, view.loading || view.busy)}</div>
+                    ${board?.manager ? `<nav aria-label="專刊功能" class="mt-4 flex flex-wrap gap-2">${Object.entries(labels).map(([key, label]) => `<button type="button" class="catalog-button" ${view.busy ? 'disabled' : ''} aria-pressed="${view.section === key}" onclick="catalogChooseSection('${key}')">${label}</button>`).join('')}</nav>` : ''}
+                </section>
+                ${view.error || view.message || view.busy ? `<p id="catalog-feedback" class="catalog-surface text-sm ${view.error || view.warning ? 'text-[#984600]' : 'text-[#0054A9]'}" role="status" aria-live="polite">${escapeHtml(view.busy ? '正在確認雲端結果…' : view.error || view.message)}</p>` : ''}
+                ${catalogEditorMarkup(view)}${share}${content}</div>`;
+        }
+
+        function catalogCaseMarkup(row, view) {
+            const id = escapeInlineJsString(row.id);
+            return `<details class="rounded-2xl border border-[#E4E8EE] bg-white" data-catalog-case="${escapeHtml(row.id)}" ${view.expanded.has(row.id) ? 'open' : ''} ontoggle="if(this.open) catalogWorkspace.expanded.add(this.dataset.catalogCase); else catalogWorkspace.expanded.delete(this.dataset.catalogCase)">
+                <summary class="catalog-case-summary flex cursor-pointer flex-wrap items-center justify-between gap-2 rounded-2xl p-3.5">
+                    <div class="min-w-0"><h4 class="catalog-break font-semibold">第 ${escapeHtml(row.group.number)} 組｜${escapeHtml(row.group.project)}</h4><p class="catalog-break text-sm catalog-muted">${escapeHtml(row.item.title)} ・ ${escapeHtml(row.reviewerName || '無可用審核人')}</p></div>
+                    <div class="ml-auto flex shrink-0 items-center gap-2"><span class="catalog-chip" data-catalog-status="${escapeHtml(row.status)}">${catalogStatusLabel(row.status)}</span><i data-lucide="chevron-down" class="catalog-case-chevron h-4 w-4 text-[#626975]" aria-hidden="true"></i></div>
+                </summary>
+                <div class="space-y-3 border-t border-[#E4E8EE] p-3.5">
+                    <div class="flex flex-wrap items-center gap-2 text-sm catalog-muted"><span>${row.linkStatus === 'active' ? '連結使用中' : row.linkStatus === 'expired' ? '連結已過期' : '尚未開放連結'}</span><span>・</span><span>截止 ${catalogDateLabel(row.item.dueAt)}</span></div>
+                    <p class="catalog-break text-sm catalog-muted">聯絡信箱：${escapeHtml(row.group.email)}</p>
+                    ${row.reviewerAvailable ? '' : '<p class="text-sm text-[#984600]">目前沒有可審核的負責人，請由組長改派。</p>'}
+                    <div class="flex flex-wrap gap-2">
+                        ${row.canReview ? catalogButton('開始審核', "openCatalogEditor('review','" + id + "')", true, view.busy) : ''}
+                        ${row.canShare ? catalogButton(row.linkStatus === 'active' ? '複製上傳連結' : '建立上傳連結', "changeCatalogLink('copy','" + id + "')", !row.canReview, view.busy) : ''}
+                        ${row.linkStatus === 'active' && row.canShare ? catalogButton('換發連結', "changeCatalogLink('rotate','" + id + "')", false, view.busy) : ''}
+                        ${row.linkStatus !== 'inactive' && (row.canShare || view.board.manager) ? catalogButton('停用連結', "changeCatalogLink('revoke','" + id + "')", false, view.busy) : ''}
+                        ${view.board.manager ? catalogButton('改派', "openCatalogEditor('assign','" + id + "')", false, view.busy) : ''}
+                    </div>
+                    ${row.versions.length ? row.versions.map((version, index) => `<details class="rounded-xl bg-[#F6F8FB] px-3 py-2.5" ${index === 0 ? 'open' : ''}>
+                        <summary class="cursor-pointer text-sm font-semibold">第 ${version.version} 版 ・ ${catalogStatusLabel(version.status)} ・ ${catalogDateLabel(version.submittedAt)}</summary>
+                        <div class="space-y-2 pt-2 text-sm">
+                            ${version.text ? `<p class="catalog-break whitespace-pre-wrap">${escapeHtml(version.text)}</p>` : ''}
+                            ${version.fileId ? `<div class="flex flex-wrap items-center gap-2"><span class="catalog-break">${escapeHtml(version.fileName)} ・ ${formatFileSize(version.fileSize)}</span>
+                                ${catalogButton('預覽附件', "openFilePreview('catalog-submission','" + escapeInlineJsString(version.id) + "')")}
+                                ${catalogButton(view.downloadId === version.id ? '下載中…' : '下載原檔', "downloadCatalogAttachment(this,'" + escapeInlineJsString(version.id) + "')", false, Boolean(view.downloadId))}</div>` : ''}
+                            ${version.reviewedAt ? `<p class="catalog-break catalog-muted">審核：${escapeHtml(version.reviewerName || '形印組')} ・ ${catalogDateLabel(version.reviewedAt)}${version.correctionDueAt ? ' ・ 補件至 ' + catalogDateLabel(version.correctionDueAt) : ''}</p>
+                                ${version.note ? `<p class="catalog-break whitespace-pre-wrap">${escapeHtml(version.note)}</p>` : ''}
+                                ${version.mailStatus === 'sent' ? '<p class="catalog-muted">已寄送審核結果通知</p>' : '<p class="text-[#984600]">未確認通知已寄出，可複製連結手動通知。</p>'}` : ''}
+                        </div></details>`).join('') : '<p class="text-sm catalog-muted">小組尚未上傳。</p>'}
+                </div></details>`;
+        }
+
+        async function catalogWrite(action, payload, success) {
+            const view = catalogWorkspaceForUser();
+            if (view.busy || view.loading) return;
+            view.busy = true;
+            view.message = view.error = '';
+            view.warning = false;
+            drawCatalogWorkspace();
+            let refresh = false;
+            try {
+                const result = await requestGas(action, payload);
+                if (view !== catalogWorkspace) return;
+                if (!result.data || typeof result.data !== 'object') throw new Error('未收到雲端操作確認。');
+                await success(result.data, view);
+                refresh = true;
+            } catch (error) {
+                if (view === catalogWorkspace && !error.sessionExpired) {
+                    view.warning = true;
+                    view.message = catalogStaffError(error);
+                }
+            } finally {
+                if (view === catalogWorkspace) {
+                    view.busy = false;
+                    if (refresh) await refreshCatalogWorkspace();
+                    else drawCatalogWorkspace();
+                }
+            }
+        }
+
+        function submitCatalogEditor(event) {
+            event.preventDefault();
+            const view = catalogWorkspaceForUser();
+            const form = view.form;
+            if (!form || view.busy || view.loading) return;
+            const { values, record, kind } = form;
+            let action, payload;
+            if (kind === 'group') {
+                action = 'catalogSaveGroup';
+                payload = { ...values, groupId: form.id, requestId: form.requestId };
+            } else if (kind === 'item') {
+                action = 'catalogSaveItem';
+                payload = { ...values, itemId: form.id, requestId: form.requestId };
+            } else if (kind === 'assign') {
+                action = 'catalogAssignReviewer';
+                payload = { ...values, targetId: record?.id, revision: record?.revision };
+                if (!record && !values.groupIds.length) {
+                    view.message = '請至少選擇一個要分配的小組。'; view.warning = true; drawCatalogWorkspace(); return;
+                }
+            } else if (kind === 'review') {
+                const decision = event.submitter?.value;
+                if (!['approved', 'returned'].includes(decision)) return;
+                if (decision === 'returned' && !values.note.trim()) {
+                    view.message = '請先填寫要小組補件的原因。'; view.warning = true; drawCatalogWorkspace();
+                    document.querySelector('#catalog-editor textarea')?.focus(); return;
+                }
+                action = 'catalogReview';
+                payload = { ...values, targetId: record.id, submissionId: record.versions[0].id, decision };
+            } else if (kind === 'mode') {
+                action = 'catalogWorkspaceMode';
+                payload = { internalOnly: form.nextMode, revision: form.modeRevision, confirm: values.confirm };
+            } else return;
+            if (kind === 'item') closeDateTimePicker();
+            catalogWrite(action, payload, function(data, view) {
+                if (kind === 'group' && !data.group?.id || kind === 'item' && !data.item?.id || kind === 'assign' && !data.assignedCount
+                    || kind === 'review' && (data.submission?.id !== payload.submissionId || data.submission.status !== payload.decision)
+                    || kind === 'mode' && data.workspaceInternalOnly !== form.nextMode) throw new Error('未收到完整的操作確認，請重新整理確認。');
+                view.form = null;
+                view.message = kind === 'group' ? data.linksRevoked ? '名冊已更新；舊連結已停用，請重新提供給小組。' : '小組已儲存。'
+                    : kind === 'item' ? '收件項目已儲存。' : kind === 'assign' ? '已儲存審核分工。'
+                    : kind === 'review' ? data.submission.mailStatus === 'sent' ? '已儲存審核並寄出結果通知。' : '審核已儲存，未確認通知已寄出。請複製連結手動通知。'
+                    : '已更新工作台開放對象，沒有刪除任何帳號或資料。';
+                if (kind === 'assign' || kind === 'review') { view.section = 'cases'; view.filter = 'all'; }
+                if (kind === 'mode') {
+                    captureWorkspaceAccessPolicy(data);
+                    refreshRegistrationOptions({ force: true });
+                }
+            });
+        }
+
+        function changeCatalogLink(operation, id) {
+            const view = catalogWorkspaceForUser();
+            const row = view.board?.rows.find(entry => entry.id === id);
+            if (!row || view.busy || view.loading) return;
+            if (operation !== 'copy' && !window.confirm(operation === 'rotate'
+                ? '換發後，舊連結會失效。確定換發？' : '停用後，小組不能從這個連結上傳或查詢。已交資料會保留。確定停用？')) return;
+            view.form = view.link = null;
+            catalogWrite('catalogLink', { targetId: id, revision: row.revision, operation }, async function(data, view) {
+                if (operation === 'revoke') {
+                    if (data.linkStatus !== 'inactive') throw new Error('尚未確認已停用。');
+                    view.message = '上傳連結已停用，已繳交資料仍保留。';
+                    return;
+                }
+                if (!/^https:\/\/[^\s]+\/catalog-upload\.html#PCT_[A-Za-z0-9._-]+$/.test(String(data.url || ''))) throw new Error('未取得有效的專屬連結。');
+                view.link = { number: row.group.number, url: data.url };
+                try {
+                    await navigator.clipboard.writeText(data.url);
+                    view.message = '已複製上傳連結。請只傳給第 ' + row.group.number + ' 組。';
+                } catch (error) {
+                    view.message = '連結已備妥。請按下方「複製連結」或手動選取。';
+                }
+            }).then(function() { document.getElementById('catalog-link-panel')?.scrollIntoView({ block: 'nearest' }); });
+        }
+
+        async function copyCatalogShareLink() {
+            const view = catalogWorkspaceForUser();
+            if (!view.link) return;
+            try {
+                await navigator.clipboard.writeText(view.link.url);
+                showToast('已複製這組的上傳連結。', 'success');
+            } catch (error) {
+                const input = document.getElementById('catalog-share-url');
+                input?.focus();
+                input?.select();
+                showToast('已選取連結，請使用裝置的複製功能。', 'info');
+            }
+        }
+
+        async function downloadCatalogAttachment(button, id) {
+            const view = catalogWorkspaceForUser();
+            const record = getPreviewRecord('catalog-submission', id);
+            if (view.downloadId || !record?.File_Size) return;
+            const epoch = authEpoch;
+            view.downloadId = id;
+            button.disabled = true;
+            button.textContent = '下載中…';
+            const chunks = [];
+            try {
+                for (let offset = 0; offset < record.File_Size;) {
+                    const { data } = await requestGas('catalogDownload', { recordId: id, offset });
+                    if (view !== catalogWorkspace || epoch !== authEpoch) return;
+                    if (data?.recordId !== id || data.offset !== offset || data.total !== record.File_Size ||
+                        !Number.isSafeInteger(data.nextByte) || data.nextByte <= offset || data.nextByte > data.total ||
+                        data.nextByte - offset > 4 * 1024 * 1024) throw new Error('下載資料不完整，請重試。');
+                    const decoded = atob(data.contentBase64 || '');
+                    if (decoded.length !== data.nextByte - offset) throw new Error('下載資料不完整，請重試。');
+                    chunks.push(Uint8Array.from(decoded, char => char.charCodeAt(0)));
+                    offset = data.nextByte;
+                    button.textContent = '下載中 ' + Math.round(offset * 100 / data.total) + '%';
+                }
+                const url = URL.createObjectURL(new Blob(chunks, { type: 'application/octet-stream' }));
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = record.File_Name;
+                document.body.append(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+            } catch (error) {
+                if (view === catalogWorkspace && !error.sessionExpired) showToast(catalogStaffError(error), 'warning');
+            } finally {
+                if (view === catalogWorkspace) {
+                    view.downloadId = '';
+                    button.disabled = false;
+                    button.textContent = '下載原檔';
+                    if (!button.isConnected && !view.busy) drawCatalogWorkspace();
+                }
+            }
+        }
+
         function renderActiveTabContent(activeStage, effectiveRole, effectiveTeamID) {
             const container = document.getElementById('main-view-container');
             if (!container) return;
@@ -18101,6 +18665,10 @@
                 return;
             }
 
+            if (activeTab === "catalog" && isExhibitionAdmin) {
+                renderCatalogWorkspace(container);
+                return;
+            }
             if (activeTab === "work-items") {
                 renderWorkItemsBoard(container, effectiveRole);
                 return;
@@ -18711,13 +19279,13 @@
             else if (activeTab === "teams") {
                 const isLeader = effectiveRole === "Leader";
                 const isSuperAdmin = effectiveRole === "SuperAdmin";
-                const canSetUpStudentTeam = isShapePrintAccount(currentUser)
+                const canSetUpStudentTeam = !workspaceAccessPolicy.workspaceInternalOnly && isShapePrintAccount(currentUser)
                     && String(currentUser.Team_ID || "") === "T00";
                 maybeLoadShapePrintInvites();
                 if (canManageRegistrationOptions() && registrationOptionsStatus === 'idle') refreshRegistrationOptions();
                 let visibleUsers = [];
                 if (isExhibitionAdmin) {
-                    visibleUsers = state.Users;
+                    visibleUsers = workspaceAccessPolicy.workspaceInternalOnly ? state.Users.filter(isShapePrintAccount) : state.Users;
                 } else {
                     visibleUsers = state.Users.filter(function(u) { return u.Team_ID === effectiveTeamID; });
                 }
@@ -18813,8 +19381,8 @@
                     </div>
 
                     <div class="bg-white border border-[#E8E8ED] rounded-3xl p-6 shadow-sm">
-                        <h3 class="font-bold text-base text-[#1D1D1F]">${isSuperAdmin ? '🛡️ 系統所有已註冊帳號名冊' : '👥 本小組成員名單'}</h3>
-                        <p class="text-xs text-[#86868B] mt-1">以下為已綁定之帳號清單。</p>
+                        <h3 class="font-bold text-base text-[#1D1D1F]">${workspaceAccessPolicy.workspaceInternalOnly ? '形印組帳號名冊' : isSuperAdmin ? '系統所有已註冊帳號名冊' : '本小組成員名單'}</h3>
+                        <p class="text-xs text-[#86868B] mt-1">${workspaceAccessPolicy.workspaceInternalOnly ? '要管理畢製小組與指導老師，請前往「專刊收件」的「小組名冊」。' : '以下為已綁定之帳號清單。'}</p>
                         
                         <div class="overflow-x-auto mt-4">
                             <table class="w-full text-left text-xs">

@@ -1,5 +1,19 @@
 # Stability Regression Tests
 
+## Catalog Intake
+
+```sh
+node --test tests/catalog-intake.test.cjs
+```
+
+This suite uses a mocked workbook, mail sender and Drive, with the real Apps
+Script request dispatcher and separate browser sessions for staff and guests.
+It exercises roster creation and batch assignment, link and email-code scope,
+approval, correction history, private download, legacy access cutover, and a
+50 MiB synthetic upload that resumes after a lost acknowledgement. Nothing is
+sent to the deployed system. Set `CATALOG_ARTIFACT_DIR` to an existing folder
+to capture the desktop board and mobile confirmation.
+
 ## Notification Center
 
 `node tests/notification-center.test.cjs` checks grouped inbox rows, per-user

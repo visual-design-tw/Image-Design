@@ -14,7 +14,8 @@ const allClosed = Object.fromEntries(keys.map(key => [key, false]));
 const checks = [];
 function pass(name) { checks.push(name); console.log('PASS ' + name); }
 function backendContext() {
-  const c = vm.createContext({ console, Utilities: { getUuid: () => crypto.randomUUID() } });
+  const c = vm.createContext({ console, Utilities: { getUuid: () => crypto.randomUUID() },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) } });
   vm.runInContext(fs.readFileSync(path.join(root, 'gas/Code.gs'), 'utf8'), c);
   c.nowString_ = () => '2026-10-17 10:00';
   c.getConfig_ = () => ({ spreadsheetId: 'MOCK', timeZone: 'Asia/Taipei' });
@@ -62,11 +63,13 @@ function backendChecks() {
   for (const response of [c.doGet({ parameter: { action: 'getRegistrationOptions' } }), dispatch(c, { action: 'getRegistrationOptions' })]) {
     assert.equal(response.ok, true);
     assert.deepEqual(clone(response.data.registrationOptions), allOpen);
-    assert.deepEqual(Object.keys(response.data).sort(), ['registrationOptions', 'registrationOptionsRevision', 'release']);
+    assert.deepEqual(Object.keys(response.data).sort(), ['registrationOptions', 'registrationOptionsRevision', 'release', 'workspaceInternalOnly', 'workspaceModeRevision']);
+    assert.equal(response.data.workspaceInternalOnly, false);
+    assert.equal(response.data.workspaceModeRevision, 0);
     assert.ok(!JSON.stringify(response).includes('example.invalid'));
   }
   assert.equal(c.fullReads, reads);
-  pass('public GET and POST return only four flags and revision without loading private workbook data');
+  pass('public GET and POST return registration flags and access mode without loading private workbook data');
   const initial = clone(c.db);
   const desired = { ...allOpen, leader: false, activation: false };
   const response = dispatch(c, { action: 'updateRegistrationOptions', sessionToken: 'TEST-U01', registrationOptions: desired, registrationOptionsRevision: 0 });
