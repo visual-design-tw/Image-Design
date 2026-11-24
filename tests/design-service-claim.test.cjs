@@ -92,6 +92,25 @@ async function backendTests() {
       const result = dispatch(c, input(user)); assert.equal(result.ok, false); assert.equal(c.writes, 0);
     }
   });
+  await test('service settings use the fresh state and return the confirmed saved values', () => {
+    const c = context();
+    c.db.Assignments[0].Body = 'Latest value from another manager';
+    const result = dispatch(c, { action: 'configureDesignService', enabled: true, eligibleUserIds: ['U04', 'U05'], sessionToken: 'SYNTHETIC_U01' });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.data.state.Assignments[0].Body, 'Latest value from another manager');
+    assert.equal(result.data.designServiceSettings.Enabled, true);
+    assert.deepEqual(result.data.designServiceSettings.Eligible_User_IDs, ['U04', 'U05']);
+    assert.equal(c.writes, 1); assert.equal(c.reads.length, 2);
+    assert.ok(c.reads.every(read => read.fresh && read.locked));
+  });
+  await test('activity-log failure does not turn a saved service setting into an apparent failure', () => {
+    const c = context(); c.appendActivityLogEntries_ = () => { throw new Error('Log unavailable'); };
+    const result = dispatch(c, { action: 'configureDesignService', enabled: false, eligibleUserIds: ['U04'], sessionToken: 'SYNTHETIC_U01' });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.data.designServiceSettings.Enabled, false);
+    assert.deepEqual(result.data.designServiceSettings.Eligible_User_IDs, ['U04']);
+    assert.equal(c.writes, 1);
+  });
   await test('disabled service and removed eligibility block new claims without changing settings', () => {
     for (const closed of [true, false]) {
       const c = context();
@@ -153,7 +172,12 @@ async function browserTests() {
         } else if (p.action === 'bootstrap') {
           const actor = c.db.Users.find(user => p.sessionToken === 'SYNTHETIC_' + user.User_ID);
           result = { ok: true, data: c.buildClientStateResultForUser_(clone(c.db), actor, {}) };
-        } else if (p.action === 'configureDesignService') result = { ok: true, data: {} };
+        } else if (p.action === 'configureDesignService') {
+          if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+          result = localMode === 'configure-fail'
+            ? { ok: false, error: { message: '雲端設定確認失敗，請重新載入後再試。' } }
+            : localMode === 'configure-empty' ? { ok: true, data: {} } : dispatch(c, p);
+        }
         else result = { ok: true, data: { state: seed() } };
         try { await route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) }); }
         catch (error) { if (!/closed|disposed/i.test(error.message)) throw error; }
@@ -270,9 +294,37 @@ async function browserTests() {
       assert.match(await status.innerText(), /暫停/); assert.equal(c.writes, 0); assert.equal(await button.count(), 0);
     });
     await test('generic design-service actions cannot announce success when state was not confirmed', async () => {
-      await reset();
+      await reset(); mode = 'configure-empty';
       const error = await page.evaluate(async () => { try { await submitDesignServiceAction('configureDesignService', {}, 'SHOULD_NOT_SHOW'); return ''; } catch (error) { return error.message; } });
       assert.match(error, /SERVICE_NOT_CONFIRMED/); assert.ok(!(await page.locator('#toast-notif').textContent()).includes('SHOULD_NOT_SHOW'));
+      mode = 'normal';
+    });
+    await test('settings save shows progress, confirms the updated values, and closes only on success', async () => {
+      await reset(); delay = 250; await seedPage(page, 'U01');
+      const before = requests.filter(p => p.action === 'configureDesignService').length;
+      await page.evaluate(() => { activeTab = 'design-service'; renderAll(); openDesignServiceSettingsModal(); });
+      const modal = page.locator('#design-service-settings-modal');
+      const save = modal.locator('#design-service-settings-save');
+      await modal.locator('[data-design-service-user-id="U05"]').uncheck();
+      await save.click();
+      await modal.getByText('正在儲存並確認雲端設定…').waitFor();
+      assert.equal(await save.isDisabled(), true);
+      await modal.waitFor({ state: 'hidden' });
+      assert.equal(c.db.Design_Service_Settings[0].Enabled, true);
+      assert.deepEqual(c.db.Design_Service_Settings[0].Eligible_User_IDs, ['U04']);
+      assert.equal(requests.filter(p => p.action === 'configureDesignService').length, before + 1);
+      delay = 0;
+    });
+    await test('settings failure stays visible in the modal and allows a retry', async () => {
+      await reset(); mode = 'configure-fail'; await seedPage(page, 'U01');
+      await page.evaluate(() => { activeTab = 'design-service'; renderAll(); openDesignServiceSettingsModal(); });
+      const modal = page.locator('#design-service-settings-modal');
+      const save = modal.locator('#design-service-settings-save');
+      await save.click();
+      await modal.getByRole('status').getByText('雲端設定確認失敗，請重新載入後再試。').waitFor();
+      assert.equal(await save.isDisabled(), false);
+      assert.equal(await modal.isVisible(), true);
+      mode = 'normal';
     });
     await test('two isolated browser accounts clicking the same case converge on one owner', async () => {
       c = context(); mode = 'normal'; delay = 150;

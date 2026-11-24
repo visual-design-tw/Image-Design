@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.24-catalog-service-choice.1';
+var APP_RELEASE = '2026.11.24-service-settings-save.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -8752,7 +8752,7 @@ function updateDesignServiceSettings_(state, settings) {
 }
 
 function handleConfigureDesignService_(payload) {
-  var state = loadState_();
+  var state = loadState_({ fresh: true });
   var actor = requireSessionUser_(state, payload, ['SuperAdmin']);
   var requestedIds = payload && payload.eligibleUserIds;
   if (typeof requestedIds === 'string') {
@@ -8792,21 +8792,35 @@ function handleConfigureDesignService_(payload) {
     nextRevision: getStateRevision_(previousState) + 1,
     preserveDesignServiceState: false
   });
-  state = loadState_();
-  appendActivityLogEntries_([
-    createActivityLogEntry_(
-      actor,
-      '設定形印代做',
-      '已' + (settings.Enabled ? '開啟' : '關閉') + '形印代做，指定 ' + eligibleIds.length + ' 位形印組員可接案。',
-      'design-service',
-      settings.Settings_ID,
-      'normal',
-      { source: 'configureDesignService', enabled: settings.Enabled, eligibleUserIds: eligibleIds }
-    )
-  ]);
+  try {
+    state = loadState_({ fresh: true });
+  } catch (readError) {
+    Logger.log('DESIGN_SERVICE_SETTINGS_READBACK_FAILED: ' + readError);
+    throw new Error('SERVICE_SETTINGS_NOT_CONFIRMED: 設定已送出，但目前無法確認雲端結果；請重新開啟設定檢查後再操作。');
+  }
+  var confirmed = getDesignServiceSettings_(state);
+  if (confirmed.Enabled !== settings.Enabled
+    || JSON.stringify(ensureArray_(confirmed.Eligible_User_IDs)) !== JSON.stringify(eligibleIds)) {
+    throw new Error('SERVICE_SETTINGS_NOT_CONFIRMED: 雲端設定與送出的內容不一致，請重新載入後再儲存。');
+  }
+  try {
+    appendActivityLogEntries_([
+      createActivityLogEntry_(
+        actor,
+        '設定形印代做',
+        '已' + (settings.Enabled ? '開啟' : '關閉') + '形印代做，指定 ' + eligibleIds.length + ' 位形印組員可接案。',
+        'design-service',
+        settings.Settings_ID,
+        'normal',
+        { source: 'configureDesignService', enabled: settings.Enabled, eligibleUserIds: eligibleIds }
+      )
+    ]);
+  } catch (activityLogError) {
+    Logger.log('DESIGN_SERVICE_SETTINGS_ACTIVITY_LOG_FAILED: ' + activityLogError);
+  }
 
   return buildClientStateResultForUser_(state, actor, {
-    designServiceSettings: getDesignServiceSettings_(state)
+    designServiceSettings: confirmed
   });
 }
 

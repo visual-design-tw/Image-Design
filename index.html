@@ -1812,7 +1812,7 @@
         <div class="max-h-[88vh] w-full max-w-lg space-y-5 overflow-y-auto rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
             <div class="flex items-start justify-between gap-4">
                 <div class="flex items-center gap-2 text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">形印代做設定</h3><p class="mt-0.5 text-[10px] text-[#86868B]">由形印組組長控制是否開放，以及哪些組員可以接案。</p></div></div>
-                <button type="button" onclick="closeDesignServiceSettingsModal()" class="text-[#86868B] hover:text-[#1D1D1F]"><i data-lucide="x" class="h-5 w-5"></i></button>
+                <button type="button" data-design-service-close onclick="closeDesignServiceSettingsModal()" class="text-[#86868B] hover:text-[#1D1D1F] disabled:cursor-wait disabled:opacity-50"><i data-lucide="x" class="h-5 w-5"></i></button>
             </div>
             <div id="design-service-settings-modal-body" class="space-y-4"></div>
         </div>
@@ -2203,7 +2203,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.24-catalog-service-choice.1";
+        const APP_RELEASE = "2026.11.24-service-settings-save.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2347,6 +2347,7 @@
         let assignmentResourceDeleteInFlight = false;
         let activeDesignServiceRequestAssignmentId = "";
         let designServiceClaimInFlight = false;
+        let designServiceSettingsInFlight = false;
         const designServiceClaimFeedback = new Map();
         let activeDesignServiceReviewOrderId = "";
         let designServiceReviewContext = null;
@@ -12650,6 +12651,7 @@
         }
 
         function openDesignServiceSettingsModal() {
+            if (designServiceSettingsInFlight) return;
             if (!canManageDesignServiceSettings()) {
                 showToast("只有形印組組長可以調整形印代做設定。", "warning");
                 return;
@@ -12675,31 +12677,71 @@
                         }).join("")}
                     </div>
                 </div>
-                <div class="flex justify-end gap-2 pt-1"><button type="button" onclick="closeDesignServiceSettingsModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7]">取消</button><button type="button" onclick="saveDesignServiceSettings()" class="rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90">儲存設定</button></div>
+                <div id="design-service-settings-feedback" role="status" aria-live="polite" class="hidden rounded-xl border px-3 py-2 text-xs leading-relaxed"></div>
+                <div class="flex justify-end gap-2 pt-1"><button type="button" data-design-service-cancel onclick="closeDesignServiceSettingsModal()" class="rounded-xl border border-[#E8E8ED] px-4 py-2 text-xs font-semibold text-[#86868B] hover:bg-[#F5F5F7] disabled:cursor-wait disabled:opacity-50">取消</button><button type="button" id="design-service-settings-save" onclick="saveDesignServiceSettings()" aria-busy="false" class="inline-flex items-center gap-2 rounded-xl bg-[#0066CC] px-4 py-2 text-xs font-bold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-60">儲存設定</button></div>
             `;
             modal.classList.remove("hidden");
+            modal.setAttribute("aria-busy", "false");
             renderLucideIcons();
         }
 
         function closeDesignServiceSettingsModal() {
+            if (designServiceSettingsInFlight) return;
             const modal = document.getElementById("design-service-settings-modal");
             if (modal) modal.classList.add("hidden");
         }
 
+        function updateDesignServiceSettingsSaveState(isBusy, message, isError) {
+            const modal = document.getElementById("design-service-settings-modal");
+            const body = document.getElementById("design-service-settings-modal-body");
+            const saveButton = document.getElementById("design-service-settings-save");
+            const feedback = document.getElementById("design-service-settings-feedback");
+            if (!modal || !body) return;
+            modal.setAttribute("aria-busy", String(isBusy));
+            body.querySelectorAll("input").forEach(function(input) { input.disabled = isBusy; });
+            body.querySelectorAll("[data-design-service-cancel]").forEach(function(button) { button.disabled = isBusy; });
+            const closeButton = modal.querySelector("[data-design-service-close]");
+            if (closeButton) closeButton.disabled = isBusy;
+            if (saveButton) {
+                saveButton.disabled = isBusy;
+                saveButton.setAttribute("aria-busy", String(isBusy));
+                saveButton.innerHTML = isBusy
+                    ? '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>儲存中…'
+                    : "儲存設定";
+            }
+            if (feedback) {
+                feedback.textContent = message || "";
+                feedback.hidden = !message;
+                feedback.className = message
+                    ? "rounded-xl border px-3 py-2 text-xs leading-relaxed " + (isError ? "border-[#FFD9D6] bg-[#FFF6F5] text-[#C9342B]" : "border-[#CFE3FF] bg-[#F4F8FF] text-[#0066CC]")
+                    : "hidden rounded-xl border px-3 py-2 text-xs leading-relaxed";
+            }
+        }
+
         async function saveDesignServiceSettings() {
+            if (designServiceSettingsInFlight) return;
             const enabledInput = document.getElementById("design-service-enabled-toggle");
             const eligibleUserIds = Array.from(document.querySelectorAll("[data-design-service-user-id]:checked")).map(function(input) {
                 return String(input.getAttribute("data-design-service-user-id") || "");
             });
+            designServiceSettingsInFlight = true;
+            updateDesignServiceSettingsSaveState(true, "正在儲存並確認雲端設定…", false);
+            let saved = false;
+            let errorMessage = "";
             try {
                 await submitDesignServiceAction("configureDesignService", {
                     enabled: Boolean(enabledInput && enabledInput.checked),
                     eligibleUserIds: eligibleUserIds
                 }, "形印代做接案設定已更新。");
-                closeDesignServiceSettingsModal();
+                saved = true;
             } catch (error) {
-                showToast(error && error.message ? error.message : "形印代做設定儲存失敗。", "warning");
+                errorMessage = error && error.message ? error.message : "形印代做設定儲存失敗。請保留畫面並重試。";
+                showToast(errorMessage, "warning");
+            } finally {
+                designServiceSettingsInFlight = false;
+                updateDesignServiceSettingsSaveState(false, errorMessage, Boolean(errorMessage));
             }
+            if (saved) closeDesignServiceSettingsModal();
         }
 
         function openDesignServiceReviewModal(orderId) {
