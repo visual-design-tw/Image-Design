@@ -226,6 +226,19 @@ noscript { display: block; color: var(--muted); }
 #requirements { padding: 0 15px 15px; }
 .latest-summary, .receipt { padding: 14px 15px; }
 .latest-summary[data-tone="warning"] { background: #fffbf5; border-color: #eeddc6; }
+#service-panel h3 { margin-bottom: 6px; }
+#service-request-form label { display: block; margin: 10px 0 4px; font-size: .875rem; font-weight: 700; }
+#service-member {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 11px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+}
+#service-request-form .actions { margin-top: 12px; }
 .review-note p { margin-top: 5px; }
 .review-note:not(:first-child) { margin-top: 9px; }
 .receipt h3 { color: var(--positive); }

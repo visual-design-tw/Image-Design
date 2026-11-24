@@ -8,8 +8,8 @@
     <meta name="robots" content="noindex, nofollow">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
     <title>專刊收件｜116級 畢業製作</title>
-    <link rel="stylesheet" href="./catalog-upload.css?v=catalog-form-1">
-    <script defer src="./catalog-upload.js?v=catalog-form-1"></script>
+    <link rel="stylesheet" href="./catalog-upload.css?v=catalog-service-1">
+    <script defer src="./catalog-upload.js?v=catalog-service-choice-1"></script>
 </head>
 <body>
     <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -105,6 +105,17 @@
                         <h3>審核意見</h3>
                         <p id="latest-note" class="multiline"></p>
                     </div>
+                </div>
+                <div id="service-panel" class="latest-summary" hidden>
+                    <h3>形印排版協助</h3>
+                    <p id="service-status" class="meta" hidden></p>
+                    <p id="service-unavailable" class="quiet" hidden>目前沒有可選的排版組員，可以先繳交素材。</p>
+                    <form id="service-request-form" hidden>
+                        <p id="service-request-hint" class="quiet">選擇希望協助排版的組員，送出後由形印組長確認。</p>
+                        <label for="service-member">希望的排版組員</label>
+                        <select id="service-member" data-lock required></select>
+                        <div class="actions"><button id="service-confirm" type="submit" class="primary" data-lock>確認人選</button></div>
+                    </form>
                 </div>
                 <details id="requirements-block" class="requirements-block">
                     <summary><span>繳交規格</span><svg class="icon" aria-hidden="true"><use href="#icon-chevron"/></svg></summary>

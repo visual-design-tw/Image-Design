@@ -2203,7 +2203,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.24-catalog-cleanup.1";
+        const APP_RELEASE = "2026.11.24-catalog-service-choice.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -4553,7 +4553,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -18579,7 +18579,8 @@
 
         function createCatalogWorkspaceState() {
             return { owner: '', board: null, loading: false, error: '', busy: false, downloadId: '', section: 'cases',
-                filter: 'all', itemId: '', form: null, link: null, message: '', warning: false, expanded: new Set(), deletedItemsOpen: false };
+                filter: 'all', itemId: '', form: null, link: null, message: '', warning: false, expanded: new Set(), deletedItemsOpen: false,
+                serviceRetry: new Map(), serviceProgress: '', serviceTargetId: '' };
         }
 
         function catalogWorkspaceForUser() {
@@ -18623,7 +18624,7 @@
                 captureWorkspaceAccessPolicy(board);
                 view.board = board;
                 if (view.itemId && !board.rows.some(row => row.item.id === view.itemId)) view.itemId = '';
-                if (!board.manager) view.section = 'cases';
+                if ((!board.manager && view.section !== 'service') || (view.section === 'service' && !board.service)) view.section = 'cases';
             } catch (error) {
                 if (catalogWorkspace === view && !error.sessionExpired) view.error = catalogStaffError(error);
             } finally {
@@ -18655,13 +18656,15 @@
         const catalogFormatLabel = format => catalogFormats.find(option => option.id === format)?.name || '';
         const catalogTextFieldDraft = (label = '', maxChars = 500) => ({ label, minChars: '1', maxChars: String(maxChars) });
 
-        function catalogChooseSection(section) {
+        function catalogChooseSection(section, targetId = '') {
             const view = catalogWorkspaceForUser();
-            if (view.busy || !view.board || (section !== 'cases' && !view.board.manager)) return;
+            if (view.busy || !view.board || (section === 'service' ? !view.board.service : section !== 'cases' && !view.board.manager)) return;
             view.section = section;
+            view.serviceTargetId = section === 'service' ? targetId : '';
             view.form = view.link = null;
             view.message = '';
-            drawCatalogWorkspace();
+            if (section === 'service' && !view.loading) refreshCatalogWorkspace();
+            else drawCatalogWorkspace();
         }
 
         function catalogChooseFilter(filter) {
@@ -18674,7 +18677,7 @@
             const view = catalogWorkspaceForUser();
             if (!view.board || view.busy) return;
             const data = view.board;
-            if (kind !== 'review' && !data.manager) return;
+            if (!['review', 'service-upload'].includes(kind) && !data.manager) return;
             const row = data.rows.find(entry => entry.id === id);
             let values = {};
             let record = null;
@@ -18690,7 +18693,7 @@
             } else if (['delete-item', 'restore-item', 'purge-item'].includes(kind)) {
                 if (!Array.isArray(data.deletedItems)) return;
                 record = (kind === 'delete-item' ? data.items : data.deletedItems).find(item => item.id === id);
-                if (!record || (kind === 'purge-item' && !record.purgeCounts)) return;
+                if (!record || (kind === 'purge-item' && (!record.purgeCounts || record.hasServiceHistory))) return;
             } else if (kind === 'assign') {
                 record = row;
                 values = { itemId: row?.item.id || id || data.items[0]?.id || '', reviewerId: row?.reviewerId || '', groupIds: [] };
@@ -18698,12 +18701,26 @@
                 if (!row?.canReview) return;
                 record = row;
                 values = { note: '', correctionDays: '7' };
+            } else if (kind === 'service-create') {
+                if (!row?.canCreateService) return;
+                record = row;
+                view.expanded.add(row.id);
+                values = { ownerId: 'open', brief: '', dueAt: catalogTaipeiInput(Date.now() + 7 * 86400000), publishProgress: false };
+            } else if (['service-assign', 'service-upload', 'service-review'].includes(kind)) {
+                record = data.service?.cases.find(order => order.id === id);
+                if (!record || (kind === 'service-upload' ? !record.canUpload : !record.canManage)) return;
+                if (kind === 'service-assign' && !record.canAssign) return;
+                if (kind === 'service-review' && record.status !== 'review') return;
+                const candidates = catalogServiceCandidates(data.service, record.legacyTeamId);
+                const suggested = record.ownerId || record.requestedId;
+                values = { ownerId: candidates.some(person => person.id === suggested) ? suggested : 'open',
+                    brief: record.brief || '', dueAt: catalogTaipeiInput(record.dueAt || Date.now() + 7 * 86400000), note: '' };
             } else if (kind === 'mode') {
                 values = { confirm: false };
             } else return;
             view.form = { kind, id: record?.id || '', record, values, itemSections: new Set(),
                 modeRevision: workspaceAccessPolicy.workspaceModeRevision, nextMode: !workspaceAccessPolicy.workspaceInternalOnly,
-                requestId: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('') };
+                requestId: newCatalogRequestId() };
             view.link = null;
             view.message = '';
             drawCatalogWorkspace();
@@ -18719,6 +18736,27 @@
             view.form = view.link = null;
             view.message = '';
             drawCatalogWorkspace();
+        }
+
+        function newCatalogRequestId() {
+            return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+
+        function catalogServiceCandidates(service, legacyTeamId) {
+            return (service?.candidates || []).filter(person => !legacyTeamId || person.legacyTeamId !== legacyTeamId);
+        }
+
+        function catalogServiceStatus(status) {
+            return ({ requested: '待確認人選', open: '待接案', making: '製作中', review: '成果待審', returned: '修正中',
+                completed: '已完成', cancelled: '已取消' })[status] || '';
+        }
+
+        function chooseCatalogServiceFile(input) {
+            const form = catalogWorkspaceForUser().form;
+            if (form?.kind !== 'service-upload') return;
+            form.file = input.files[0] || null;
+            form.requestId = newCatalogRequestId();
+            document.getElementById('catalog-service-file-name').textContent = form.file?.name || '尚未選檔';
         }
 
         function catalogDraftChange(input) {
@@ -18740,7 +18778,7 @@
                 const button = document.getElementById('catalog-purge-confirm');
                 if (button) button.disabled = input.value !== CATALOG_PURGE_CONFIRMATION;
             }
-            if (form.kind === 'item' && input.name === 'verifyEmail') {
+            if (form.kind === 'item' && ['verifyEmail', 'allowServiceRequest'].includes(input.name)) {
                 const badge = input.closest('details')?.querySelector('.catalog-chip');
                 if (badge) badge.textContent = input.checked ? '開啟' : '關閉';
             }
@@ -18878,9 +18916,11 @@
                         </label>`).join('')}</div></fieldset>`
                         : `<p class="flex flex-wrap items-center gap-2 text-sm font-semibold">收件格式 <span class="catalog-chip">${catalogFormatLabel(record.format)}</span><span class="text-xs font-normal catalog-muted">已分配，格式固定</span></p>`}
                     ${catalogField('繳交規格', `<textarea class="catalog-input" name="requirements" required maxlength="5000" rows="2" placeholder="填寫給小組看的繳交說明" oninput="catalogDraftChange(this)">${escapeHtml(values.requirements || '')}</textarea>`)}
-                    ${values.format !== 'file' || !record || record.verifyEmail ? `<div data-catalog-form-settings class="space-y-2">
+                    ${values.format !== 'file' || !record || record.verifyEmail || data.service ? `<div data-catalog-form-settings class="space-y-2">
                         ${values.format === 'file' ? '' : catalogItemDisclosure(form, 'text', '文字欄位', fieldCount + ' 欄', catalogTextFieldEditor(values, record, data.textFieldLimits))}
                         ${!record || record.verifyEmail ? catalogItemDisclosure(form, 'verification', '信箱驗證', values.verifyEmail ? '開啟' : '關閉', verification) : ''}
+                        ${data.service ? catalogItemDisclosure(form, 'service', '指定排版組員', values.allowServiceRequest ? '開啟' : '關閉',
+                            `<label class="flex items-start gap-2 text-sm"><input name="allowServiceRequest" type="checkbox" ${values.allowServiceRequest ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span>允許小組從專屬連結選擇希望的排版組員<span class="mt-1 block catalog-muted">小組先選人再繳交，素材通過後由組長確認分工。</span></span></label>`) : ''}
                     </div>` : ''}`;
             } else if (kind === 'purge-item') {
                 title = '永久刪除收件項目？';
@@ -18912,6 +18952,32 @@
                     ${catalogField('審核意見（退回時必填）', `<textarea class="catalog-input" name="note" maxlength="2000" rows="3" placeholder="請寫明要修改或補上的資料" oninput="catalogDraftChange(this)">${escapeHtml(values.note || '')}</textarea>`)}
                     ${catalogField('退回時的補件期限', catalogSelect('correctionDays', [3, 7, 14].map(days => ({ id: String(days), name: '退回後 ' + days + ' 天' })), values.correctionDays))}`;
                 buttons = '<button type="submit" name="decision" value="returned" class="catalog-button">退回補件</button><button type="submit" name="decision" value="approved" class="catalog-button catalog-button-primary">通過</button>';
+            } else if (kind === 'service-create' || kind === 'service-assign') {
+                const creating = kind === 'service-create';
+                const candidates = catalogServiceCandidates(data.service, creating ? record.group.legacyTeamId : record.legacyTeamId);
+                title = creating ? '建立代做案件' : record.status === 'requested' ? '確認排版人選' : '調整代做分工';
+                fields = `<p class="text-sm catalog-muted">${creating ? '使用小組已通過的第 ' + record.versions[0].version + ' 版素材，不更動原稿。' :
+                    record.requestedName ? '小組希望由 ' + escapeHtml(record.requestedName) + ' 製作。' : '變更負責人不會刪除既有成果。'}</p>
+                    ${catalogField('製作說明', `<textarea class="catalog-input" name="brief" required rows="3" maxlength="1000" oninput="catalogDraftChange(this)">${escapeHtml(values.brief)}</textarea>`)}
+                    <div class="grid gap-3 sm:grid-cols-2"><div data-date-time-picker-root data-date-time-picker-native-for="catalog-due-picker">
+                        <p class="mb-1.5 text-sm font-semibold">交件時間（台灣）</p>
+                        <input type="hidden" name="dueAt" id="catalog-due-picker" data-date-time-picker-input value="${escapeHtml(values.dueAt)}" onchange="catalogDraftChange(this)">
+                        <button type="button" class="catalog-input flex items-center justify-between gap-2 text-sm font-semibold" aria-label="選擇代做交件時間" aria-haspopup="dialog" aria-expanded="false" data-date-time-picker-trigger onclick="toggleDateTimePicker('catalog-due-picker')"><span data-date-time-picker-label>${formatDateTimePickerLabel(values.dueAt)}</span><i data-lucide="calendar-clock" aria-hidden="true" class="h-4 w-4"></i></button>
+                    </div>${catalogField('負責人', catalogSelect('ownerId', [{ id: 'open', name: '開放組員接案' }, ...candidates], values.ownerId))}</div>
+                    ${candidates.length ? '' : '<p class="text-sm text-[#984600]">請先到「形印代做 → 接案設定」設定可接案組員。</p>'}
+                    ${creating ? `<label class="flex gap-2 text-sm"><input name="publishProgress" type="checkbox" ${values.publishProgress ? 'checked' : ''} onchange="catalogDraftChange(this)">在小組專屬頁顯示簡要進度</label>` : ''}`;
+                buttons = `<button type="submit" class="catalog-button catalog-button-primary" ${candidates.length ? '' : 'disabled'}>${creating ? '建立案件' : '確認分工'}</button>`;
+            } else if (kind === 'service-review') {
+                title = '審核代做成果';
+                fields = `<p class="text-sm catalog-muted">第 ${record.results[0].version} 版｜${escapeHtml(record.results[0].fileName)}。審核意見只在內部顯示。</p>
+                    ${catalogField('審核意見（退回時必填）', `<textarea class="catalog-input" name="note" rows="3" maxlength="1000" oninput="catalogDraftChange(this)">${escapeHtml(values.note)}</textarea>`)}`;
+                buttons = '<button type="submit" value="returned" class="catalog-button">退回修正</button><button type="submit" value="approved" class="catalog-button catalog-button-primary">通過成果</button>';
+            } else if (kind === 'service-upload') {
+                title = '上傳代做成果';
+                fields = `<p class="text-sm catalog-muted">只上傳成果，不會改動小組原稿。單檔上限 100 MB，多檔請打包成 ZIP。</p>
+                    ${catalogField('選擇成果檔案', `<input type="file" class="catalog-input" accept="${SUPPORTED_UPLOAD_EXTENSIONS.join(',')}" onchange="chooseCatalogServiceFile(this)">`)}
+                    <p id="catalog-service-file-name" class="catalog-break text-sm catalog-muted">${escapeHtml(form.file?.name || '尚未選檔')}</p>`;
+                buttons = '<button type="submit" class="catalog-button catalog-button-primary">上傳並送審</button>';
             } else {
                 title = form.nextMode ? '切換為形印組專用' : '恢復試跑模式';
                 fields = `<p class="catalog-break text-sm catalog-muted">${form.nextMode ? '其他畢製小組的舊帳號與已登入的工作台將無法使用。專屬上傳連結仍可使用，帳號、歷史紀錄和檔案不會刪除。'
@@ -18930,12 +18996,24 @@
             const board = view.board;
             const rows = board?.rows || [];
             const labels = { cases: '收件進度', groups: '小組名冊', items: '收件項目', settings: '開放設定' };
+            const sections = board?.manager ? labels : { cases: labels.cases };
+            if (board?.service) sections.service = '專刊代做';
             const filters = [['all', '全部'], ['pending', '待審核'], ['waiting', '待上傳'], ['returned', '待補件'], ['approved', '已通過']];
             const cases = rows.filter(row => (view.filter === 'all' || row.status === view.filter) && (!view.itemId || row.item.id === view.itemId))
                 .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || a.group.number.localeCompare(b.group.number, 'zh-TW', { numeric: true }));
             let content = '';
             if (!board) content = `<div class="catalog-surface text-sm catalog-muted">${view.error ? '請重新載入清單。' : '正在準備專刊收件清單…'}</div>`;
-            else if (view.section === 'groups') {
+            else if (view.section === 'service' && board.service) {
+                const service = board.service;
+                const orders = view.serviceTargetId ? service.cases.filter(order => order.targetId === view.serviceTargetId) : service.cases;
+                content = `<section class="catalog-surface space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="text-lg font-bold">專刊代做</h3>
+                    ${view.serviceTargetId ? catalogButton('顯示所有代做案件', "catalogChooseSection('service')", false, view.busy) : ''}</div>
+                    <p class="text-sm catalog-muted">${board.manager ? '到收件進度開案；小組指定的排版人選也在這裡確認。' : '在這裡接案、下載素材與上傳成果。'}</p>
+                    ${board.manager && !service.candidates.length ? '<p class="text-sm text-[#984600]">到「形印代做 → 接案設定」設定可接案組員後，才能分派或開放接案。</p>' : ''}
+                    ${orders.length ? orders.map(order => catalogServiceCaseMarkup(order, view)).join('') : '<p class="py-3 text-sm catalog-muted">目前沒有可處理的代做案件。</p>'}
+                    </section>`;
+            } else if (view.section === 'groups') {
                 content = `<section class="catalog-surface"><div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="text-lg font-bold">小組名冊</h3><p class="text-sm catalog-muted">小組和指導老師只列入名冊，不會取得後台帳號。</p></div>
                     ${catalogButton('新增小組', "openCatalogEditor('group')", true, view.busy)}</div>
                     <div class="mt-4 divide-y divide-[#E4E8EE]">${board.groups.length ? board.groups.slice().sort((a, b) => a.number.localeCompare(b.number, 'zh-TW', { numeric: true })).map(group =>
@@ -18953,7 +19031,7 @@
                         <div class="divide-y divide-[#E4E8EE]">${board.deletedItems.map(item => `<article class="flex flex-wrap items-center justify-between gap-2 border-t border-[#E4E8EE] py-3">
                             <div class="min-w-0"><h4 class="catalog-break text-sm font-semibold">${escapeHtml(item.title)}</h4><p class="text-xs catalog-muted">刪除於 ${catalogDateLabel(item.deletedAt)}</p></div>
                             <div class="flex flex-wrap gap-2">${catalogButton('復原', "openCatalogEditor('restore-item','" + escapeInlineJsString(item.id) + "')", false, view.busy)}
-                            ${item.purgeCounts ? `<button type="button" class="catalog-button catalog-button-danger" onclick="openCatalogEditor('purge-item','${escapeInlineJsString(item.id)}')" ${view.busy ? 'disabled' : ''}>永久刪除</button>` : ''}</div></article>`).join('')}</div>
+                            ${item.hasServiceHistory ? '<span class="self-center text-xs catalog-muted">保留代做紀錄與原始素材</span>' : item.purgeCounts ? `<button type="button" class="catalog-button catalog-button-danger" onclick="openCatalogEditor('purge-item','${escapeInlineJsString(item.id)}')" ${view.busy ? 'disabled' : ''}>永久刪除</button>` : ''}</div></article>`).join('')}</div>
                     </details>` : ''}
                     ${board.pendingAttachmentTrash?.length ? `<section class="mt-4 space-y-2 border-t border-[#E4E8EE] pt-3" aria-label="待清理附件"><h4 class="text-sm font-semibold">待清理附件</h4>
                         ${board.pendingAttachmentTrash.map(entry => `<div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm catalog-muted">${catalogDateLabel(entry.purgedAt)} 刪除 ・ 尚有 ${entry.remaining} 個附件待處理</p>${catalogButton('重試附件清理', "retryCatalogAttachmentTrash('" + escapeInlineJsString(entry.itemId) + "')", false, view.busy || view.loading)}</div>`).join('')}
@@ -18984,10 +19062,42 @@
                     ${board?.manager ? `<span class="catalog-chip">${workspaceAccessPolicy.workspaceInternalOnly ? '形印組專用' : '試跑模式'}</span>` : ''}</div>
                     <h2 class="mt-2 text-2xl font-bold tracking-tight">專刊收件</h2><p class="mt-1 text-sm catalog-muted">收件、分工與補件集中在這裡。外組只使用自己的上傳頁。</p></div>
                     ${catalogButton(view.loading ? '更新中…' : '重新整理', 'refreshCatalogWorkspace()', false, view.loading || view.busy)}</div>
-                    ${board?.manager ? `<nav aria-label="專刊功能" class="mt-4 flex flex-wrap gap-2">${Object.entries(labels).map(([key, label]) => `<button type="button" class="catalog-button" ${view.busy ? 'disabled' : ''} aria-pressed="${view.section === key}" onclick="catalogChooseSection('${key}')">${label}</button>`).join('')}</nav>` : ''}
+                    ${board?.manager || board?.service ? `<nav aria-label="專刊功能" class="mt-4 flex flex-wrap gap-2">${Object.entries(sections).map(([key, label]) => `<button type="button" class="catalog-button" ${view.busy ? 'disabled' : ''} aria-pressed="${view.section === key}" onclick="catalogChooseSection('${key}')">${label}</button>`).join('')}</nav>` : ''}
                 </section>
-                ${view.error || view.message || view.busy ? `<p id="catalog-feedback" class="catalog-surface text-sm ${view.error || view.warning ? 'text-[#984600]' : 'text-[#0054A9]'}" role="status" aria-live="polite">${escapeHtml(view.busy ? '正在確認雲端結果…' : view.error || view.message)}</p>` : ''}
+                ${view.error || view.message || view.busy ? `<p id="catalog-feedback" class="catalog-surface text-sm ${view.error || view.warning ? 'text-[#984600]' : 'text-[#0054A9]'}" role="status" aria-live="polite">${escapeHtml(view.busy ? view.serviceProgress || '正在確認雲端結果…' : view.error || view.message)}</p>` : ''}
                 ${catalogEditorMarkup(view)}${share}${content}</div>`;
+        }
+
+        function catalogServiceCaseMarkup(order, view) {
+            const id = escapeInlineJsString(order.id);
+            const disabled = view.busy || view.loading;
+            const download = (file, kind, label) => file?.fileName && file.fileSize
+                ? catalogButton(label, "downloadCatalogServiceFile(this,'" + id + "','" + kind + "','" + escapeInlineJsString(file.id) + "')", false, Boolean(view.downloadId))
+                : '';
+            return `<article class="space-y-3 rounded-2xl border border-[#E4E8EE] p-3.5" data-catalog-service-case="${escapeHtml(order.id)}">
+                <div class="flex flex-wrap items-start justify-between gap-2"><div>
+                    <h4 class="catalog-break font-semibold">第 ${escapeHtml(order.groupNumber)} 組｜${escapeHtml(order.title)}</h4>
+                    <p class="text-sm catalog-muted">${order.ownerName ? '製作：' + escapeHtml(order.ownerName) + ' ・ ' : ''}${order.dueAt ? '交件 ' + catalogDateLabel(order.dueAt) : '尚未安排交件時間'}</p>
+                </div><span class="catalog-chip">代做：${catalogServiceStatus(order.status)}</span></div>
+                ${order.status === 'requested' && order.requestedName ? `<p class="catalog-break text-sm">小組希望由 <strong>${escapeHtml(order.requestedName)}</strong> 製作。</p>` : ''}
+                ${order.canManage && order.status === 'requested' && !order.canAssign ? `<p class="text-sm catalog-muted">素材：${catalogStatusLabel(order.sourceStatus)}・通過審核後可確認人選。</p>` : ''}
+                ${order.brief ? `<p class="catalog-break whitespace-pre-wrap text-sm">${escapeHtml(order.brief)}</p>` : ''}
+                <div class="flex flex-wrap gap-2">
+                    ${order.canClaim ? catalogButton('接案', "changeCatalogServiceOrder('claim','" + id + "')", true, disabled) : ''}
+                    ${order.canUpload ? catalogButton('上傳成果', "openCatalogEditor('service-upload','" + id + "')", true, disabled) : ''}
+                    ${order.canAssign ? catalogButton(order.status === 'requested' ? '確認人選' : '調整分工', "openCatalogEditor('service-assign','" + id + "')", order.status === 'requested', disabled) : ''}
+                    ${order.canManage && order.status === 'review' && order.results?.length ? catalogButton('審核成果', "openCatalogEditor('service-review','" + id + "')", true, disabled) : ''}
+                    ${order.canManage && !['completed', 'cancelled'].includes(order.status) ? catalogButton('取消案件', "changeCatalogServiceOrder('cancel','" + id + "')", false, disabled) : ''}
+                </div>
+                ${order.material ? `<details class="rounded-xl bg-[#F6F8FB] px-3 py-2.5">
+                    <summary class="cursor-pointer text-sm font-semibold">原始素材 ・ 第 ${order.material.version} 版</summary>
+                    <div class="space-y-2 pt-2 text-sm">${order.material.text ? `<p class="catalog-break whitespace-pre-wrap">${escapeHtml(order.material.text)}</p>` : ''}
+                    ${order.material.fileName ? `<div class="flex flex-wrap items-center gap-2"><span class="catalog-break">${escapeHtml(order.material.fileName)}</span>${download(order.material, 'material', '下載原始素材')}</div>` : ''}</div></details>` : ''}
+                ${order.results?.length ? `<details class="rounded-xl bg-[#F6F8FB] px-3 py-2.5" ${order.status === 'review' ? 'open' : ''}><summary class="cursor-pointer text-sm font-semibold">成果版本（${order.results.length}）</summary>
+                    ${order.results.map(result => `<div class="space-y-1 border-t border-[#E4E8EE] py-2 text-sm"><div class="flex flex-wrap items-center gap-2">
+                        <span class="catalog-break">第 ${result.version} 版｜${escapeHtml(result.fileName)} ・ ${result.status === 'returned' ? '退回修正' : catalogStatusLabel(result.status)}</span>
+                        ${download(result, 'result', '下載成果')}</div>${result.note ? `<p class="catalog-break whitespace-pre-wrap catalog-muted">${escapeHtml(result.note)}</p>` : ''}</div>`).join('')}</details>` : ''}
+                </article>`;
         }
 
         function catalogCaseMarkup(row, view) {
@@ -18995,7 +19105,7 @@
             return `<details class="rounded-2xl border border-[#E4E8EE] bg-white" data-catalog-case="${escapeHtml(row.id)}" ${view.expanded.has(row.id) ? 'open' : ''} ontoggle="if(this.open) catalogWorkspace.expanded.add(this.dataset.catalogCase); else catalogWorkspace.expanded.delete(this.dataset.catalogCase)">
                 <summary class="catalog-case-summary flex cursor-pointer flex-wrap items-center justify-between gap-2 rounded-2xl p-3.5">
                     <div class="min-w-0"><h4 class="catalog-break font-semibold">第 ${escapeHtml(row.group.number)} 組｜${escapeHtml(catalogRosterName(row.group))}</h4><p class="catalog-break text-sm catalog-muted">${escapeHtml(row.item.title)} ・ ${escapeHtml(row.reviewerName || '無可用審核人')}</p></div>
-                    <div class="ml-auto flex shrink-0 items-center gap-2"><span class="catalog-chip" data-catalog-status="${escapeHtml(row.status)}">${catalogStatusLabel(row.status)}</span><i data-lucide="chevron-down" class="catalog-case-chevron h-4 w-4 text-[#626975]" aria-hidden="true"></i></div>
+                    <div class="ml-auto flex flex-wrap items-center gap-2"><span class="catalog-chip" data-catalog-status="${escapeHtml(row.status)}">${catalogStatusLabel(row.status)}</span>${row.serviceStatus ? `<span class="catalog-chip">代做：${catalogServiceStatus(row.serviceStatus)}</span>` : ''}<i data-lucide="chevron-down" class="catalog-case-chevron h-4 w-4 text-[#626975]" aria-hidden="true"></i></div>
                 </summary>
                 <div class="space-y-3 border-t border-[#E4E8EE] p-3.5">
                     <div class="flex flex-wrap items-center gap-2 text-sm catalog-muted"><span>${row.linkStatus === 'active' ? '連結使用中' : row.linkStatus === 'expired' ? '連結已過期' : '尚未開放連結'}</span><span>・</span><span>截止 ${catalogDateLabel(row.item.dueAt)}</span></div>
@@ -19007,6 +19117,8 @@
                         ${row.linkStatus === 'active' && row.canShare ? catalogButton('換發連結', "changeCatalogLink('rotate','" + id + "')", false, view.busy) : ''}
                         ${row.linkStatus !== 'inactive' && (row.canShare || view.board.manager) ? catalogButton('停用連結', "changeCatalogLink('revoke','" + id + "')", false, view.busy) : ''}
                         ${view.board.manager ? catalogButton('改派', "openCatalogEditor('assign','" + id + "')", false, view.busy) : ''}
+                        ${row.canCreateService ? catalogButton('建立代做案件', "openCatalogEditor('service-create','" + id + "')", false, view.busy) : ''}
+                        ${view.board.service?.cases.some(order => order.targetId === row.id) ? catalogButton('查看代做案件', "catalogChooseSection('service','" + id + "')", false, view.busy) : ''}
                     </div>
                     ${row.versions.length ? row.versions.map((version, index) => `<details class="rounded-xl bg-[#F6F8FB] px-3 py-2.5" ${index === 0 ? 'open' : ''}>
                         <summary class="cursor-pointer text-sm font-semibold">第 ${version.version} 版 ・ ${catalogStatusLabel(version.status)} ・ ${catalogDateLabel(version.submittedAt)}</summary>
@@ -19043,7 +19155,7 @@
                 if (view === catalogWorkspace && !error.sessionExpired) {
                     view.warning = true;
                     view.message = catalogStaffError(error);
-                    if (['catalogSetItemDeleted', 'catalogPurgeItem'].includes(action) && /^CATALOG_CHANGED:/.test(error.message || '')) {
+                    if (['catalogSetItemDeleted', 'catalogPurgeItem', 'catalogServiceCreate', 'catalogServiceChange'].includes(action) && /^CATALOG_CHANGED:/.test(error.message || '')) {
                         view.form = null;
                         refresh = true;
                     }
@@ -19051,6 +19163,7 @@
             } finally {
                 if (view === catalogWorkspace) {
                     view.busy = false;
+                    view.serviceProgress = '';
                     if (refresh) await refreshCatalogWorkspace();
                     else drawCatalogWorkspace();
                 }
@@ -19113,6 +19226,10 @@
             const form = view.form;
             if (!form || view.busy || view.loading) return;
             const { values, record, kind } = form;
+            if (kind.startsWith('service-')) {
+                submitCatalogServiceEditor(form, event.submitter?.value);
+                return;
+            }
             let action, payload;
             if (kind === 'group') {
                 action = 'catalogSaveGroup';
@@ -19199,6 +19316,113 @@
             });
         }
 
+        function submitCatalogServiceEditor(form, decision) {
+            const { kind, record, values, requestId } = form;
+            const view = catalogWorkspaceForUser();
+            if (kind === 'service-upload') {
+                const file = form.file;
+                if (!file?.size || file.size > view.board.service.fileLimit) {
+                    view.warning = true;
+                    view.message = '請選擇不超過 100 MB 的成果檔案。';
+                    drawCatalogWorkspace();
+                    return;
+                }
+                const payload = { orderId: record.id, revision: record.revision, requestId, fileName: file.name, fileSize: file.size };
+                uploadCatalogServiceFile(view, file, payload);
+                return;
+            }
+            const creating = kind === 'service-create';
+            const reviewing = kind === 'service-review';
+            const payload = { requestId };
+            if (creating) Object.assign(payload, { targetId: record.id, sourceId: record.versions[0].id, publishProgress: values.publishProgress });
+            else Object.assign(payload, { operation: reviewing ? 'review' : 'assign', orderId: record.id, revision: record.revision });
+            if (reviewing) {
+                if (!['approved', 'returned'].includes(decision)) return;
+                if (decision === 'returned' && !values.note.trim()) {
+                    view.warning = true; view.message = '請先填寫成果退回原因。'; drawCatalogWorkspace();
+                    document.querySelector('#catalog-editor textarea')?.focus(); return;
+                }
+                Object.assign(payload, { resultId: record.results[0].id, decision, note: values.note });
+            } else {
+                closeDateTimePicker();
+                Object.assign(payload, { brief: values.brief, dueAt: values.dueAt, ownerId: values.ownerId === 'open' ? '' : values.ownerId });
+            }
+            catalogWrite(creating ? 'catalogServiceCreate' : 'catalogServiceChange', payload, (data, current) => {
+                if (data.targetId !== (creating ? record.id : record.targetId) || data.orderId !== (creating ? 'PCO_' + requestId : record.id)) {
+                    throw new Error('尚未確認案件更新，請重試或重新整理。');
+                }
+                current.section = 'service';
+                if (creating) current.serviceTargetId = record.id;
+                current.form = null;
+                current.message = creating ? '已建立代做案件，原始素材不變。' : reviewing
+                    ? (decision === 'approved' ? '代做成果已通過。' : '成果已退回，請製作組員修正。') : '已確認代做分工。';
+            });
+        }
+
+        function changeCatalogServiceOrder(operation, id) {
+            const view = catalogWorkspaceForUser();
+            const order = view.board?.service?.cases.find(row => row.id === id);
+            if (!order || view.busy || view.loading || (operation === 'claim' ? !order.canClaim : operation !== 'cancel' || !order.canManage)) return;
+            if (operation === 'cancel' && !window.confirm('取消此代做案件？小組原始素材與已提交成果不會刪除。')) return;
+            const key = operation + ':' + id + ':' + order.revision;
+            if (!view.serviceRetry.has(key)) view.serviceRetry.set(key, newCatalogRequestId());
+            catalogWrite('catalogServiceChange', { operation, orderId: id, revision: order.revision, requestId: view.serviceRetry.get(key),
+                confirm: operation === 'cancel' }, (data, current) => {
+                if (data.orderId !== id || data.status !== (operation === 'claim' ? 'making' : 'cancelled')) throw new Error('尚未確認案件更新。');
+                current.serviceRetry.delete(key);
+                current.message = operation === 'claim' ? '已接案，可以下載素材開始製作。' : '已取消代做案件，沒有刪除素材或成果。';
+            });
+        }
+
+        async function uploadCatalogServiceFile(view, file, payload) {
+            const epoch = authEpoch;
+            const current = () => catalogWorkspace === view && authEpoch === epoch;
+            const progress = value => {
+                view.serviceProgress = value;
+                const node = activeTab === 'catalog' && document.getElementById('catalog-feedback');
+                if (node) node.textContent = value;
+            };
+            view.busy = true;
+            view.warning = false;
+            view.error = view.message = '';
+            view.serviceProgress = '正在確認成果上傳…';
+            drawCatalogWorkspace();
+            let refresh = false;
+            try {
+                let { data } = await requestGas('catalogServiceBegin', payload);
+                const chunkSize = data?.chunkSize;
+                let next = data?.nextByte;
+                while (current() && data?.status === 'uploading') {
+                    if (!Number.isSafeInteger(chunkSize) || chunkSize < 256 * 1024 || chunkSize > 16 * 1024 * 1024 ||
+                        !Number.isSafeInteger(next) || next < 0 || next >= file.size) throw new Error('無法確認上傳進度，請重試。');
+                    progress('上傳成果 ' + Math.floor(next * 100 / file.size) + '%');
+                    const end = Math.min(next + chunkSize, file.size);
+                    const base64 = await readFileAsBase64(file.slice(next, end));
+                    if (!current()) return;
+                    ({ data } = await requestGas('catalogServiceChunk', { orderId: payload.orderId, requestId: payload.requestId, start: next, end: end - 1, base64 }));
+                    if (data?.status === 'uploading' && data.nextByte !== end) throw new Error('上傳分段尚未確認，請重試接續。');
+                    next = data?.nextByte;
+                }
+                if (!current()) return;
+                if (data?.status !== 'received' || data.resultId !== 'PCR_' + payload.requestId) throw new Error('尚未確認成果送審，請重試。');
+                view.form = null;
+                view.message = '成果已上傳並送審。';
+                refresh = true;
+            } catch (error) {
+                if (current() && !error.sessionExpired) {
+                    view.warning = true;
+                    view.message = catalogStaffError(error) + ' 已保留選擇的檔案。';
+                }
+            } finally {
+                if (current()) {
+                    view.serviceProgress = '';
+                    view.busy = false;
+                    if (refresh) await refreshCatalogWorkspace();
+                    else drawCatalogWorkspace();
+                }
+            }
+        }
+
         function changeCatalogLink(operation, id) {
             const view = catalogWorkspaceForUser();
             const row = view.board?.rows.find(entry => entry.id === id);
@@ -19238,19 +19462,33 @@
         }
 
         async function downloadCatalogAttachment(button, id) {
-            const view = catalogWorkspaceForUser();
             const record = getPreviewRecord('catalog-submission', id);
-            if (view.downloadId || !record?.File_Size) return;
+            if (!record) return;
+            return downloadCatalogChunks(button, 'catalogDownload', { recordId: id }, record.File_Name, record.File_Size);
+        }
+
+        async function downloadCatalogServiceFile(button, orderId, kind, recordId) {
+            const order = catalogWorkspaceForUser().board?.service?.cases.find(entry => entry.id === orderId);
+            const record = kind === 'material' && order?.material?.id === recordId ? order.material
+                : kind === 'result' ? order?.results?.find(entry => entry.id === recordId) : null;
+            if (record) return downloadCatalogChunks(button, 'catalogServiceDownload', { orderId, kind, recordId }, record.fileName, record.fileSize);
+        }
+
+        async function downloadCatalogChunks(button, action, payload, fileName, size) {
+            const view = catalogWorkspaceForUser();
+            if (view.downloadId || !size) return;
+            const label = button.textContent;
+            const id = payload.recordId;
             const epoch = authEpoch;
             view.downloadId = id;
             button.disabled = true;
             button.textContent = '下載中…';
             const chunks = [];
             try {
-                for (let offset = 0; offset < record.File_Size;) {
-                    const { data } = await requestGas('catalogDownload', { recordId: id, offset });
+                for (let offset = 0; offset < size;) {
+                    const { data } = await requestGas(action, { ...payload, offset });
                     if (view !== catalogWorkspace || epoch !== authEpoch) return;
-                    if (data?.recordId !== id || data.offset !== offset || data.total !== record.File_Size ||
+                    if (data?.recordId !== id || data.offset !== offset || data.total !== size ||
                         !Number.isSafeInteger(data.nextByte) || data.nextByte <= offset || data.nextByte > data.total ||
                         data.nextByte - offset > 4 * 1024 * 1024) throw new Error('下載資料不完整，請重試。');
                     const decoded = atob(data.contentBase64 || '');
@@ -19262,7 +19500,7 @@
                 const url = URL.createObjectURL(new Blob(chunks, { type: 'application/octet-stream' }));
                 const link = document.createElement('a');
                 link.href = url;
-                link.download = record.File_Name;
+                link.download = fileName;
                 document.body.append(link);
                 link.click();
                 link.remove();
@@ -19273,7 +19511,7 @@
                 if (view === catalogWorkspace) {
                     view.downloadId = '';
                     button.disabled = false;
-                    button.textContent = '下載原檔';
+                    button.textContent = label;
                     if (!button.isConnected && !view.busy) drawCatalogWorkspace();
                 }
             }

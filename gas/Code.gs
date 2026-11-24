@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.24-catalog-cleanup.1';
+var APP_RELEASE = '2026.11.24-catalog-service-choice.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -88,13 +88,24 @@ var TABLE_SCHEMAS = {
     types: { Revision: 'number', Member_Count: 'number' }
   },
   Catalog_Items: {
-    headers: ['Item_ID', 'Title', 'Requirements', 'Format', 'Due_At', 'Verify_Email', 'Revision', 'Created_At', 'Text_Fields', 'Deleted_At'],
-    types: { Verify_Email: 'boolean', Revision: 'number', Text_Fields: 'json' },
-    optionalColumns: 2
+    headers: ['Item_ID', 'Title', 'Requirements', 'Format', 'Due_At', 'Verify_Email', 'Revision', 'Created_At', 'Text_Fields', 'Deleted_At', 'Allow_Service_Request'],
+    types: { Verify_Email: 'boolean', Revision: 'number', Text_Fields: 'json', Allow_Service_Request: 'boolean' },
+    optionalColumns: 3
   },
   Catalog_Targets: {
-    headers: ['Target_ID', 'Item_ID', 'Group_ID', 'Reviewer_ID', 'Link_Key', 'Link_Expires', 'Revision'],
-    types: { Revision: 'number', Link_Expires: 'number' }
+    headers: ['Target_ID', 'Item_ID', 'Group_ID', 'Reviewer_ID', 'Link_Key', 'Link_Expires', 'Revision', 'Service_Public'],
+    types: { Revision: 'number', Link_Expires: 'number', Service_Public: 'json' },
+    optionalColumns: 1
+  },
+  Catalog_Service_Orders: {
+    headers: ['Order_ID', 'Target_ID', 'Source_ID', 'Requested_ID', 'Owner_ID', 'Brief', 'Due_At', 'Status', 'Public',
+      'Revision', 'Created_At', 'Last_Request_ID', 'Last_Actor_ID', 'Last_Action'],
+    types: { Public: 'boolean', Revision: 'number' }
+  },
+  Catalog_Service_Files: {
+    headers: ['Result_ID', 'Order_ID', 'Version', 'Owner_ID', 'File_Name', 'File_Size', 'Drive_File_ID',
+      'Submitted_At', 'Status', 'Review_Note', 'Reviewed_By', 'Reviewed_At'],
+    types: { Version: 'number', File_Size: 'number' }
   },
   Catalog_Submissions: {
     headers: ['Submission_ID', 'Target_ID', 'Request_ID', 'Link_Key', 'Input_Hash', 'Version', 'Text_Content',
@@ -10231,16 +10242,22 @@ function dispatchCatalogAction_(action, payload) {
     catalogLink: handleCatalogLink_,
     catalogReview: handleCatalogReview_,
     catalogDownload: handleCatalogDownload_,
+    catalogServiceCreate: handleCatalogServiceCreate_,
+    catalogServiceChange: handleCatalogServiceChange_,
+    catalogServiceBegin: handleCatalogServiceBegin_,
+    catalogServiceChunk: handleCatalogServiceChunk_,
+    catalogServiceDownload: handleCatalogServiceDownload_,
     catalogWorkspaceMode: handleCatalogWorkspaceMode_,
     catalogGuestDescribe: handleCatalogGuestDescribe_,
     catalogGuestSendCode: handleCatalogGuestSendCode_,
     catalogGuestVerify: handleCatalogGuestVerify_,
     catalogGuestBegin: handleCatalogGuestBegin_,
-    catalogGuestChunk: handleCatalogGuestChunk_
+    catalogGuestChunk: handleCatalogGuestChunk_,
+    catalogGuestRequestService: handleCatalogGuestRequestService_
   };
   if (!Object.prototype.hasOwnProperty.call(handlers, action)) throw new Error('Unsupported POST action: ' + action);
   var handler = handlers[action];
-  if (['catalogBoard', 'catalogDownload', 'catalogGuestDescribe', 'catalogGuestChunk'].indexOf(action) >= 0) return handler(payload);
+  if (['catalogBoard', 'catalogDownload', 'catalogGuestDescribe', 'catalogGuestChunk', 'catalogServiceDownload', 'catalogServiceChunk'].indexOf(action) >= 0) return handler(payload);
   return withLock_(function() { return handler(payload); });
 }
 
@@ -10374,7 +10391,7 @@ function catalogNormalizeTextFields_(fields, format) {
 function catalogItemView_(row, fieldsLocked) {
   return { id: row.Item_ID, title: row.Title, requirements: row.Requirements, format: row.Format,
     dueAt: row.Due_At, verifyEmail: row.Verify_Email === true, revision: row.Revision,
-    textFields: catalogItemTextFields_(row), fieldsLocked: fieldsLocked === true };
+    textFields: catalogItemTextFields_(row), fieldsLocked: fieldsLocked === true, allowServiceRequest: row.Allow_Service_Request === true };
 }
 
 function catalogSubmissionView_(row, users) {
@@ -10415,7 +10432,7 @@ function catalogTargetView_(target, group, item, submissions, users, actor) {
 function handleCatalogBoard_(payload) {
   var auth = requireCatalogStaff_(payload);
   var manager = auth.actor.Role === 'SuperAdmin';
-  var tables = readCatalogBoardData_(manager);
+  var tables = readCatalogServiceData_(manager);
   var groups = tables.Catalog_Roster;
   var items = tables.Catalog_Items.filter(function(item) { return !item.Deleted_At; });
   var assignedItems = new Set(tables.Catalog_Targets.map(function(target) { return target.Item_ID; }));
@@ -10445,11 +10462,13 @@ function handleCatalogBoard_(payload) {
   return Object.assign({
     manager: manager,
     rows: rows,
+    service: catalogServiceBoard_(tables, auth, rows),
     groups: manager ? groups.map(catalogGroupView_) : [],
     items: manager ? items.map(function(item) { return catalogItemView_(item, assignedItems.has(item.Item_ID)); }) : [],
     deletedItems: deletedItems.map(function(item) {
       var counts = purgeCounts.get(item.Item_ID);
       return { id: item.Item_ID, title: item.Title, revision: item.Revision, deletedAt: item.Deleted_At,
+        hasServiceHistory: catalogServiceBlocksPurge_(tables, item.Item_ID),
         purgeCounts: { targets: counts.targets, submissions: counts.submissions, attachments: counts.attachments.size } };
     }).sort(function(a, b) { return b.deletedAt.localeCompare(a.deletedAt); }),
     pendingAttachmentTrash: manager ? (tables.Catalog_Purged_Items || []).filter(function(row) {
@@ -10462,6 +10481,254 @@ function handleCatalogBoard_(payload) {
     legacyTeams: manager ? ensureArray_(tables.Teams).filter(function(team) { return team.Team_ID && team.Team_ID !== SHAPE_PRINT_TEAM_ID; })
       .map(function(team) { return { id: team.Team_ID, name: team.Team_Name }; }) : []
   }, getWorkspaceAccessPolicy_());
+}
+
+function readCatalogServiceData_(managerBoard) {
+  var names = catalogServiceContextTables_().concat(['Design_Service_Settings']);
+  if (managerBoard) names.push('Teams', 'Catalog_Purged_Items');
+  return readCatalogTables_(names, true);
+}
+
+function catalogServiceContextTables_() {
+  return ['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions', 'Catalog_Service_Orders', 'Catalog_Service_Files'];
+}
+
+function catalogServiceActive_(order) {
+  return order.Status !== 'completed' && order.Status !== 'cancelled';
+}
+
+function catalogServiceOrdersForItem_(tables, itemId) {
+  var targetIds = new Set(tables.Catalog_Targets.filter(function(row) { return row.Item_ID === itemId; })
+    .map(function(row) { return row.Target_ID; }));
+  return tables.Catalog_Service_Orders.filter(function(row) { return targetIds.has(row.Target_ID); });
+}
+
+function catalogServiceBlocksPurge_(tables, itemId) {
+  var hasResults = new Set(tables.Catalog_Service_Files.map(function(row) { return row.Order_ID; }));
+  return catalogServiceOrdersForItem_(tables, itemId).some(function(order) {
+    return order.Status !== 'cancelled' || hasResults.has(order.Order_ID);
+  });
+}
+
+function catalogServiceEligibleUsers_(users, settings, group) {
+  var ids = new Set(getDesignServiceEligibleUserIds_({ Users: users }, ensureArray_(settings)[0]));
+  return users.filter(function(user) {
+    return ids.has(user.User_ID) && (!group || catalogIsEligibleReviewer_(user, group));
+  });
+}
+
+function catalogServiceContext_(tables, order) {
+  var context = order && catalogTargetContext_(tables, order.Target_ID);
+  if (!context) return null;
+  var latest = context.versions[0];
+  var source = order.Source_ID ? catalogFind_(context.versions, 'Submission_ID', order.Source_ID)
+    : order.Status === 'requested' && latest?.Status === 'approved' ? latest : null;
+  if (!source && (order.Source_ID || ['requested', 'cancelled'].indexOf(order.Status) < 0)) return null;
+  return { target: context.target, item: context.item, group: context.group, source: source, order: order,
+    sourceStatus: latest?.Status || 'waiting',
+    results: tables.Catalog_Service_Files.filter(function(row) { return row.Order_ID === order.Order_ID; })
+      .sort(function(a, b) { return b.Version - a.Version; }) };
+}
+
+function catalogServiceIsOwner_(ctx, actor) {
+  return ctx.order.Owner_ID === actor.User_ID && actor.Role === 'Admin' && catalogIsEligibleReviewer_(actor, ctx.group);
+}
+
+function catalogServiceIsManager_(ctx, actor) {
+  return actor.Role === 'SuperAdmin' && catalogIsEligibleReviewer_(actor, ctx.group);
+}
+
+function catalogServiceBoard_(tables, auth, rows) {
+  var actor = auth.actor;
+  var manager = actor.Role === 'SuperAdmin';
+  var orders = tables.Catalog_Service_Orders;
+  var candidates = catalogServiceEligibleUsers_(auth.users, tables.Design_Service_Settings);
+  var eligible = candidates.some(function(user) { return user.User_ID === actor.User_ID; });
+  var byTarget = new Map();
+  orders.forEach(function(order) {
+    if (!byTarget.has(order.Target_ID)) byTarget.set(order.Target_ID, []);
+    byTarget.get(order.Target_ID).push(order);
+  });
+  rows.forEach(function(row) {
+    var cases = byTarget.get(row.id) || [];
+    var active = cases.find(catalogServiceActive_);
+    var latest = active || cases[cases.length - 1];
+    row.serviceStatus = latest?.Status || '';
+    row.canCreateService = manager && !(row.group.legacyTeamId && row.group.legacyTeamId === actor.Team_ID)
+      && !active && row.versions[0]?.status === 'approved';
+  });
+  return {
+    fileLimit: CATALOG_FILE_LIMIT,
+    candidates: manager ? candidates.map(function(user) { return { id: user.User_ID, name: user.Name, legacyTeamId: user.Team_ID }; }) : [],
+    cases: orders.slice().reverse().map(function(order) {
+      var ctx = catalogServiceContext_(tables, order);
+      if (!ctx) return null;
+      var manage = catalogServiceIsManager_(ctx, actor);
+      var owns = catalogServiceIsOwner_(ctx, actor);
+      var canClaim = order.Status === 'open' && !order.Owner_ID && eligible && catalogIsEligibleReviewer_(actor, ctx.group);
+      if (!manage && !owns && !canClaim) return null;
+      var view = { id: order.Order_ID, targetId: order.Target_ID, status: order.Status, revision: order.Revision,
+        groupNumber: ctx.group.Group_Number, title: ctx.item.Title, dueAt: order.Due_At, canClaim: canClaim };
+      if (!manage && !owns) return view;
+      var owner = catalogFind_(auth.users, 'User_ID', order.Owner_ID);
+      var requested = catalogFind_(auth.users, 'User_ID', order.Requested_ID);
+      var material = ctx.source ? catalogSubmissionView_(ctx.source, auth.users) : null;
+      return Object.assign(view, {
+        brief: order.Brief, published: order.Public === true, ownerId: order.Owner_ID,
+        ownerName: owner?.Name || '', requestedId: manage ? order.Requested_ID : '', requestedName: manage ? requested?.Name || '' : '',
+        legacyTeamId: ctx.group.Legacy_Team_ID, canManage: manage, sourceStatus: ctx.sourceStatus,
+        canAssign: manage && Boolean(ctx.source) && ['requested', 'open', 'making', 'returned'].indexOf(order.Status) >= 0,
+        canUpload: owns && ['making', 'returned'].indexOf(order.Status) >= 0,
+        material: material && { id: material.id, version: material.version, text: material.text, fileName: material.fileName, fileSize: material.fileSize },
+        results: ctx.results.map(function(row) {
+          return { id: row.Result_ID, version: row.Version, fileName: row.File_Name, fileSize: row.File_Size, submittedAt: row.Submitted_At,
+            status: row.Status, note: row.Review_Note, reviewedAt: row.Reviewed_At };
+        })
+      });
+    }).filter(Boolean)
+  };
+}
+
+function catalogServiceOrderReceipt_(order) {
+  return { orderId: order.Order_ID, targetId: order.Target_ID, status: order.Status, revision: order.Revision };
+}
+
+function writeCatalogServiceOrder_(tables, ctx, users, results) {
+  var order = ctx.order;
+  var person = catalogFind_(users, 'User_ID', order.Owner_ID || order.Requested_ID);
+  ctx.target.Service_Public = { status: order.Status,
+    visible: order.Public === true, name: order.Public === true && person ? person.Name : '' };
+  var writes = { Catalog_Service_Orders: tables.Catalog_Service_Orders, Catalog_Targets: tables.Catalog_Targets };
+  if (results) writes.Catalog_Service_Files = tables.Catalog_Service_Files;
+  writeCatalogTables_(writes);
+}
+
+function catalogServiceSource_(tables, payload) {
+  var ctx = catalogTargetContext_(tables, payload.targetId);
+  if (!ctx || ctx.versions[0]?.Status !== 'approved' || ctx.versions[0].Submission_ID !== payload.sourceId) {
+    throw new Error('CATALOG_CHANGED: 請重新載入，並確認小組最新素材已通過審核。');
+  }
+  return ctx;
+}
+
+function catalogServiceInstructions_(payload) {
+  var brief = String(payload.brief || '').trim();
+  var due = catalogDueAt_(payload.dueAt);
+  if (!brief || brief.length > 1000 || Date.parse(due) <= Date.now() || Date.parse(due) > Date.now() + 366 * CATALOG_DAY_MS) {
+    throw new Error('請填寫製作說明（最多 1,000 字），並選擇一年內的未來交件時間。');
+  }
+  return { Brief: brief, Due_At: due };
+}
+
+function catalogServiceResolveOwner_(tables, auth, group, id) {
+  var candidates = catalogServiceEligibleUsers_(auth.users, tables.Design_Service_Settings, group);
+  if ((id && !candidates.some(function(user) { return user.User_ID === id; })) || (!id && !candidates.length)) {
+    throw new Error('CATALOG_SERVICE_INPUT: 所選組員目前無法接案，請確認最新接案名單。');
+  }
+  return id;
+}
+
+function handleCatalogServiceCreate_(payload) {
+  var auth = requireCatalogStaff_(payload, true);
+  var tables = readCatalogServiceData_(false);
+  var id = 'PCO_' + catalogRequestId_(payload);
+  var ctx = catalogServiceSource_(tables, payload);
+  if (!catalogServiceIsManager_(ctx, auth.actor)) throw new Error('FORBIDDEN: 不能替自己的畢製小組開案。');
+  var existing = catalogFind_(tables.Catalog_Service_Orders, 'Order_ID', id);
+  if (existing && existing.Target_ID === ctx.target.Target_ID && existing.Source_ID === payload.sourceId) return catalogServiceOrderReceipt_(existing);
+  if (existing || tables.Catalog_Service_Orders.some(function(order) { return order.Target_ID === ctx.target.Target_ID && catalogServiceActive_(order); })) {
+    throw new Error('CATALOG_CHANGED: 這個小組已有進行中的代做案件。請重新載入。');
+  }
+  var owner = catalogServiceResolveOwner_(tables, auth, ctx.group, String(payload.ownerId || ''));
+  ctx.order = Object.assign({ Order_ID: id, Target_ID: ctx.target.Target_ID, Source_ID: payload.sourceId,
+    Requested_ID: '', Owner_ID: owner, Status: owner ? 'making' : 'open', Public: payload.publishProgress === true,
+    Revision: 1, Created_At: new Date().toISOString() }, catalogServiceInstructions_(payload));
+  tables.Catalog_Service_Orders.push(ctx.order);
+  writeCatalogServiceOrder_(tables, ctx, auth.users);
+  return catalogServiceOrderReceipt_(ctx.order);
+}
+
+function handleCatalogGuestRequestService_(payload) {
+  var identity = catalogCheckLink_(payload);
+  var ctx = readCatalogGuestContext_(identity, true);
+  requireCatalogGuestGrant_(ctx, payload);
+  if (ctx.item.Allow_Service_Request !== true) {
+    throw new Error('CATALOG_CLOSED: 此收件目前未開放選擇排版組員。');
+  }
+  var id = 'PCGSR_' + catalogRequestId_(payload);
+  var tables = readCatalogServiceData_(false);
+  var orders = tables.Catalog_Service_Orders;
+  var existing = catalogFind_(orders, 'Order_ID', id);
+  if (existing && existing.Target_ID === identity.targetId) return { intake: catalogGuestView_(ctx, true) };
+  if (!catalogGuestCanRequestService_(ctx, catalogGuestWindow_(ctx))) {
+    throw new Error('CATALOG_CLOSED: 目前不能選擇排版組員，請聯絡負責人。');
+  }
+  if (existing || orders.some(function(order) { return order.Target_ID === identity.targetId && order.Status !== 'cancelled'; })) {
+    throw new Error('CATALOG_CHANGED: 此收件已有排版案件。請更新狀態後再確認。');
+  }
+  var users = loadResumableUploadAuthState_().Users;
+  var candidate = String(payload.memberId || '');
+  if (!candidate) throw new Error('CATALOG_SERVICE_INPUT: 請先選擇一位排版組員。');
+  catalogServiceResolveOwner_(tables, { users: users }, ctx.group, candidate);
+  ctx.order = { Order_ID: id, Target_ID: identity.targetId, Source_ID: '', Requested_ID: candidate,
+    Owner_ID: '', Brief: '', Due_At: '', Status: 'requested', Public: true, Revision: 1, Created_At: new Date().toISOString() };
+  orders.push(ctx.order);
+  ctx.target = catalogFind_(tables.Catalog_Targets, 'Target_ID', identity.targetId);
+  writeCatalogServiceOrder_(tables, ctx, users);
+  return { intake: catalogGuestView_(ctx, true) };
+}
+
+function handleCatalogServiceChange_(payload) {
+  var operation = String(payload.operation || '');
+  var auth = requireCatalogStaff_(payload, operation !== 'claim');
+  var tables = readCatalogServiceData_(false);
+  var order = catalogFind_(tables.Catalog_Service_Orders, 'Order_ID', payload.orderId);
+  var ctx = catalogServiceContext_(tables, order);
+  var actor = auth.actor;
+  if (!ctx || (operation !== 'claim' && !catalogServiceIsManager_(ctx, actor))) {
+    throw new Error('FORBIDDEN: 你不能操作這個代做案件。');
+  }
+  var requestId = catalogRequestId_(payload);
+  if (order.Last_Request_ID === requestId && order.Last_Action === operation && order.Last_Actor_ID === actor.User_ID) {
+    return catalogServiceOrderReceipt_(order);
+  }
+  catalogAssertRevision_(order, payload.revision);
+  var resultChanged = false;
+  if (operation === 'claim') {
+    if (order.Status !== 'open' || order.Owner_ID) throw new Error('CATALOG_CHANGED: 案件不再開放接案，請更新清單。');
+    if (!catalogServiceEligibleUsers_(auth.users, tables.Design_Service_Settings, ctx.group).some(function(user) { return user.User_ID === actor.User_ID; })) {
+      throw new Error('FORBIDDEN: 你目前不在這個案件的可接案名單。');
+    }
+    Object.assign(order, { Owner_ID: actor.User_ID, Status: 'making' });
+  } else if (operation === 'assign') {
+    if (['requested', 'open', 'making', 'returned'].indexOf(order.Status) < 0) {
+      throw new Error('CATALOG_CHANGED: 這個案件目前不能指派或改派。');
+    }
+    if (!ctx.source) throw new Error('CATALOG_SERVICE_MATERIAL_PENDING: 人選已登記，素材通過審核後才能確認分工。');
+    var owner = catalogServiceResolveOwner_(tables, auth, ctx.group, String(payload.ownerId || ''));
+    Object.assign(order, catalogServiceInstructions_(payload), { Owner_ID: owner, Source_ID: ctx.source.Submission_ID,
+      Status: owner ? (order.Status === 'returned' ? 'returned' : 'making') : 'open' });
+  } else if (operation === 'cancel') {
+    if (!catalogServiceActive_(order) || payload.confirm !== true) throw new Error('請確認要取消未結案的代做案件。');
+    order.Status = 'cancelled';
+  } else if (operation === 'review') {
+    var result = ctx.results[0];
+    if (order.Status !== 'review' || !result || result.Status !== 'pending' || result.Result_ID !== payload.resultId) {
+      throw new Error('CATALOG_CHANGED: 請重新開啟並確認最新成果。');
+    }
+    if (result.Owner_ID === actor.User_ID) throw new Error('FORBIDDEN: 不能審核自己提交的成果。');
+    var note = String(payload.note || '').trim();
+    var decision = payload.decision;
+    if (['approved', 'returned'].indexOf(decision) < 0 || note.length > 1000 || (decision === 'returned' && !note)) {
+      throw new Error('退回成果時請填寫修正原因（最多 1,000 字）。');
+    }
+    Object.assign(result, { Status: decision, Review_Note: note, Reviewed_By: actor.User_ID, Reviewed_At: new Date().toISOString() });
+    order.Status = decision === 'approved' ? 'completed' : 'returned';
+    resultChanged = true;
+  } else throw new Error('不支援此代做操作。');
+  Object.assign(order, { Revision: order.Revision + 1, Last_Request_ID: requestId, Last_Actor_ID: actor.User_ID, Last_Action: operation });
+  writeCatalogServiceOrder_(tables, ctx, auth.users, resultChanged);
+  return catalogServiceOrderReceipt_(order);
 }
 
 function handleCatalogSaveGroup_(payload) {
@@ -10548,8 +10815,10 @@ function handleCatalogSaveItem_(payload) {
   var next = { Item_ID: id, Title: title, Requirements: requirements, Format: format, Due_At: due,
     Verify_Email: existing ? existing.Verify_Email : payload.verifyEmail !== false,
     Revision: existing ? existing.Revision + 1 : 1, Created_At: existing ? existing.Created_At : new Date().toISOString(),
-    Text_Fields: textFields.length ? textFields : null };
-  if (existing && !configChanged && ['Title', 'Requirements', 'Due_At'].every(function(key) { return existing[key] === next[key]; })) {
+    Text_Fields: textFields.length ? textFields : null,
+    Allow_Service_Request: payload.allowServiceRequest === undefined ? existing?.Allow_Service_Request === true : payload.allowServiceRequest === true };
+  if (existing && !configChanged && ['Title', 'Requirements', 'Due_At'].every(function(key) { return existing[key] === next[key]; })
+    && (existing.Allow_Service_Request === true) === next.Allow_Service_Request) {
     return { item: catalogItemView_(existing, fieldsLocked) };
   }
   catalogAssertRevision_(existing, payload.revision);
@@ -10560,12 +10829,15 @@ function handleCatalogSaveItem_(payload) {
 function handleCatalogSetItemDeleted_(payload) {
   requireCatalogStaff_(payload, true);
   if (payload.confirm !== true || typeof payload.deleted !== 'boolean') throw new Error('請先確認刪除或復原。');
-  var tables = readCatalogTables_(['Catalog_Items', 'Catalog_Targets'], true);
+  var tables = readCatalogTables_(['Catalog_Items', 'Catalog_Targets', 'Catalog_Service_Orders'], true);
   var item = catalogFind_(tables.Catalog_Items, 'Item_ID', payload.itemId);
   if (!item) throw new Error('CATALOG_CHANGED: 找不到這個收件項目，請重新載入。');
   if (Boolean(item.Deleted_At) === payload.deleted) return { itemId: item.Item_ID, deleted: payload.deleted };
 
   catalogAssertRevision_(item, payload.revision);
+  if (payload.deleted && catalogServiceOrdersForItem_(tables, item.Item_ID).some(catalogServiceActive_)) {
+    throw new Error('CATALOG_SERVICE_ACTIVE: 仍有未結案的代做，請先完成或取消案件再刪除收件項目。');
+  }
   item.Deleted_At = payload.deleted ? new Date().toISOString() : '';
   item.Revision += 1;
   var writes = { Catalog_Items: tables.Catalog_Items };
@@ -10588,7 +10860,7 @@ function handleCatalogPurgeItem_(payload) {
   if (typeof id !== 'string' || !id || id.length > 120 || !Number.isSafeInteger(revision) || revision < 1) {
     throw new Error('CATALOG_CHANGED: 找不到這筆刪除設定，請重新整理。');
   }
-  var names = ['Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions', 'Catalog_Purged_Items'];
+  var names = ['Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions', 'Catalog_Purged_Items', 'Catalog_Service_Orders', 'Catalog_Service_Files'];
   var tables = readCatalogTables_(names, true);
   var item = catalogFind_(tables.Catalog_Items, 'Item_ID', id);
   var previous = catalogFind_(tables.Catalog_Purged_Items, 'Item_ID', id);
@@ -10600,6 +10872,9 @@ function handleCatalogPurgeItem_(payload) {
   }
   if (!item || !item.Deleted_At || previous) throw new Error('CATALOG_CHANGED: 只能永久刪除「已刪除項目」中的項目，請重新確認。');
   catalogAssertRevision_(item, revision);
+  if (catalogServiceBlocksPurge_(tables, id)) {
+    throw new Error('CATALOG_SERVICE_ACTIVE: 此項目保有代做成果或紀錄，不能永久刪除原始素材。');
+  }
   var removedTargets = new Map(tables.Catalog_Targets.filter(function(target) { return target.Item_ID === id; })
     .map(function(target) { return [target.Target_ID, target.Group_ID]; }));
   var submissions = tables.Catalog_Submissions.filter(function(row) { return !removedTargets.has(row.Target_ID); });
@@ -10610,6 +10885,7 @@ function handleCatalogPurgeItem_(payload) {
     Catalog_Items: tables.Catalog_Items.filter(function(row) { return row.Item_ID !== id; }),
     Catalog_Targets: tables.Catalog_Targets.filter(function(target) { return target.Item_ID !== id; }),
     Catalog_Submissions: submissions,
+    Catalog_Service_Orders: tables.Catalog_Service_Orders.filter(function(order) { return !removedTargets.has(order.Target_ID); }),
     Catalog_Purged_Items: tables.Catalog_Purged_Items.concat([receipt])
   });
   var saved = readCatalogTables_(names, false);
@@ -10884,7 +11160,10 @@ function getCatalogPreviewRecord_(payload) {
 
 function handleCatalogDownload_(payload) {
   var row = getCatalogPreviewRecord_(payload);
-  var start = payload.offset;
+  return readCatalogFileChunk_(row, row.Submission_ID, payload.offset);
+}
+
+function readCatalogFileChunk_(row, recordId, start) {
   var total = Number(row.File_Size);
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(row.Drive_File_ID || '') || !Number.isSafeInteger(total) ||
     total < 1 || total > CATALOG_FILE_LIMIT || !Number.isSafeInteger(start) || start < 0 || start >= total) {
@@ -10905,7 +11184,20 @@ function handleCatalogDownload_(payload) {
   }
   var bytes = response.getContent();
   if (bytes.length !== end - start + 1) throw new Error('附件下載中斷，請重新下載。');
-  return { recordId: row.Submission_ID, offset: start, nextByte: end + 1, total: total, contentBase64: Utilities.base64Encode(bytes) };
+  return { recordId: recordId, offset: start, nextByte: end + 1, total: total, contentBase64: Utilities.base64Encode(bytes) };
+}
+
+function handleCatalogServiceDownload_(payload) {
+  var auth = requireCatalogStaff_(payload);
+  var tables = readCatalogTables_(catalogServiceContextTables_());
+  var ctx = catalogServiceContext_(tables, catalogFind_(tables.Catalog_Service_Orders, 'Order_ID', payload.orderId));
+  if (!ctx || (!catalogServiceIsManager_(ctx, auth.actor) && !catalogServiceIsOwner_(ctx, auth.actor))) {
+    throw new Error('FORBIDDEN: 只有負責人與管理者可以下載此案附件。');
+  }
+  var record = payload.kind === 'material' && ctx.source && ctx.source.Submission_ID === payload.recordId ? ctx.source
+    : payload.kind === 'result' ? catalogFind_(ctx.results, 'Result_ID', payload.recordId) : null;
+  if (!record) throw new Error('找不到此案指定的素材或成果。');
+  return readCatalogFileChunk_(record, payload.recordId, payload.offset);
 }
 
 function readCatalogGuestContext_(identity, includeVersions) {
@@ -10963,6 +11255,29 @@ function catalogGuestWindow_(context) {
   return { dueAt: dueAt, canSubmit: canSubmit, latest: latest || null };
 }
 
+function catalogGuestCanRequestService_(context, window) {
+  return context.item.Allow_Service_Request === true &&
+    (window.canSubmit || ['pending', 'approved'].indexOf(window.latest?.Status) >= 0);
+}
+
+function catalogGuestCanChooseService_(context, window) {
+  var status = context.target.Service_Public?.status;
+  return (!status || status === 'cancelled') && catalogGuestCanRequestService_(context, window);
+}
+
+function catalogGuestServiceCandidates_(context) {
+  var users = loadResumableUploadAuthState_().Users;
+  var settings = readCatalogTables_(['Design_Service_Settings']).Design_Service_Settings;
+  return catalogServiceEligibleUsers_(users, settings, context.group);
+}
+
+function catalogAssertInitialServiceChoice_(context) {
+  var window = catalogGuestWindow_(context);
+  if (!window.latest && catalogGuestCanChooseService_(context, window) && catalogGuestServiceCandidates_(context).length) {
+    throw new Error('CATALOG_SERVICE_SELECTION_REQUIRED: 請先回到收件首頁選擇排版組員，再繼續繳交。');
+  }
+}
+
 function catalogGuestView_(context, verified) {
   var basic = {
     title: context.item.Title,
@@ -10973,6 +11288,11 @@ function catalogGuestView_(context, verified) {
   if (!verified) return basic;
   var window = catalogGuestWindow_(context);
   var latest = window.latest;
+  var service = context.target.Service_Public;
+  var choosing = catalogGuestCanChooseService_(context, window);
+  var candidates = choosing ? catalogGuestServiceCandidates_(context).map(function(user) {
+    return { id: user.User_ID, name: user.Name };
+  }) : [];
   return Object.assign(basic, {
     project: catalogGroupDisplayName_(context.group),
     members: [context.group.Leader_Name, context.group.Member_Name].map(function(name) { return String(name || '').trim(); }).filter(Boolean),
@@ -10982,6 +11302,10 @@ function catalogGuestView_(context, verified) {
     dueAt: window.dueAt,
     canSubmit: window.canSubmit,
     maxFileBytes: CATALOG_FILE_LIMIT,
+    service: service?.visible === true ? { status: service.status, name: service.name } : null,
+    serviceCandidates: candidates,
+    serviceSelectionRequired: choosing && !latest && candidates.length > 0,
+    serviceSelectionUnavailable: choosing && !latest && candidates.length === 0,
     latest: latest ? { version: latest.Version, status: latest.Status,
       submittedAt: latest.Submitted_At, note: latest.Review_Note } : null
   });
@@ -11131,6 +11455,7 @@ function commitCatalogGuestSubmission_(context, identity, draft) {
     return catalogReceipt_(context, prior);
   }
   catalogAssertCanSubmit_(context, draft.expectedVersion);
+  catalogAssertInitialServiceChoice_(context);
   var submission = {
     Submission_ID: 'PCS_' + catalogIdPart_(), Target_ID: identity.targetId, Request_ID: draft.requestId,
     Link_Key: identity.linkKey, Input_Hash: draft.inputHash, Version: draft.expectedVersion + 1, Text_Content: draft.text,
@@ -11145,6 +11470,10 @@ function commitCatalogGuestSubmission_(context, identity, draft) {
 }
 
 function getCatalogUploadFolder_(context) {
+  return getPrivateCatalogFolder_(['專刊收件', context.item.Item_ID, context.group.Group_ID]);
+}
+
+function getPrivateCatalogFolder_(segments) {
   var folder = DriveApp.getFolderById(getConfig_().driveRootFolderId);
   function assertPrivate(candidate) {
     if (candidate.getSharingAccess() !== DriveApp.Access.PRIVATE) {
@@ -11152,7 +11481,7 @@ function getCatalogUploadFolder_(context) {
     }
   }
   assertPrivate(folder);
-  ['專刊收件', context.item.Item_ID, context.group.Group_ID].forEach(function(name) {
+  segments.forEach(function(name) {
     folder = getOrCreateFolder_(folder, name);
     assertPrivate(folder);
   });
@@ -11206,6 +11535,7 @@ function handleCatalogGuestBegin_(payload) {
   catalogAssertCanSubmit_(context, payload.expectedVersion);
   var draft = Object.assign({}, values, { requestId: requestId, inputHash: inputHash, expectedVersion: payload.expectedVersion });
   if (!draft.fileSize) return commitCatalogGuestSubmission_(context, identity, draft);
+  catalogAssertInitialServiceChoice_(context);
   var key = catalogUploadKey_(identity, requestId);
   var previous = catalogCacheRead_(key);
   var nextByte = 0;
@@ -11239,6 +11569,16 @@ function handleCatalogGuestChunk_(payload) {
   var draft = catalogCacheRead_(key);
   if (!draft) throw new Error('CATALOG_UPLOAD_RESTART: 上傳已中斷，請再次送出以重新上傳。');
   catalogAssertCanSubmit_(context, draft.expectedVersion);
+  var transfer = receiveCatalogFileChunk_(payload, key, draft);
+  if (transfer) return transfer;
+  return withLock_(function() {
+    var latest = readCatalogGuestContext_(identity, true);
+    requireCatalogGuestGrant_(latest, payload);
+    return commitCatalogGuestSubmission_(latest, identity, draft);
+  });
+}
+
+function receiveCatalogFileChunk_(payload, key, draft) {
   if (!draft.driveFileId) {
     var start = payload.start;
     var end = payload.end;
@@ -11261,10 +11601,91 @@ function handleCatalogGuestChunk_(payload) {
       return { status: 'uploading', nextByte: nextByte };
     }
   }
+  return null;
+}
+
+function requireCatalogServiceUpload_(payload, initialize) {
+  var auth = requireCatalogStaff_(payload);
+  var tables = readCatalogTables_(catalogServiceContextTables_(), initialize);
+  var ctx = catalogServiceContext_(tables, catalogFind_(tables.Catalog_Service_Orders, 'Order_ID', payload.orderId));
+  if (!ctx || !catalogServiceIsOwner_(ctx, auth.actor)) throw new Error('FORBIDDEN: 只有案件負責人可以上傳成果。');
+  var requestId = catalogRequestId_(payload);
+  var resultId = 'PCR_' + requestId;
+  var existing = catalogFind_(tables.Catalog_Service_Files, 'Result_ID', resultId);
+  if (existing && (existing.Order_ID !== ctx.order.Order_ID || existing.Owner_ID !== auth.actor.User_ID)) {
+    throw new Error('CATALOG_CHANGED: 這個上傳識別碼已使用，請重新選檔。');
+  }
+  return { ctx: ctx, auth: auth, tables: tables, existing: existing, resultId: resultId,
+    key: 'CatalogServiceUpload:' + ctx.order.Order_ID + ':' + auth.actor.User_ID + ':' + requestId };
+}
+
+function catalogServiceAssertUpload_(ctx, revision) {
+  catalogAssertRevision_(ctx.order, revision);
+  if (['making', 'returned'].indexOf(ctx.order.Status) < 0) throw new Error('CATALOG_CHANGED: 這個案件目前不能上傳成果。');
+}
+
+function catalogServiceUploadReceipt_(row) {
+  return { status: 'received', resultId: row.Result_ID, version: row.Version };
+}
+
+function commitCatalogServiceUpload_(state, draft) {
+  if (state.existing) return catalogServiceUploadReceipt_(state.existing);
+  var ctx = state.ctx;
+  catalogServiceAssertUpload_(ctx, draft.revision);
+  if (!draft.driveFileId) throw new Error('CATALOG_UPLOAD_RETRY: 成果檔案尚未確認。');
+  var result = { Result_ID: state.resultId, Order_ID: ctx.order.Order_ID, Version: (ctx.results[0]?.Version || 0) + 1,
+    Owner_ID: state.auth.actor.User_ID, File_Name: draft.fileName, File_Size: draft.fileSize,
+    Drive_File_ID: draft.driveFileId, Submitted_At: new Date().toISOString(), Status: 'pending' };
+  state.tables.Catalog_Service_Files.push(result);
+  Object.assign(ctx.order, { Status: 'review', Revision: ctx.order.Revision + 1, Last_Request_ID: '', Last_Actor_ID: '', Last_Action: '' });
+  writeCatalogServiceOrder_(state.tables, ctx, state.auth.users, true);
+  CacheService.getScriptCache().remove(state.key);
+  return catalogServiceUploadReceipt_(result);
+}
+
+function handleCatalogServiceBegin_(payload) {
+  var state = requireCatalogServiceUpload_(payload, true);
+  var fileName = String(payload.fileName || '').trim();
+  var fileSize = payload.fileSize;
+  if (!fileName || fileName.length > 180 || /[\x00-\x1f\x7f]/.test(fileName) ||
+    !isSupportedUploadExtension_(parseFileMeta_(fileName).extension) ||
+    !Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > CATALOG_FILE_LIMIT) {
+    throw new Error('請選擇支援的成果檔案（上限 100 MB），多個檔案可打包成 ZIP。');
+  }
+  fileName = sanitizeDriveEntryName_(fileName, 'upload.bin');
+  if (state.existing) {
+    if (state.existing.File_Name !== fileName || state.existing.File_Size !== fileSize) throw new Error('這次上傳已確認為另一個檔案。');
+    return catalogServiceUploadReceipt_(state.existing);
+  }
+  catalogServiceAssertUpload_(state.ctx, payload.revision);
+  var draft = catalogCacheRead_(state.key);
+  var nextByte = 0;
+  if (draft) {
+    if (draft.fileName !== fileName || draft.fileSize !== fileSize || draft.revision !== payload.revision) {
+      throw new Error('CATALOG_CHANGED: 此次上傳僅供原本選擇的成果使用。');
+    }
+    if (!draft.driveFileId) nextByte = catalogApplyDriveResponse_(state.key, draft, catalogProbeUpload_(draft));
+    if (draft.driveFileId) return commitCatalogServiceUpload_(state, draft);
+  } else {
+    catalogRateLimit_('service-upload:' + state.ctx.order.Order_ID, 8, 600);
+    var folder = getPrivateCatalogFolder_(['專刊代做', state.ctx.order.Order_ID]);
+    draft = { fileName: fileName, fileSize: fileSize, revision: payload.revision, folderId: folder.getId(), mimeType: catalogMIMEType_(fileName) };
+    draft.uploadUrl = createDriveResumableSession_(state.resultId + '-' + fileName, draft.mimeType, fileSize, draft.folderId);
+    catalogCacheWrite_(state.key, draft, CATALOG_DRAFT_TTL);
+  }
+  return { status: 'uploading', nextByte: nextByte, chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES };
+}
+
+function handleCatalogServiceChunk_(payload) {
+  var state = requireCatalogServiceUpload_(payload, false);
+  if (state.existing) return catalogServiceUploadReceipt_(state.existing);
+  var draft = catalogCacheRead_(state.key);
+  if (!draft) throw new Error('CATALOG_UPLOAD_RESTART: 上傳已中斷，請再次送審以重新上傳。');
+  catalogServiceAssertUpload_(state.ctx, draft.revision);
+  var transfer = receiveCatalogFileChunk_(payload, state.key, draft);
+  if (transfer) return transfer;
   return withLock_(function() {
-    var latest = readCatalogGuestContext_(identity, true);
-    requireCatalogGuestGrant_(latest, payload);
-    return commitCatalogGuestSubmission_(latest, identity, draft);
+    return commitCatalogServiceUpload_(requireCatalogServiceUpload_(payload, false), draft);
   });
 }
 

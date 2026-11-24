@@ -35,7 +35,8 @@ async function startCatalogServer() {
 function fakeWorkspace() {
   const seed = fixture();
   seed.Users.push({ User_ID: 'U05', Name: '收件組員', Email: 'reviewer@example.invalid', Team_ID: 'T00', Role: 'Admin', Status: 'Active' });
-  const data = { Catalog_Roster: [], Catalog_Items: [], Catalog_Targets: [], Catalog_Submissions: [], Catalog_Purged_Items: [], Teams: seed.Teams };
+  const data = { Catalog_Roster: [], Catalog_Items: [], Catalog_Targets: [], Catalog_Submissions: [], Catalog_Purged_Items: [],
+    Catalog_Service_Orders: [], Catalog_Service_Files: [], Teams: seed.Teams, Design_Service_Settings: seed.Design_Service_Settings };
   const props = new Map(), cache = new Map(), uploads = new Map(), files = new Map(), mail = [];
   const result = { data, props, cache, uploads, files, mail, reads: 0, cloudWrites: 0, ranges: [], probeCalls: 0, clock: Date.now() };
   class Clock extends Date {
@@ -637,7 +638,7 @@ test('private files are not accepted via forged IDs, and revocation is checked a
 test('older catalog tables can be read without the new trailing columns', () => {
   const { c } = fakeWorkspace();
   const names = ['Catalog_Items', 'Catalog_Submissions'];
-  const itemHeader = Array.from(c.TABLE_SCHEMAS.Catalog_Items.headers).slice(0, -2);
+  const itemHeader = Array.from(c.TABLE_SCHEMAS.Catalog_Items.headers).slice(0, -3);
   const submissionHeader = Array.from(c.TABLE_SCHEMAS.Catalog_Submissions.headers).slice(0, -1);
   const values = [
     { values: [itemHeader, ['old-item', '舊項目', '原有規格', 'text', '', false, 1, '']] },
@@ -650,6 +651,7 @@ test('older catalog tables can be read without the new trailing columns', () => 
   const tables = c.readFreshWorkspaceTables_(c.getConfig_(), names);
   assert.equal(tables.Catalog_Items[0].Text_Fields, null);
   assert.equal(tables.Catalog_Items[0].Deleted_At, '');
+  assert.equal(tables.Catalog_Items[0].Allow_Service_Request, false);
   assert.equal(tables.Catalog_Submissions[0].Text_Content, '原有文字');
   assert.equal(tables.Catalog_Submissions[0].Text_Answers, null);
   values[0].values[1][itemHeader.length] = 'unexpected data without a header';
@@ -657,6 +659,264 @@ test('older catalog tables can be read without the new trailing columns', () => 
   itemHeader.push('Text_Fields');
   values[0].values[1][8] = JSON.stringify([{ label: '作品介紹' }]);
   assert.equal(c.readFreshWorkspaceTables_(c.getConfig_(), names).Catalog_Items[0].Text_Fields[0].label, '作品介紹');
+});
+
+function createServiceIntake(f, number = '18', { verifyEmail = false, allow = false, legacy = '', format = 'text' } = {}) {
+  f.data.Design_Service_Settings[0] = { Settings_ID: 'SERVICE_DEFAULT', Enabled: false, Eligible_User_IDs: ['U02', 'U04', 'U05'] };
+  const item = f.staff('catalogSaveItem', { requestId: requestId(), title: '專刊圖文', requirements: '請依規格繳交。',
+    dueAt: taipeiDue(f.clock + day), format, verifyEmail, allowServiceRequest: allow }).item;
+  const target = f.assign(item, f.addGroup(number, legacy));
+  const linkToken = f.share(target);
+  let guestGrant = '';
+  if (verifyEmail) {
+    f.call('catalogGuestSendCode', { linkToken });
+    const code = f.mail.at(-1).text.match(/驗證碼：(\d{6})/)[1];
+    guestGrant = f.call('catalogGuestVerify', { linkToken, code }).guestGrant;
+  }
+  return { item, target, guest: { linkToken, guestGrant } };
+}
+
+function submitServiceMaterial(f, intake, expectedVersion = 0) {
+  const request = { ...intake.guest, requestId: requestId(), expectedVersion };
+  if (intake.item.format === 'file') {
+    assert.equal(f.call('catalogGuestBegin', { ...request, fileName: 'source.zip', fileSize: 3 }).status, 'uploading');
+    f.call('catalogGuestChunk', { ...request, start: 0, end: 2, base64: 'WklQ' });
+  } else f.call('catalogGuestBegin', { ...request, text: '只能由本案負責人讀取的原稿' });
+  return f.data.Catalog_Submissions.at(-1);
+}
+
+function approvedServiceSource(f, number, options) {
+  const intake = createServiceIntake(f, number, options);
+  const source = submitServiceMaterial(f, intake);
+  f.staff('catalogReview', { targetId: intake.target.id, submissionId: source.Submission_ID, decision: 'approved' }, 'U05');
+  return { ...intake, source: clone(f.data.Catalog_Submissions.at(-1)) };
+}
+
+test('a verified group chooses a layout member before submitting; the manager then assigns approved material', () => {
+  const f = fakeWorkspace();
+  const a = createServiceIntake(f, '18', { verifyEmail: true, legacy: 'T02', allow: true });
+  assert.equal(f.call('catalogGuestDescribe', { linkToken: a.guest.linkToken }).serviceCandidates, undefined);
+  const first = f.call('catalogGuestDescribe', a.guest);
+  assert.equal(first.latest, null);
+  assert.equal(first.serviceSelectionRequired, true);
+  assert.deepEqual(first.serviceCandidates, [{ id: 'U05', name: '收件組員' }]);
+  assert.throws(() => submitServiceMaterial(f, a), /CATALOG_SERVICE_SELECTION_REQUIRED/);
+  const payload = { ...a.guest, memberId: 'U05', requestId: requestId() };
+  assert.throws(() => f.call('catalogGuestRequestService', { ...payload, guestGrant: '' }), /VERIFY_REQUIRED/);
+  assert.throws(() => f.call('catalogGuestRequestService', { ...payload, memberId: 'U04' }), /CATALOG_SERVICE_INPUT/);
+  assert.throws(() => f.call('catalogGuestRequestService', { ...payload, memberId: 'U02' }), /CATALOG_SERVICE_INPUT/);
+  f.writeFailure = 'after';
+  assert.throws(() => f.call('catalogGuestRequestService', payload), /CATALOG_UNAVAILABLE/);
+  const receipt = f.call('catalogGuestRequestService', payload).intake;
+  assert.deepEqual(receipt.service, { status: 'requested', name: '收件組員' });
+  assert.deepEqual(receipt.serviceCandidates, []);
+  assert.equal(receipt.serviceSelectionRequired, false);
+  assert.equal(f.data.Catalog_Service_Orders.length, 1);
+  assert.equal(f.staff('catalogBoard', {}, 'U05').service.cases.length, 0);
+  const [order] = f.staff('catalogBoard').service.cases;
+  assert.equal(order.ownerId, '');
+  assert.equal(order.requestedId, 'U05');
+  assert.equal(order.canAssign, false);
+  assert.equal(order.material, null);
+  assert.throws(() => f.call('catalogGuestRequestService', { ...payload, requestId: requestId() }), /CATALOG_CHANGED/);
+  const assign = { operation: 'assign', orderId: order.id, revision: order.revision, requestId: requestId(),
+    ownerId: 'U05', dueAt: taipeiDue(f.clock + day), brief: '不對外公開的排版備註' };
+  assert.throws(() => f.staff('catalogServiceChange', assign, 'U05'), /FORBIDDEN/);
+  assert.throws(() => f.staff('catalogServiceChange', assign), /CATALOG_SERVICE_MATERIAL_PENDING/);
+  const initialSource = submitServiceMaterial(f, a);
+  assert.throws(() => f.staff('catalogServiceChange', assign), /CATALOG_SERVICE_MATERIAL_PENDING/);
+  f.staff('catalogReview', { targetId: a.target.id, submissionId: initialSource.Submission_ID,
+    decision: 'returned', note: '請補充素材', correctionDays: 7 }, 'U05');
+  assert.deepEqual(f.call('catalogGuestDescribe', a.guest).service, receipt.service);
+  const corrected = submitServiceMaterial(f, a, 1);
+  f.staff('catalogReview', { targetId: a.target.id, submissionId: corrected.Submission_ID, decision: 'approved' }, 'U05');
+  assert.equal(f.staff('catalogBoard').service.cases[0].canAssign, true);
+  assert.equal(f.staff('catalogServiceChange', assign).status, 'making');
+  assert.deepEqual(f.staff('catalogServiceChange', assign), f.staff('catalogServiceChange', assign));
+  const updated = f.call('catalogGuestDescribe', a.guest);
+  assert.deepEqual(updated.service, { status: 'making', name: '收件組員' });
+  assert.doesNotMatch(JSON.stringify(updated), /不對外|PCGSR_|Drive_File|ownerId/);
+  assert.equal(f.staff('catalogBoard', {}, 'U05').service.cases[0].material.id, corrected.Submission_ID);
+  assert.equal(f.data.Catalog_Service_Orders[0].Source_ID, corrected.Submission_ID);
+  assert.doesNotMatch(JSON.stringify(f.staff('bootstrap', {}, 'U05')), /不對外公開的排版備註/);
+});
+
+test('layout choice never blocks submission when no eligible member is available, and is offered to in-flight groups', () => {
+  const f = fakeWorkspace();
+  const intake = createServiceIntake(f, '18', { allow: true, format: 'file' });
+  assert.throws(() => submitServiceMaterial(f, intake), /CATALOG_SERVICE_SELECTION_REQUIRED/);
+  assert.equal(f.uploads.size, 0, 'no file is written before the first choice');
+  f.data.Design_Service_Settings[0].Eligible_User_IDs = [];
+  const empty = f.call('catalogGuestDescribe', intake.guest);
+  assert.equal(empty.serviceSelectionRequired, false);
+  assert.equal(empty.serviceSelectionUnavailable, true);
+  assert.equal(submitServiceMaterial(f, intake).Status, 'pending');
+  f.data.Design_Service_Settings[0].Eligible_User_IDs = ['U05'];
+  const pending = f.call('catalogGuestDescribe', intake.guest);
+  assert.equal(pending.serviceSelectionRequired, false);
+  assert.equal(pending.serviceCandidates.length, 1);
+  assert.equal(f.call('catalogGuestRequestService', { ...intake.guest, memberId: 'U05', requestId: requestId() }).intake.service.status, 'requested');
+});
+
+test('catalog layout uploads keep original and result versions separate and protect their history', () => {
+  const f = fakeWorkspace();
+  const a = approvedServiceSource(f, '16', { allow: false, format: 'file' });
+  assert.throws(() => f.call('catalogGuestRequestService', { ...a.guest, memberId: 'U05', requestId: requestId() }), /CATALOG_CLOSED/);
+  const create = { targetId: a.target.id, sourceId: a.source.Submission_ID, requestId: requestId(),
+    dueAt: taipeiDue(f.clock + day), brief: '內部製作需求' };
+  assert.throws(() => f.staff('catalogServiceCreate', create, 'U05'), /FORBIDDEN/);
+  const open = f.staff('catalogServiceCreate', create);
+  assert.deepEqual(f.staff('catalogServiceCreate', create), open);
+  assert.throws(() => f.staff('catalogServiceCreate', { ...create, requestId: requestId() }), /CATALOG_CHANGED/);
+  assert.equal(f.call('catalogGuestDescribe', a.guest).service, null);
+  const available = f.staff('catalogBoard', {}, 'U05').service.cases[0];
+  assert.equal(available.canClaim, true);
+  assert.equal(available.material, undefined, 'claimable listing does not include original material');
+  const dl = { orderId: open.orderId, kind: 'material', recordId: a.source.Submission_ID, offset: 0 };
+  assert.throws(() => f.staff('catalogServiceDownload', dl, 'U05'), /FORBIDDEN/);
+  const change = { operation: 'claim', orderId: open.orderId, revision: open.revision, requestId: requestId() };
+  const making = f.staff('catalogServiceChange', change, 'U05');
+  assert.throws(() => f.staff('catalogServiceChange', { ...change, requestId: requestId() }, 'U04'), /CATALOG_CHANGED/);
+  assert.equal(f.staff('catalogServiceDownload', dl, 'U05').total, 3);
+  const deletion = { itemId: a.item.id, revision: a.item.revision, deleted: true, confirm: true };
+  assert.throws(() => f.staff('catalogSetItemDeleted', deletion), /CATALOG_SERVICE_ACTIVE/);
+  const file = { orderId: open.orderId, revision: making.revision, requestId: requestId(), fileName: 'layout.pdf', fileSize: 3 };
+  const chunk = { orderId: file.orderId, requestId: file.requestId, start: 0, end: 2, base64: 'UERG' };
+  assert.throws(() => f.staff('catalogServiceBegin', file, 'U04'), /FORBIDDEN/);
+  assert.equal(f.staff('catalogServiceBegin', file, 'U05').status, 'uploading');
+  f.writeFailure = 'after';
+  assert.throws(() => f.staff('catalogServiceChunk', chunk, 'U05'), /TEST_RESPONSE_LOST/);
+  const first = f.staff('catalogServiceBegin', file, 'U05');
+  assert.equal(first.version, 1);
+  const reviewing = () => f.staff('catalogBoard').service.cases[0];
+  const review = { operation: 'review', orderId: open.orderId, revision: reviewing().revision, resultId: first.resultId, requestId: requestId(), decision: 'returned' };
+  assert.throws(() => f.staff('catalogServiceChange', review), /原因/);
+  assert.throws(() => f.staff('catalogServiceChange', { ...review, note: '版面修正' }, 'U05'), /FORBIDDEN/);
+  const returned = f.staff('catalogServiceChange', { ...review, note: '版面修正' });
+  const correction = { ...file, revision: returned.revision, requestId: requestId() };
+  f.staff('catalogServiceBegin', correction, 'U05');
+  const second = f.staff('catalogServiceChunk', { ...chunk, requestId: correction.requestId }, 'U05');
+  assert.equal(second.version, 2);
+  const pass = { ...review, revision: reviewing().revision, requestId: requestId(), decision: 'approved' };
+  assert.throws(() => f.staff('catalogServiceChange', pass), /CATALOG_CHANGED/);
+  assert.equal(f.staff('catalogServiceChange', { ...pass, resultId: second.resultId }).status, 'completed');
+  assert.deepEqual(reviewing().results.map(row => row.status), ['approved', 'returned']);
+  assert.deepEqual(f.data.Catalog_Submissions, [a.source]);
+  assert.equal(f.seed.Design_Service_Orders.length, 0);
+  assert.equal(f.staff('catalogSetItemDeleted', deletion).deleted, true);
+  const [deleted] = f.staff('catalogBoard').deletedItems;
+  assert.equal(deleted.hasServiceHistory, true);
+  assert.throws(() => f.staff('catalogPurgeItem', { itemId: deleted.id, revision: deleted.revision, confirmation: '永久刪除', trashAttachments: true }),
+    /CATALOG_SERVICE_ACTIVE/);
+  assert.equal(f.files.get(a.source.Drive_File_ID).trashed, undefined);
+});
+
+test('reassigning a catalog layout case during the last upload chunk does not accept the former owner result', () => {
+  const f = fakeWorkspace();
+  const a = approvedServiceSource(f);
+  const brief = { dueAt: taipeiDue(f.clock + day), brief: '代做排版' };
+  const order = f.staff('catalogServiceCreate', { ...brief, targetId: a.target.id, sourceId: a.source.Submission_ID,
+    ownerId: 'U05', requestId: requestId() });
+  const draft = { orderId: order.orderId, revision: order.revision, requestId: requestId(), fileName: 'layout.pdf', fileSize: 3 };
+  f.staff('catalogServiceBegin', draft, 'U05');
+  f.onChunk = () => f.staff('catalogServiceChange', { ...brief, orderId: order.orderId, operation: 'assign',
+    ownerId: 'U04', revision: order.revision, requestId: requestId() });
+  assert.throws(() => f.staff('catalogServiceChunk', { ...draft, start: 0, end: 2, base64: 'UERG' }, 'U05'), /FORBIDDEN/);
+  assert.equal(f.data.Catalog_Service_Files.length, 0);
+  assert.equal(f.staff('catalogBoard', {}, 'U05').service.cases.length, 0);
+  assert.equal(f.staff('catalogBoard', {}, 'U04').service.cases[0].canUpload, true);
+  assert.deepEqual(f.data.Catalog_Submissions, [a.source]);
+});
+
+test('the private page requires the layout choice first, then guest submits and staff reviews the result', { timeout: 60000 }, async () => {
+  const f = fakeWorkspace();
+  const source = createServiceIntake(f, '17');
+  const { server, url } = await startCatalogServer();
+  let browser;
+  const errors = [];
+  try {
+    browser = await chromium.launch({ executablePath: chromePath, headless: true });
+    async function makePage(user) {
+      const context = await browser.newContext({ viewport: user ? { width: 1320, height: 940 } : { width: 360, height: 760 } });
+      await context.route(/https:\/\/script\.(google|googleusercontent)\.com\//, async route => {
+        const req = route.request();
+        const payload = req.method() === 'POST' ? JSON.parse(req.postData()) : Object.fromEntries(new URL(req.url()).searchParams);
+        if (!user) {
+          assert.match(payload.action, /^catalogGuest/);
+          assert.equal(payload.sessionToken, undefined);
+        }
+        const response = req.method() === 'POST' ? f.dispatch(payload) : f.c.doGet({ parameter: payload });
+        await route.fulfill({ contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(response) });
+      });
+      const page = await context.newPage();
+      page.on('pageerror', error => errors.push(error.message));
+      page.setDefaultTimeout(10000);
+      if (user) {
+        const profile = clone(f.seed.Users.find(row => row.User_ID === user));
+        delete profile.Password;
+        await page.addInitScript(({ profile, token }) => localStorage.setItem('shapeprint_auth_session_v1',
+          JSON.stringify({ userId: profile.User_ID, profile, workspace: 'admin', sessionToken: token })), { profile, token: f.tokens[user] });
+        await page.goto(url);
+        await page.locator('#navigation-list').getByRole('button', { name: '專刊收件', exact: true }).click();
+      } else await page.goto(url + '/catalog-upload.html#' + source.guest.linkToken);
+      return page;
+    }
+    const guest = await makePage();
+    await guest.getByRole('heading', { name: '這次要交什麼？' }).waitFor();
+    assert.equal(await guest.locator('#service-panel').isVisible(), false);
+    const manager = await makePage('U01');
+    const nav = page => page.getByRole('navigation', { name: '專刊功能' });
+    await nav(manager).getByRole('button', { name: '收件項目', exact: true }).click();
+    await manager.getByRole('button', { name: '編輯', exact: true }).click();
+    const editor = manager.locator('#catalog-editor');
+    await editor.locator('[data-catalog-item-section="service"] summary').click();
+    await editor.getByRole('checkbox', { name: /允許小組/ }).check();
+    await editor.getByRole('button', { name: '儲存', exact: true }).click();
+    await manager.getByText('收件項目已儲存。', { exact: true }).waitFor();
+    await guest.getByRole('button', { name: '更新狀態' }).click();
+    await guest.getByRole('heading', { name: '先選擇排版組員' }).waitFor();
+    assert.equal(await guest.getByRole('button', { name: '開始填寫' }).isVisible(), false);
+    await guest.getByLabel('希望的排版組員').selectOption({ label: '收件組員' });
+    assert.equal(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await guest.getByRole('button', { name: '確認人選' }).click();
+    await guest.getByText('已登記人選，待組長確認｜收件組員', { exact: true }).waitFor();
+    assert.equal(await guest.getByLabel('希望的排版組員').isVisible(), false);
+    await nav(manager).getByRole('button', { name: '專刊代做', exact: true }).click();
+    await manager.getByText('素材：待上傳・通過審核後可確認人選。', { exact: true }).waitFor();
+    assert.equal(await manager.getByRole('button', { name: '確認人選', exact: true }).isVisible(), false);
+    await guest.getByRole('button', { name: '開始填寫' }).click();
+    await guest.locator('#intake-text').fill('手機繳交原始素材');
+    await guest.locator('#details-form button[type="submit"]').click();
+    await guest.getByRole('button', { name: '送出給形印組' }).click();
+    await guest.locator('#receipt-label').waitFor();
+    const material = f.data.Catalog_Submissions.at(-1);
+    f.staff('catalogReview', { targetId: source.target.id, submissionId: material.Submission_ID, decision: 'approved' }, 'U05');
+    await guest.getByRole('button', { name: '查看收件狀態' }).click();
+    await guest.getByRole('heading', { name: '審核已通過' }).waitFor();
+    await manager.getByRole('button', { name: '重新整理', exact: true }).click();
+    await manager.getByRole('button', { name: '確認人選', exact: true }).click();
+    await editor.getByLabel('製作說明').fill('內部排版規格');
+    await editor.getByRole('button', { name: '確認分工', exact: true }).click();
+    await manager.getByText('代做：製作中', { exact: true }).waitFor();
+    const member = await makePage('U05');
+    await nav(member).getByRole('button', { name: '專刊代做', exact: true }).click();
+    await member.getByRole('button', { name: '上傳成果', exact: true }).click();
+    const upload = member.locator('#catalog-editor');
+    await upload.getByLabel('選擇成果檔案').setInputFiles({ name: 'layout.pdf', mimeType: 'application/pdf', buffer: Buffer.from('PDF') });
+    await upload.getByRole('button', { name: '上傳並送審' }).click();
+    await member.getByText('成果已上傳並送審。', { exact: true }).waitFor();
+    await manager.getByRole('button', { name: '重新整理', exact: true }).click();
+    await manager.getByRole('button', { name: '審核成果', exact: true }).click();
+    await editor.getByRole('button', { name: '通過成果', exact: true }).click();
+    await manager.getByText('代做：已完成', { exact: true }).waitFor();
+    await guest.getByRole('button', { name: '更新狀態' }).click();
+    await guest.getByText('排版已完成｜收件組員', { exact: true }).waitFor();
+    assert.equal(await guest.getByText(/layout\.pdf|內部排版規格/).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    await new Promise(resolve => server.close(resolve));
+  }
 });
 
 test('deleting and restoring an item preserves submissions, scopes links and enforces permissions and revisions', () => {
@@ -1163,7 +1423,8 @@ test('two separate guest pages complete approval and correction and resume a 50 
 
     const reviewer = await staffPage('U05');
     await reviewer.getByRole('heading', { name: '我負責的小組' }).waitFor();
-    assert.equal(await reviewer.getByRole('navigation', { name: '專刊功能' }).count(), 0);
+    assert.equal(await reviewer.getByRole('navigation', { name: '專刊功能' }).getByRole('button', { name: '專刊代做' }).count(), 1);
+    assert.equal(await reviewer.getByRole('button', { name: '小組名冊', exact: true }).count(), 0);
     const caseFor = number => reviewer.locator('[data-catalog-case]').filter({ hasText: '第 ' + number + ' 組｜' });
     async function getLink(number) {
       const row = caseFor(number);

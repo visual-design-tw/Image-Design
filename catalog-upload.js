@@ -28,6 +28,7 @@
     };
     let model = null;
     let guestGrant = '';
+    let serviceRequest = null;
     let requestId = '';
     let expectedVersion = 0;
     let view = 'loading';
@@ -144,7 +145,9 @@
         }
         const latest = data.latest;
         const state = latest?.status === 'returned' && !data.canSubmit ? 'overdue' : latest?.status;
-        const overview = overviewStates[state] || overviewStates[data.canSubmit ? 'open' : 'closed'];
+        const overview = data.serviceSelectionRequired
+            ? { title: '先選擇排版組員', kicker: '繳交前', hint: '確認人選後，就可以開始填寫或上傳素材。' }
+            : overviewStates[state] || overviewStates[data.canSubmit ? 'open' : 'closed'];
         field('overview-heading').dataset.tone = overview.tone || '';
         field('overview-icon').hidden = !overview.icon;
         field('overview-icon').querySelector('use').setAttribute('href', '#icon-' + (overview.icon || 'note'));
@@ -157,17 +160,63 @@
         field('latest-when').textContent = latest ? '已繳交第 ' + latest.version + ' 版｜' + labelDate(latest.submittedAt) : '';
         field('latest-note').textContent = latest?.note || '';
         field('review-note').hidden = !latest?.note;
+        renderServiceRequest(data);
         field('requirements').textContent = data.requirements || '';
-        field('requirements-block').hidden = !data.requirements;
+        field('requirements-block').hidden = !data.requirements || data.serviceSelectionRequired === true;
         field('requirements-block').open = data.canSubmit;
-        field('start-intake').hidden = !data.canSubmit;
+        field('start-intake').hidden = !data.canSubmit || data.serviceSelectionRequired === true;
         field('start-intake').textContent = latest?.status === 'returned' ? '開始補件' : '開始填寫';
         renderTextFields(data);
         field('file-fields').hidden = data.format === 'text';
         field('edit-instructions').textContent = formats[data.format]?.hint || '';
-        if (keepEditing && data.canSubmit && requestId && expectedVersion === (latest?.version || 0)) {
+        if (keepEditing && data.canSubmit && !data.serviceSelectionRequired && requestId && expectedVersion === (latest?.version || 0)) {
             showConfirmation();
         } else showScreen('overview');
+    }
+
+    function renderServiceRequest(data) {
+        const candidates = Array.isArray(data.serviceCandidates) ? data.serviceCandidates : [];
+        const info = data.service;
+        const states = { requested: '已登記人選，待組長確認', open: '等待形印組接案', making: '排版製作中',
+            review: '成果審核中', returned: '排版修正中', completed: '排版已完成', cancelled: '排版案件已取消' };
+        const status = states[info?.status] || '';
+        const select = field('service-member');
+        const selected = select.value;
+        select.replaceChildren(new Option('請選擇一位組員', ''), ...candidates.map(person => new Option(person.name, person.id)));
+        select.value = candidates.some(person => person.id === selected) ? selected : '';
+        field('service-panel').hidden = !status && !candidates.length && !data.serviceSelectionUnavailable;
+        field('service-status').hidden = !status;
+        field('service-status').textContent = status + (info?.name && info.status !== 'cancelled' ? '｜' + info.name : '');
+        field('service-request-form').hidden = !candidates.length;
+        field('service-unavailable').hidden = !data.serviceSelectionUnavailable;
+        field('service-request-hint').textContent = data.serviceSelectionRequired
+            ? '人選會先登記，不用等組長回覆就能繳交。' : '選好人選後，由形印組長確認分工。';
+        field('service-confirm').textContent = data.serviceSelectionRequired ? '確認人選' : '送出排版申請';
+    }
+
+    async function sendServiceRequest(event) {
+        event.preventDefault();
+        if (busy || !model?.verified) return;
+        const memberId = field('service-member').value;
+        if (!model.serviceCandidates?.some(person => person.id === memberId)) return;
+        if (serviceRequest?.memberId !== memberId) serviceRequest = { memberId, requestId: newRequestId() };
+        lock(true);
+        announce('');
+        try {
+            const result = await query('catalogGuestRequestService', serviceRequest);
+            if (!result?.intake?.verified || !result.intake.service?.status) throw new Error('尚未確認排版申請，請更新狀態或重試。');
+            showIntake(result.intake);
+            serviceRequest = null;
+            announce(result.intake.canSubmit ? '已登記排版人選，可以開始繳交素材。' : '已登記排版人選，可回到這個連結查看進度。');
+        } catch (error) {
+            if (error.code === 'CATALOG_LINK_INVALID') showInvalid(error.message, false);
+            else if (error.code === 'CATALOG_VERIFY_REQUIRED') {
+                guestGrant = '';
+                showBrief({ title: model.title, groupNumber: model.groupNumber });
+                showScreen('verify');
+                announce('信箱驗證已過期，請再驗證一次。', true);
+            } else announce(error.message, true);
+        } finally { lock(false); }
     }
 
     async function loadIntake() {
@@ -462,11 +511,12 @@
     field('retry-load').addEventListener('click', loadIntake);
     field('request-code').addEventListener('click', requestCode);
     field('verify-form').addEventListener('submit', verifyCode);
+    field('service-request-form').addEventListener('submit', sendServiceRequest);
     field('refresh-intake').addEventListener('click', loadIntake);
     field('check-latest').addEventListener('click', loadIntake);
     field('view-current').addEventListener('click', loadIntake);
     field('start-intake').addEventListener('click', () => {
-        if (busy || !model?.canSubmit) return;
+        if (busy || !model?.canSubmit || model.serviceSelectionRequired) return;
         if (requestId && expectedVersion !== (model.latest?.version || 0)) requestId = '';
         announce('');
         showScreen('edit');
