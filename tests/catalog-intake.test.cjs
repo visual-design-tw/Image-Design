@@ -35,7 +35,7 @@ async function startCatalogServer() {
 function fakeWorkspace() {
   const seed = fixture();
   seed.Users.push({ User_ID: 'U05', Name: '收件組員', Email: 'reviewer@example.invalid', Team_ID: 'T00', Role: 'Admin', Status: 'Active' });
-  const data = { Catalog_Roster: [], Catalog_Items: [], Catalog_Targets: [], Catalog_Submissions: [], Teams: seed.Teams };
+  const data = { Catalog_Roster: [], Catalog_Items: [], Catalog_Targets: [], Catalog_Submissions: [], Catalog_Purged_Items: [], Teams: seed.Teams };
   const props = new Map(), cache = new Map(), uploads = new Map(), files = new Map(), mail = [];
   const result = { data, props, cache, uploads, files, mail, reads: 0, cloudWrites: 0, ranges: [], probeCalls: 0, clock: Date.now() };
   class Clock extends Date {
@@ -44,11 +44,16 @@ function fakeWorkspace() {
   }
   let lockDepth = 0;
   let sessions = [];
-  function privateFolder(id) {
+  const foldersById = new Map();
+  const folderIterator = list => ({ hasNext: () => list.length > 0, next: () => list.shift() });
+  function privateFolder(id, name = 'Root', parent = null) {
     const folders = new Map();
-    return { getId: () => id, getSharingAccess: () => result.publicFolder ? 'PUBLIC' : 'PRIVATE',
-      getFoldersByName: name => ({ hasNext: () => folders.has(name), next: () => folders.get(name) }),
-      createFolder: name => { const child = privateFolder(id + ':' + name); folders.set(name, child); return child; } };
+    const folder = { getId: () => id, getName: () => name, getParents: () => folderIterator(parent ? [parent] : []),
+      getSharingAccess: () => result.publicFolder ? 'PUBLIC' : 'PRIVATE',
+      getFoldersByName: childName => ({ hasNext: () => folders.has(childName), next: () => folders.get(childName) }),
+      createFolder: childName => { const child = privateFolder(id + ':' + childName, childName, folder); folders.set(childName, child); return child; } };
+    foldersById.set(id, folder);
+    return folder;
   }
   const folder = privateFolder('ROOT');
   const uw = {
@@ -71,7 +76,12 @@ function fakeWorkspace() {
     }) },
     LockService: { getScriptLock: () => ({ waitLock: () => { assert.equal(lockDepth++, 0); },
       releaseLock: () => { assert.equal(lockDepth--, 1); } }) },
-    DriveApp: { Access: { PRIVATE: 'PRIVATE' }, getFolderById: () => folder },
+    DriveApp: { Access: { PRIVATE: 'PRIVATE' }, getFolderById: () => folder, getFileById: id => {
+      const file = files.get(id);
+      assert.ok(file);
+      return { getParents: () => folderIterator(file.parents.map(id => foldersById.get(id))), isTrashed: () => Boolean(file.trashed),
+        setTrashed: trashed => { if (result.driveTrashFailure) throw Error('Mock Drive unavailable'); file.trashed = trashed; } };
+    } },
     ScriptApp: { getOAuthToken: () => 'FIXTURE_ONLY' }
   });
   vm.runInContext(code, c);
@@ -349,15 +359,41 @@ test('the fund UI supports one month at a time, manager confirmation, and a priv
     await nav(leader).click();
     await view(leader).getByRole('button', { name: '建立基金' }).click();
     const settings = view(leader).getByRole('form', { name: '基金設定' });
-    await settings.getByLabel('基金目標（NT$）').fill('2400');
-    await settings.getByLabel('每人每月應繳（NT$）').fill('200');
+    const goal = settings.getByLabel('基金目標（NT$）');
+    const monthly = settings.getByLabel('每人每月應繳（NT$）');
+    const periods = settings.getByLabel('繳款期數（月）');
+    const dualRole = settings.getByRole('checkbox', { name: 'Audit dual role' });
+    await monthly.fill('2000');
+    assert.equal(await goal.inputValue(), '6000');
+    await periods.fill('5');
+    assert.equal(await goal.inputValue(), '30000');
+    assert.equal(await dualRole.isVisible(), false);
+    await settings.locator('summary').click();
+    await dualRole.uncheck();
+    assert.equal(await goal.inputValue(), '20000');
+    await goal.fill('20003');
+    assert.equal(await monthly.inputValue(), '2001');
+    await settings.getByText('按目前設定預計收取 NT$ 20,010（每人每月進位到整元，較目標多 NT$ 7）', { exact: true }).waitFor();
+    await periods.fill('4');
+    assert.equal(await goal.inputValue(), '20003');
+    assert.equal(await monthly.inputValue(), '2501');
+    await goal.fill('');
+    assert.equal(await monthly.inputValue(), '');
+    await monthly.fill('100000000');
+    assert.equal(await goal.evaluate(input => input.validity.rangeOverflow), true);
+    await settings.getByText(/換算目標超過/).waitFor();
+    await settings.getByRole('checkbox', { name: 'Audit manager' }).uncheck();
+    await settings.getByRole('checkbox', { name: '收件組員' }).uncheck();
+    assert.equal(await goal.inputValue(), '');
+    await settings.getByText('請先選擇繳款成員。', { exact: true }).waitFor();
+    await settings.getByRole('checkbox', { name: 'Audit manager' }).check();
+    await settings.getByRole('checkbox', { name: '收件組員' }).check();
+    await dualRole.check();
+    await goal.fill('2400');
+    assert.equal(await monthly.inputValue(), '200');
     await settings.getByLabel('第一期月份').fill('2026-11');
-    await settings.getByLabel('繳款期數（月）').fill('4');
     await settings.getByLabel('管理組員').selectOption('U05');
     await settings.getByLabel('每月公告截止日').selectOption('31');
-    assert.equal(await settings.getByRole('checkbox', { name: 'Audit dual role' }).isVisible(), false);
-    await settings.locator('summary').click();
-    assert.equal(await settings.getByRole('checkbox', { name: 'Audit dual role' }).isChecked(), true);
     await settings.getByText('按目前設定預計收取 NT$ 2,400', { exact: true }).waitFor();
     await settings.getByRole('button', { name: '儲存設定' }).click();
     await view(leader).getByText('基金設定已儲存。').waitFor();
@@ -384,6 +420,11 @@ test('the fund UI supports one month at a time, manager confirmation, and a priv
     await announcement(manager).getByText('已公告', { exact: true }).waitFor();
     await view(leader).getByRole('button', { name: '重新整理', exact: true }).click();
     await view(leader).getByText('NT$ 200', { exact: true }).waitFor();
+    await view(leader).getByRole('button', { name: '基金設定', exact: true }).click();
+    assert.equal(await monthly.getAttribute('readonly'), '');
+    await goal.fill('2500');
+    assert.equal(await monthly.inputValue(), '200');
+    await settings.getByRole('button', { name: '取消', exact: true }).click();
     const member = await signIn('U04');
     await nav(member).click();
     await view(member).getByLabel('查看繳款月份').selectOption('2027-01');
@@ -652,6 +693,86 @@ test('deleting and restoring an item preserves submissions, scopes links and enf
   assert.equal(row.versions[0].text, '已提交的說明');
   assert.notEqual(f.share(row), a.linkToken);
   assert.throws(() => f.call('catalogGuestDescribe', a), /CATALOG_LINK_INVALID/);
+});
+
+test('permanent deletion only purges a recycled item and its records while preserving Drive originals and preventing replay', () => {
+  const f = fakeWorkspace(), a = f.addTarget('17', 'both'), b = f.addTarget('18');
+  const upload = { linkToken: a.linkToken, requestId: requestId(), expectedVersion: 0, fileName: 'original.zip', fileSize: 2, text: '要永久移除的文字' };
+  f.call('catalogGuestBegin', upload);
+  f.call('catalogGuestChunk', { ...upload, start: 0, end: 1, base64: 'QUI=' });
+  const submission = f.data.Catalog_Submissions[0];
+  f.staff('catalogReview', { targetId: a.target.id, submissionId: submission.Submission_ID, decision: 'approved', note: '舊審核意見' }, 'U05');
+  f.call('catalogGuestBegin', { linkToken: b.linkToken, requestId: requestId(), expectedVersion: 0, text: '另一個項目' });
+  const preserved = clone(f.data.Catalog_Submissions[1]);
+  const roster = clone(f.data.Catalog_Roster);
+  const purge = { itemId: a.item.id, revision: a.item.revision, confirmation: '永久刪除' };
+  const change = { ...purge, confirm: true, deleted: true };
+  assert.throws(() => f.call('catalogPurgeItem', purge), /AUTH_REQUIRED/);
+  assert.throws(() => f.staff('catalogPurgeItem', purge, 'U05'), /FORBIDDEN/);
+  assert.throws(() => f.staff('catalogPurgeItem', purge), /只能永久刪除/);
+  f.staff('catalogSetItemDeleted', change);
+  const [deleted] = f.staff('catalogBoard').deletedItems;
+  assert.deepEqual(deleted.purgeCounts, { targets: 1, submissions: 1, attachments: 1 });
+  assert.doesNotMatch(JSON.stringify(deleted), /要永久移除的文字|舊審核意見|fixture_file_/);
+  assert.throws(() => f.staff('catalogPurgeItem', { ...purge, revision: deleted.revision, confirmation: '確認' }), /請輸入/);
+  f.staff('catalogSetItemDeleted', { ...change, revision: deleted.revision, deleted: false });
+  assert.throws(() => f.staff('catalogPurgeItem', { ...purge, revision: deleted.revision }), /只能永久刪除/);
+  f.staff('catalogSetItemDeleted', { ...change, revision: deleted.revision + 1 });
+  assert.throws(() => f.staff('catalogPurgeItem', { ...purge, revision: deleted.revision }), /CATALOG_CHANGED/);
+  const request = { ...purge, revision: deleted.revision + 2 };
+  f.writeFailure = 'before';
+  assert.throws(() => f.staff('catalogPurgeItem', request), /TEST_SHEETS_UNAVAILABLE/);
+  assert.equal(f.data.Catalog_Submissions.length, 2);
+  assert.equal(f.data.Catalog_Purged_Items.length, 0);
+  f.writeFailure = 'after';
+  assert.throws(() => f.staff('catalogPurgeItem', request), /TEST_RESPONSE_LOST/);
+  const writes = f.cloudWrites;
+  assert.deepEqual(f.staff('catalogPurgeItem', request), { itemId: a.item.id, purged: true });
+  assert.equal(f.cloudWrites, writes);
+  assert.deepEqual(f.data.Catalog_Items.map(item => item.Item_ID), [b.item.id]);
+  assert.deepEqual(f.data.Catalog_Targets.map(target => target.Target_ID), [b.target.id]);
+  assert.deepEqual(f.data.Catalog_Submissions, [preserved]);
+  assert.deepEqual(f.data.Catalog_Roster, roster);
+  assert.equal(Boolean(f.files.get(submission.Drive_File_ID).trashed), false);
+  assert.equal(f.data.Catalog_Purged_Items[0].Drive_Cleanup, null);
+  assert.deepEqual(f.staff('catalogBoard').deletedItems, []);
+  assert.throws(() => f.staff('catalogSetItemDeleted', { ...change, deleted: false }), /CATALOG_CHANGED/);
+  assert.throws(() => f.staff('catalogSaveItem', { requestId: a.item.id.slice(4) }), /已永久刪除/);
+  assert.throws(() => f.call('catalogGuestDescribe', a), /CATALOG_LINK_INVALID/);
+  assert.equal(f.call('catalogGuestDescribe', b).verified, true);
+});
+
+test('opt-in cleanup trashes only owned attachments after a confirmed purge and can retry a Drive failure', () => {
+  const f = fakeWorkspace(), a = f.addTarget('17', 'file'), b = f.addTarget('18', 'file');
+  for (const entry of [a, b]) {
+    const upload = { linkToken: entry.linkToken, requestId: requestId(), expectedVersion: 0, fileName: 'original.zip', fileSize: 2 };
+    f.call('catalogGuestBegin', upload);
+    f.call('catalogGuestChunk', { ...upload, start: 0, end: 1, base64: 'QUI=' });
+  }
+  const [first, shared] = f.data.Catalog_Submissions;
+  const moved = 'fixture_moved_file';
+  f.files.set(moved, { parents: ['ROOT'] });
+  f.data.Catalog_Submissions.push({ Target_ID: first.Target_ID, Drive_File_ID: shared.Drive_File_ID }, { Target_ID: first.Target_ID, Drive_File_ID: moved });
+  f.staff('catalogSetItemDeleted', { itemId: a.item.id, revision: a.item.revision, deleted: true, confirm: true });
+  const [item] = f.staff('catalogBoard').deletedItems;
+  assert.equal(item.purgeCounts.attachments, 3);
+  const payload = { itemId: item.id, revision: item.revision, confirmation: '永久刪除', trashAttachments: true };
+  f.writeFailure = 'before';
+  assert.throws(() => f.staff('catalogPurgeItem', payload), /TEST_SHEETS_UNAVAILABLE/);
+  assert.equal(Boolean(f.files.get(first.Drive_File_ID).trashed), false);
+  f.driveTrashFailure = true;
+  assert.deepEqual(f.staff('catalogPurgeItem', payload).driveTrash, { trashed: 0, retained: 2, pending: 1 });
+  assert.equal(f.staff('catalogBoard').pendingAttachmentTrash[0].remaining, 1);
+  assert.deepEqual(f.staff('catalogBoard', {}, 'U05').pendingAttachmentTrash, []);
+  assert.throws(() => f.staff('catalogRetryPurgeAttachments', payload, 'U05'), /FORBIDDEN/);
+  f.driveTrashFailure = false;
+  assert.deepEqual(f.staff('catalogRetryPurgeAttachments', payload).driveTrash, { trashed: 1, retained: 2, pending: 0 });
+  assert.equal(f.files.get(first.Drive_File_ID).trashed, true);
+  assert.equal(Boolean(f.files.get(shared.Drive_File_ID).trashed), false);
+  assert.equal(Boolean(f.files.get(moved).trashed), false);
+  assert.deepEqual(f.staff('catalogBoard').pendingAttachmentTrash, []);
+  assert.deepEqual(f.staff('catalogPurgeItem', payload).driveTrash, { trashed: 1, retained: 2, pending: 0 });
+  assert.throws(() => f.staff('catalogPurgeItem', { ...payload, trashAttachments: false }), /CATALOG_CHANGED/);
 });
 
 test('deletion during transfer prevents the last chunk from creating a submission', () => {
@@ -1156,6 +1277,32 @@ test('two separate guest pages complete approval and correction and resume a 50 
     await reviewer.getByRole('button', { name: '重新整理', exact: true }).click();
     await caseFor('17').locator('[data-catalog-status="approved"]').waitFor();
     assert.deepEqual(f.data.Catalog_Submissions, storedSubmissions);
+
+    await admin().getByRole('button', { name: '刪除', exact: true }).click();
+    await form.getByRole('button', { name: '確認刪除', exact: true }).click();
+    await admin().getByText('已刪除項目（1）', { exact: true }).waitFor();
+    const purgeButton = admin().getByRole('button', { name: '永久刪除', exact: true });
+    await purgeButton.click();
+    await form.getByText(/2 筆小組分配和 3 份繳交版本/).waitFor();
+    const trashAttachments = form.getByRole('checkbox', { name: /同時將原始附件移到 Google Drive 垃圾桶/ });
+    assert.equal(await trashAttachments.isChecked(), false);
+    const confirmation = form.getByLabel('輸入「永久刪除」確認');
+    assert.equal(await form.getByRole('button', { name: '永久刪除', exact: true }).isDisabled(), true);
+    await confirmation.fill('確認刪除');
+    assert.equal(await form.getByRole('button', { name: '永久刪除', exact: true }).isDisabled(), true);
+    await form.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(f.data.Catalog_Submissions.length, 3);
+    await purgeButton.click();
+    await trashAttachments.check();
+    await confirmation.fill('永久刪除');
+    await form.getByRole('button', { name: '永久刪除', exact: true }).click();
+    await admin().getByText(/已永久刪除收件項目與網站紀錄/).waitFor();
+    await admin().getByText(/已將 3 個附件移到 Google Drive 垃圾桶/).waitFor();
+    assert.equal(await admin().getByText('已刪除項目（1）', { exact: true }).count(), 0);
+    assert.equal(f.data.Catalog_Items.length, 0);
+    assert.equal(f.data.Catalog_Submissions.length, 0);
+    assert.equal(f.data.Catalog_Roster.length, 2);
+    assert.equal([...f.files.values()].filter(file => file.trashed).length, 3);
 
     await selectSection('開放設定');
     await admin().getByRole('button', { name: '切換為形印組專用', exact: true }).click();

@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.24-competition-fund.1';
+var APP_RELEASE = '2026.11.24-catalog-cleanup.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -101,6 +101,11 @@ var TABLE_SCHEMAS = {
       'File_Name', 'File_Size', 'Drive_File_ID', 'Submitted_At', 'Status', 'Review_Note', 'Reviewed_By',
       'Reviewed_At', 'Correction_Due_At', 'Mail_Status', 'Text_Answers'],
     types: { Version: 'number', File_Size: 'number', Text_Answers: 'json' },
+    optionalColumns: 1
+  },
+  Catalog_Purged_Items: {
+    headers: ['Item_ID', 'Deleted_Revision', 'Purged_At', 'Drive_Cleanup'],
+    types: { Deleted_Revision: 'number', Drive_Cleanup: 'json' },
     optionalColumns: 1
   },
   Competition_Fund: {
@@ -10220,6 +10225,8 @@ function dispatchCatalogAction_(action, payload) {
     catalogSaveGroup: handleCatalogSaveGroup_,
     catalogSaveItem: handleCatalogSaveItem_,
     catalogSetItemDeleted: handleCatalogSetItemDeleted_,
+    catalogPurgeItem: handleCatalogPurgeItem_,
+    catalogRetryPurgeAttachments: handleCatalogRetryPurgeAttachments_,
     catalogAssignReviewer: handleCatalogAssignReviewer_,
     catalogLink: handleCatalogLink_,
     catalogReview: handleCatalogReview_,
@@ -10271,7 +10278,7 @@ function writeCatalogTables_(tables) {
 
 function readCatalogBoardData_(includeLegacyTeams) {
   var names = ['Catalog_Roster', 'Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions'];
-  if (includeLegacyTeams) names.push('Teams');
+  if (includeLegacyTeams) names.push('Teams', 'Catalog_Purged_Items');
   return readCatalogTables_(names, true);
 }
 
@@ -10416,6 +10423,16 @@ function handleCatalogBoard_(payload) {
   tables.Catalog_Submissions.forEach(function(row) {
     (submissionsByTarget[row.Target_ID] || (submissionsByTarget[row.Target_ID] = [])).push(row);
   });
+  var deletedItems = manager ? tables.Catalog_Items.filter(function(item) { return item.Deleted_At; }) : [];
+  var purgeCounts = new Map(deletedItems.map(function(item) { return [item.Item_ID, { targets: 0, submissions: 0, attachments: new Set() }]; }));
+  tables.Catalog_Targets.forEach(function(target) {
+    var counts = purgeCounts.get(target.Item_ID);
+    if (!counts) return;
+    counts.targets++;
+    var submissions = submissionsByTarget[target.Target_ID] || [];
+    counts.submissions += submissions.length;
+    submissions.forEach(function(row) { if (row.Drive_File_ID) counts.attachments.add(row.Drive_File_ID); });
+  });
   var rows = tables.Catalog_Targets.filter(function(target) {
     return manager || target.Reviewer_ID === auth.actor.User_ID;
   }).map(function(target) {
@@ -10430,9 +10447,14 @@ function handleCatalogBoard_(payload) {
     rows: rows,
     groups: manager ? groups.map(catalogGroupView_) : [],
     items: manager ? items.map(function(item) { return catalogItemView_(item, assignedItems.has(item.Item_ID)); }) : [],
-    deletedItems: manager ? tables.Catalog_Items.filter(function(item) { return item.Deleted_At; })
-      .map(function(item) { return { id: item.Item_ID, title: item.Title, revision: item.Revision, deletedAt: item.Deleted_At }; })
-      .sort(function(a, b) { return b.deletedAt.localeCompare(a.deletedAt); }) : [],
+    deletedItems: deletedItems.map(function(item) {
+      var counts = purgeCounts.get(item.Item_ID);
+      return { id: item.Item_ID, title: item.Title, revision: item.Revision, deletedAt: item.Deleted_At,
+        purgeCounts: { targets: counts.targets, submissions: counts.submissions, attachments: counts.attachments.size } };
+    }).sort(function(a, b) { return b.deletedAt.localeCompare(a.deletedAt); }),
+    pendingAttachmentTrash: manager ? (tables.Catalog_Purged_Items || []).filter(function(row) {
+      return ensureArray_(row.Drive_Cleanup?.pending).length > 0;
+    }).map(function(row) { return { itemId: row.Item_ID, revision: row.Deleted_Revision, purgedAt: row.Purged_At, remaining: row.Drive_Cleanup.pending.length }; }) : [],
     textFieldLimits: manager ? { fields: CATALOG_TEXT_FIELD_LIMIT, totalChars: CATALOG_TEXT_TOTAL_LIMIT, labelChars: CATALOG_TEXT_LABEL_LIMIT } : null,
     reviewers: manager ? auth.users.filter(function(user) {
       return isShapePrintUser_(user) && user.Status === 'Active';
@@ -10494,9 +10516,14 @@ function handleCatalogSaveGroup_(payload) {
 
 function handleCatalogSaveItem_(payload) {
   requireCatalogStaff_(payload, true);
-  var tables = readCatalogTables_(['Catalog_Items', 'Catalog_Targets'], true);
-  var items = tables.Catalog_Items;
   var id = String(payload.itemId || '') || 'PCI_' + catalogRequestId_(payload);
+  var names = ['Catalog_Items', 'Catalog_Targets'];
+  if (!payload.itemId) names.push('Catalog_Purged_Items');
+  var tables = readCatalogTables_(names, true);
+  var items = tables.Catalog_Items;
+  if (!payload.itemId && catalogFind_(tables.Catalog_Purged_Items, 'Item_ID', id)) {
+    throw new Error('CATALOG_CHANGED: 這筆項目已永久刪除，請開啟新表單建立項目。');
+  }
   var existing = catalogFind_(items, 'Item_ID', id);
   if (payload.itemId && !existing) throw new Error('找不到這個收件項目，請重新載入。');
   if (existing && existing.Deleted_At) throw new Error('CATALOG_CHANGED: 此項目已刪除，請先復原。');
@@ -10551,6 +10578,111 @@ function handleCatalogSetItemDeleted_(payload) {
   }
   writeCatalogTables_(writes);
   return { itemId: item.Item_ID, deleted: payload.deleted };
+}
+
+function handleCatalogPurgeItem_(payload) {
+  requireCatalogStaff_(payload, true);
+  if (payload.confirmation !== '永久刪除') throw new Error('請輸入「永久刪除」確認操作。');
+  var id = payload.itemId;
+  var revision = payload.revision;
+  if (typeof id !== 'string' || !id || id.length > 120 || !Number.isSafeInteger(revision) || revision < 1) {
+    throw new Error('CATALOG_CHANGED: 找不到這筆刪除設定，請重新整理。');
+  }
+  var names = ['Catalog_Items', 'Catalog_Targets', 'Catalog_Submissions', 'Catalog_Purged_Items'];
+  var tables = readCatalogTables_(names, true);
+  var item = catalogFind_(tables.Catalog_Items, 'Item_ID', id);
+  var previous = catalogFind_(tables.Catalog_Purged_Items, 'Item_ID', id);
+  if (!item && previous?.Deleted_Revision === revision && !tables.Catalog_Targets.some(function(target) { return target.Item_ID === id; })) {
+    if (Boolean(previous.Drive_Cleanup) !== (payload.trashAttachments === true)) {
+      throw new Error('CATALOG_CHANGED: 項目已永久刪除，不能更改原本的附件處理選項。');
+    }
+    return catalogPurgeReceipt_(tables, previous);
+  }
+  if (!item || !item.Deleted_At || previous) throw new Error('CATALOG_CHANGED: 只能永久刪除「已刪除項目」中的項目，請重新確認。');
+  catalogAssertRevision_(item, revision);
+  var removedTargets = new Map(tables.Catalog_Targets.filter(function(target) { return target.Item_ID === id; })
+    .map(function(target) { return [target.Target_ID, target.Group_ID]; }));
+  var submissions = tables.Catalog_Submissions.filter(function(row) { return !removedTargets.has(row.Target_ID); });
+  var receipt = { Item_ID: id, Deleted_Revision: revision, Purged_At: new Date().toISOString(),
+    Drive_Cleanup: payload.trashAttachments === true ? catalogPlanAttachmentTrash_(tables.Catalog_Submissions, removedTargets, submissions) : null };
+  // Commit the cleanup request and removal in one batch before touching Drive.
+  writeCatalogTables_({
+    Catalog_Items: tables.Catalog_Items.filter(function(row) { return row.Item_ID !== id; }),
+    Catalog_Targets: tables.Catalog_Targets.filter(function(target) { return target.Item_ID !== id; }),
+    Catalog_Submissions: submissions,
+    Catalog_Purged_Items: tables.Catalog_Purged_Items.concat([receipt])
+  });
+  var saved = readCatalogTables_(names, false);
+  var savedReceipt = catalogFind_(saved.Catalog_Purged_Items, 'Item_ID', id);
+  if (catalogFind_(saved.Catalog_Items, 'Item_ID', id) || savedReceipt?.Deleted_Revision !== revision
+    || saved.Catalog_Targets.some(function(target) { return target.Item_ID === id; })
+    || saved.Catalog_Submissions.some(function(submission) { return removedTargets.has(submission.Target_ID); })) {
+    throw new Error('CATALOG_PURGE_NOT_CONFIRMED: 雲端尚未確認永久刪除。請保留畫面並重試，以查核這筆操作。');
+  }
+  return catalogPurgeReceipt_(saved, savedReceipt);
+}
+
+function catalogPlanAttachmentTrash_(all, targets, retainedSubmissions) {
+  var referenced = new Set(retainedSubmissions.map(function(row) { return row.Drive_File_ID; }));
+  var owners = new Map();
+  all.forEach(function(row) {
+    if (!row.Drive_File_ID || !targets.has(row.Target_ID)) return;
+    var group = targets.get(row.Target_ID);
+    owners.set(row.Drive_File_ID, owners.has(row.Drive_File_ID) && owners.get(row.Drive_File_ID) !== group ? '' : group);
+  });
+  var cleanup = { pending: [], trashed: 0, retained: 0 };
+  owners.forEach(function(group, fileId) {
+    if (!group || referenced.has(fileId) || !/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) cleanup.retained++;
+    else cleanup.pending.push({ fileId: fileId, groupId: group });
+  });
+  if (JSON.stringify(cleanup).length > 45000) throw new Error('CATALOG_TRASH_TOO_MANY: 附件太多，請取消勾選並改由管理者在 Drive 清理。網站紀錄尚未刪除。');
+  return cleanup;
+}
+
+function catalogFileMatchesUploadFolder_(file, itemId, groupId) {
+  var node = file;
+  var names = [groupId, itemId, '專刊收件'];
+  for (var i = 0; i <= names.length; i++) {
+    var parents = node.getParents();
+    if (!parents.hasNext()) return false;
+    node = parents.next();
+    if (parents.hasNext()) return false;
+    if (i < names.length && node.getName() !== names[i]) return false;
+  }
+  return node.getId() === getConfig_().driveRootFolderId;
+}
+
+function catalogPurgeReceipt_(tables, receipt) {
+  var result = { itemId: receipt.Item_ID, purged: true };
+  var cleanup = receipt.Drive_Cleanup;
+  if (!cleanup) return result;
+  var referenced = new Set(tables.Catalog_Submissions.map(function(row) { return row.Drive_File_ID; }));
+  var pending = ensureArray_(cleanup.pending);
+  var remaining = pending.slice(12);
+  pending.slice(0, 12).forEach(function(entry) {
+    try {
+      if (referenced.has(entry.fileId)) { cleanup.retained++; return; }
+      var file = DriveApp.getFileById(entry.fileId);
+      if (!catalogFileMatchesUploadFolder_(file, receipt.Item_ID, entry.groupId)) { cleanup.retained++; return; }
+      if (!file.isTrashed()) file.setTrashed(true);
+      if (!file.isTrashed()) throw new Error('Drive trash not confirmed');
+      cleanup.trashed++;
+    } catch (error) { remaining.push(entry); }
+  });
+  cleanup.pending = remaining;
+  if (pending.length > 12 || remaining.length !== pending.length) writeCatalogTables_({ Catalog_Purged_Items: tables.Catalog_Purged_Items });
+  result.driveTrash = { trashed: cleanup.trashed, retained: cleanup.retained, pending: remaining.length };
+  return result;
+}
+
+function handleCatalogRetryPurgeAttachments_(payload) {
+  requireCatalogStaff_(payload, true);
+  var tables = readCatalogTables_(['Catalog_Items', 'Catalog_Submissions', 'Catalog_Purged_Items'], true);
+  var receipt = catalogFind_(tables.Catalog_Purged_Items, 'Item_ID', payload.itemId);
+  if (!receipt?.Drive_Cleanup || receipt.Deleted_Revision !== payload.revision || catalogFind_(tables.Catalog_Items, 'Item_ID', payload.itemId)) {
+    throw new Error('CATALOG_CHANGED: 找不到待清理的附件，請重新整理。');
+  }
+  return catalogPurgeReceipt_(tables, receipt);
 }
 
 function handleCatalogAssignReviewer_(payload) {

@@ -2203,7 +2203,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.24-competition-fund.1";
+        const APP_RELEASE = "2026.11.24-catalog-cleanup.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -4553,7 +4553,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -18257,7 +18257,7 @@
             if (!view.board?.canConfigure || view.loading || view.busy || view.payment || view.announcementDraft) return;
             const plan = view.board.plan;
             const startMonth = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7);
-            view.draft = { goal: plan?.goal ?? '', amount: plan?.amount ?? '', count: plan?.count ?? 1,
+            view.draft = { goal: plan?.goal ?? '', amount: plan?.amount ?? '', count: plan?.count ?? 1, amountBasis: '',
                 startMonth: plan?.startMonth || startMonth, managerId: plan?.managerInactive ? '' : plan?.managerId || '',
                 announcementDay: plan?.announcementDay || 0,
                 participantIds: new Set((plan?.participants || view.board.candidates).map(member => member.id)), rosterOpen: false };
@@ -18275,18 +18275,45 @@
                 const count = document.querySelector('[data-fund-roster-count]');
                 if (count) count.textContent = draft.participantIds.size + ' 人';
             } else draft[input.name] = input.value;
+            if (!view.board.plan?.locked && ['goal', 'amount', 'count', 'participantIds'].includes(input.name)) {
+                if (input.name === 'goal' || input.name === 'amount') draft.amountBasis = input.name;
+                else if (!draft.amountBasis) draft.amountBasis = draft.goal ? 'goal' : 'amount';
+                const other = draft.amountBasis === 'goal' ? 'amount' : 'goal';
+                const value = competitionFundPositiveInteger(draft[draft.amountBasis], 100000000);
+                const installments = competitionFundInstallments(draft);
+                draft[other] = value && installments ? other === 'amount' ? Math.ceil(value / installments) : value * installments : '';
+                const inputToUpdate = document.getElementById('competition-fund-' + other);
+                if (inputToUpdate) inputToUpdate.value = draft[other];
+            }
             const estimate = document.getElementById('competition-fund-estimate');
-            if (estimate) estimate.textContent = competitionFundEstimate(draft);
+            if (estimate) estimate.textContent = competitionFundEstimate(draft, view.board.plan?.locked);
         }
 
         function competitionFundMoney(value) {
             return 'NT$ ' + Number(value).toLocaleString('zh-TW');
         }
 
-        function competitionFundEstimate(draft) {
-            const amount = Number(draft.amount), count = Number(draft.count);
-            return Number.isSafeInteger(amount) && amount > 0 && amount <= 100000000 && Number.isSafeInteger(count) && count > 0 && count <= 36
-                ? '按目前設定預計收取 ' + competitionFundMoney(amount * count * draft.participantIds.size) : '';
+        function competitionFundPositiveInteger(value, max) {
+            const number = Number(value);
+            return Number.isSafeInteger(number) && number > 0 && number <= max ? number : 0;
+        }
+
+        function competitionFundInstallments(draft) {
+            return competitionFundPositiveInteger(draft.count, 36) * draft.participantIds.size;
+        }
+
+        function competitionFundEstimate(draft, locked) {
+            const installments = competitionFundInstallments(draft);
+            if (!installments) return !draft.participantIds.size ? '請先選擇繳款成員。' : '請輸入 1 至 36 期。';
+            const amount = competitionFundPositiveInteger(draft.amount, 100000000);
+            if (!amount) return '';
+            const expected = amount * installments;
+            const estimate = '按目前設定預計收取 ' + competitionFundMoney(expected);
+            if (locked || !draft.amountBasis) return estimate;
+            if (draft.amountBasis === 'amount' && expected > 100000000) return '換算目標超過 ' + competitionFundMoney(100000000) + '，請調低每月金額或期數。';
+            const goal = competitionFundPositiveInteger(draft.goal, 100000000);
+            return draft.amountBasis === 'goal' && goal && expected > goal
+                ? estimate + '（每人每月進位到整元，較目標多 ' + competitionFundMoney(expected - goal) + '）' : estimate;
         }
 
         function competitionFundMonthLabel(month) {
@@ -18495,6 +18522,7 @@
                     <div class="grid gap-3 sm:grid-cols-2">
                         ${catalogField('基金目標（NT$）', controls('goal', 100000000))}
                         ${catalogField('每人每月應繳（NT$）', controls('amount', 100000000, lock))}
+                        ${lock ? '' : '<p class="text-xs catalog-muted sm:col-span-2">填其中一個金額，另一欄會依繳款人數與期數自動換算。</p>'}
                         ${catalogField('第一期月份', `<input name="startMonth" class="catalog-input" type="text" pattern="20[0-9]{2}-(0[1-9]|1[0-2])" maxlength="7" placeholder="YYYY-MM" title="例如 2026-11" required ${lock} value="${escapeHtml(draft.startMonth)}" oninput="updateCompetitionFundDraft(this)">`)}
                         ${catalogField('繳款期數（月）', controls('count', 36, lock))}
                         ${catalogField('管理組員', `<select class="catalog-input" name="managerId" data-soft-select-mode="native" onchange="updateCompetitionFundDraft(this)"><option value="">由組長管理</option>${board.candidates.filter(member => member.canManage).map(member => `<option value="${escapeHtml(member.id)}" ${draft.managerId === member.id ? 'selected' : ''}>${escapeHtml(member.name)}</option>`).join('')}</select>`)}
@@ -18505,7 +18533,7 @@
                             <summary class="text-sm font-semibold"><span>繳款成員</span><span data-fund-roster-count class="catalog-chip ml-auto">${draft.participantIds.size} 人</span><i data-lucide="chevron-down" aria-hidden="true" class="h-4 w-4 catalog-muted"></i></summary>
                             <div class="catalog-item-disclosure-body grid max-h-44 gap-2 overflow-auto sm:grid-cols-2">${[...candidates.values()].map(member => `<label class="flex items-center gap-2 text-sm catalog-break"><input name="participantIds" type="checkbox" value="${escapeHtml(member.id)}" ${draft.participantIds.has(member.id) ? 'checked' : ''} onchange="updateCompetitionFundDraft(this)">${escapeHtml(member.name)}${member.inactive ? '（未啟用）' : ''}</label>`).join('')}</div>
                         </details>`}
-                    <div class="flex flex-wrap items-center justify-between gap-3"><p id="competition-fund-estimate" class="text-sm catalog-muted">${competitionFundEstimate(draft)}</p><div class="ml-auto flex gap-2">${catalogButton('取消', 'cancelCompetitionFundAction()')}<button class="catalog-button catalog-button-primary" type="submit">${busy ? '儲存中…' : '儲存設定'}</button></div></div>
+                    <div class="flex flex-wrap items-center justify-between gap-3"><p id="competition-fund-estimate" class="text-sm catalog-muted" role="status">${competitionFundEstimate(draft, Boolean(lock))}</p><div class="ml-auto flex gap-2">${catalogButton('取消', 'cancelCompetitionFundAction()')}<button class="catalog-button catalog-button-primary" type="submit">${busy ? '儲存中…' : '儲存設定'}</button></div></div>
                 </fieldset></form>`;
         }
 
@@ -18623,6 +18651,7 @@
         }
 
         const catalogFormats = [{ id: 'text', name: '只收文字' }, { id: 'file', name: '只收附件' }, { id: 'both', name: '文字與附件' }];
+        const CATALOG_PURGE_CONFIRMATION = '永久刪除';
         const catalogFormatLabel = format => catalogFormats.find(option => option.id === format)?.name || '';
         const catalogTextFieldDraft = (label = '', maxChars = 500) => ({ label, minChars: '1', maxChars: String(maxChars) });
 
@@ -18658,10 +18687,10 @@
                     format: record?.format || 'both', verifyEmail: record ? record.verifyEmail : false,
                     textFields: record?.textFields?.length ? record.textFields.map(field => ({ ...field }))
                         : [catalogTextFieldDraft('文字內容', record && record.format !== 'file' ? data.textFieldLimits?.totalChars : 500)] };
-            } else if (kind === 'delete-item' || kind === 'restore-item') {
+            } else if (['delete-item', 'restore-item', 'purge-item'].includes(kind)) {
                 if (!Array.isArray(data.deletedItems)) return;
                 record = (kind === 'delete-item' ? data.items : data.deletedItems).find(item => item.id === id);
-                if (!record) return;
+                if (!record || (kind === 'purge-item' && !record.purgeCounts)) return;
             } else if (kind === 'assign') {
                 record = row;
                 values = { itemId: row?.item.id || id || data.items[0]?.id || '', reviewerId: row?.reviewerId || '', groupIds: [] };
@@ -18707,6 +18736,10 @@
                 return;
             }
             form.values[input.name] = input.type === 'checkbox' ? input.checked : input.value;
+            if (form.kind === 'purge-item' && input.name === 'confirmation') {
+                const button = document.getElementById('catalog-purge-confirm');
+                if (button) button.disabled = input.value !== CATALOG_PURGE_CONFIRMATION;
+            }
             if (form.kind === 'item' && input.name === 'verifyEmail') {
                 const badge = input.closest('details')?.querySelector('.catalog-chip');
                 if (badge) badge.textContent = input.checked ? '開啟' : '關閉';
@@ -18849,6 +18882,13 @@
                         ${values.format === 'file' ? '' : catalogItemDisclosure(form, 'text', '文字欄位', fieldCount + ' 欄', catalogTextFieldEditor(values, record, data.textFieldLimits))}
                         ${!record || record.verifyEmail ? catalogItemDisclosure(form, 'verification', '信箱驗證', values.verifyEmail ? '開啟' : '關閉', verification) : ''}
                     </div>` : ''}`;
+            } else if (kind === 'purge-item') {
+                title = '永久刪除收件項目？';
+                fields = `<p class="catalog-break text-sm font-semibold">${escapeHtml(record.title)}</p>
+                    <p class="text-sm catalog-muted">將永久移除項目、${record.purgeCounts.targets} 筆小組分配和 ${record.purgeCounts.submissions} 份繳交版本（含審核紀錄），無法復原。小組名冊會保留。</p>
+                    ${record.purgeCounts.attachments ? `<label class="flex items-start gap-2 rounded-xl border border-[#E4E8EE] p-3 text-sm"><input type="checkbox" name="trashAttachments" class="mt-1" ${values.trashAttachments ? 'checked' : ''} onchange="catalogDraftChange(this)"><span><strong>同時將原始附件移到 Google Drive 垃圾桶（${record.purgeCounts.attachments} 個）</strong><span class="mt-1 block text-xs catalog-muted">未勾選則保留附件。不會清空 Google Drive 垃圾桶。</span></span></label>` : ''}
+                    ${catalogField('輸入「永久刪除」確認', `<input class="catalog-input" name="confirmation" type="text" pattern="${CATALOG_PURGE_CONFIRMATION}" maxlength="4" autocomplete="off" required value="${escapeHtml(values.confirmation || '')}" oninput="catalogDraftChange(this)">`)}`;
+                buttons = `<button id="catalog-purge-confirm" type="submit" class="catalog-button catalog-button-danger" ${values.confirmation === CATALOG_PURGE_CONFIRMATION ? '' : 'disabled'}>永久刪除</button>`;
             } else if (kind === 'delete-item' || kind === 'restore-item') {
                 const deleting = kind === 'delete-item';
                 title = deleting ? '確認刪除收件項目？' : '確認復原收件項目？';
@@ -18912,8 +18952,12 @@
                         <summary class="cursor-pointer py-3 text-sm font-semibold">已刪除項目（${board.deletedItems.length}）</summary>
                         <div class="divide-y divide-[#E4E8EE]">${board.deletedItems.map(item => `<article class="flex flex-wrap items-center justify-between gap-2 border-t border-[#E4E8EE] py-3">
                             <div class="min-w-0"><h4 class="catalog-break text-sm font-semibold">${escapeHtml(item.title)}</h4><p class="text-xs catalog-muted">刪除於 ${catalogDateLabel(item.deletedAt)}</p></div>
-                            ${catalogButton('復原', "openCatalogEditor('restore-item','" + escapeInlineJsString(item.id) + "')", false, view.busy)}</article>`).join('')}</div>
-                    </details>` : ''}</section>`;
+                            <div class="flex flex-wrap gap-2">${catalogButton('復原', "openCatalogEditor('restore-item','" + escapeInlineJsString(item.id) + "')", false, view.busy)}
+                            ${item.purgeCounts ? `<button type="button" class="catalog-button catalog-button-danger" onclick="openCatalogEditor('purge-item','${escapeInlineJsString(item.id)}')" ${view.busy ? 'disabled' : ''}>永久刪除</button>` : ''}</div></article>`).join('')}</div>
+                    </details>` : ''}
+                    ${board.pendingAttachmentTrash?.length ? `<section class="mt-4 space-y-2 border-t border-[#E4E8EE] pt-3" aria-label="待清理附件"><h4 class="text-sm font-semibold">待清理附件</h4>
+                        ${board.pendingAttachmentTrash.map(entry => `<div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm catalog-muted">${catalogDateLabel(entry.purgedAt)} 刪除 ・ 尚有 ${entry.remaining} 個附件待處理</p>${catalogButton('重試附件清理', "retryCatalogAttachmentTrash('" + escapeInlineJsString(entry.itemId) + "')", false, view.busy || view.loading)}</div>`).join('')}
+                    </section>` : ''}</section>`;
             } else if (view.section === 'settings') {
                 const internal = workspaceAccessPolicy.workspaceInternalOnly;
                 content = `<section class="catalog-surface space-y-3"><span class="catalog-chip">${internal ? '僅形印組' : '試跑中'}</span>
@@ -18999,7 +19043,7 @@
                 if (view === catalogWorkspace && !error.sessionExpired) {
                     view.warning = true;
                     view.message = catalogStaffError(error);
-                    if (action === 'catalogSetItemDeleted' && /^CATALOG_CHANGED:/.test(error.message || '')) {
+                    if (['catalogSetItemDeleted', 'catalogPurgeItem'].includes(action) && /^CATALOG_CHANGED:/.test(error.message || '')) {
                         view.form = null;
                         refresh = true;
                     }
@@ -19011,6 +19055,31 @@
                     else drawCatalogWorkspace();
                 }
             }
+        }
+
+        function applyCatalogPurgeReceipt(data, view, itemId, trashAttachments) {
+            const summary = data.driveTrash;
+            if (data.itemId !== itemId || data.purged !== true || (trashAttachments && ![summary?.trashed, summary?.retained, summary?.pending].every(Number.isSafeInteger))) {
+                throw new Error('尚未確認刪除或附件清理結果，請重試或重新整理。');
+            }
+            view.form = null;
+            view.board.deletedItems = view.board.deletedItems.filter(item => item.id !== itemId);
+            view.message = '已永久刪除收件項目與網站紀錄。';
+            if (!summary) view.message += 'Google Drive 原始附件未變更。';
+            else {
+                view.message += '已將 ' + summary.trashed + ' 個附件移到 Google Drive 垃圾桶。';
+                if (summary.retained) view.message += '另有 ' + summary.retained + ' 個無法確認歸屬或仍被其他項目使用，未移動。';
+                if (summary.pending) view.message += '另有 ' + summary.pending + ' 個尚未確認，請到「待清理附件」重試。';
+                view.warning = Boolean(summary.retained || summary.pending);
+            }
+        }
+
+        function retryCatalogAttachmentTrash(itemId) {
+            const view = catalogWorkspaceForUser();
+            const entry = view.board?.pendingAttachmentTrash?.find(record => record.itemId === itemId);
+            if (!entry || !view.board.manager) return;
+            return catalogWrite('catalogRetryPurgeAttachments', { itemId, revision: entry.revision },
+                (data, activeView) => applyCatalogPurgeReceipt(data, activeView, itemId, true));
         }
 
         function catalogValidateTextFieldDraft(fields, limits) {
@@ -19069,6 +19138,10 @@
                         return;
                     }
                 }
+            } else if (kind === 'purge-item') {
+                if (values.confirmation !== CATALOG_PURGE_CONFIRMATION) return;
+                action = 'catalogPurgeItem';
+                payload = { itemId: record.id, revision: record.revision, confirmation: values.confirmation, trashAttachments: values.trashAttachments === true };
             } else if (kind === 'delete-item' || kind === 'restore-item') {
                 action = 'catalogSetItemDeleted';
                 payload = { itemId: record.id, revision: record.revision, deleted: kind === 'delete-item', confirm: true };
@@ -19099,6 +19172,10 @@
                 if (kind === 'item' && payload.textFields && (data.item.format !== payload.format || !Array.isArray(data.item.textFields)
                     || JSON.stringify(data.item.textFields.map(({ label, minChars, maxChars }) => ({ label, minChars, maxChars }))) !== JSON.stringify(payload.textFields))) {
                     throw new Error('尚未確認文字欄位已儲存。請保留設定，確認雲端已更新後重試。');
+                }
+                if (action === 'catalogPurgeItem') {
+                    applyCatalogPurgeReceipt(data, view, payload.itemId, payload.trashAttachments);
+                    return;
                 }
                 if (action === 'catalogSetItemDeleted') {
                     if (data.itemId !== payload.itemId || data.deleted !== payload.deleted) throw new Error('尚未確認操作結果，請重試或重新整理。');
