@@ -1,13 +1,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const http = require('node:http');
+const { createSiteServer } = require('./site-test-server.cjs');
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 const { fixture } = require('./stability.test.cjs');
 const root = path.resolve(__dirname, '..');
 
 async function main() {
-  const server = http.createServer((req, res) => {
+  const server = createSiteServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(fs.readFileSync(path.join(root, 'index.html')));
   });

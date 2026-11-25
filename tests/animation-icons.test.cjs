@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const http = require('node:http');
+const { createSiteServer } = require('./site-test-server.cjs');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
@@ -10,8 +10,7 @@ const results = [], errors = [], requests = [];
 const assets = {
   lucide: ['https://unpkg.com/lucide@1.61.0/dist/umd/lucide.js', 'a833f6089e246486aad9d3ae7e58e64779c5113e6e8e0c145cb3e3d483f588c9'],
   anime: ['https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js', '8d5b3a58a1f64023a04a4cedeef135a2263b18da04b35177ac13438a0bad033b'],
-  morph: ['https://esm.sh/morphicons@1.7.1/es2022/element.bundle.mjs', 'd2c7ee3b1db27a8166e246bf36b5d48d47257579098fe0712cb7a71abe76424a'],
-  tailwind: ['https://cdn.tailwindcss.com', null]
+  morph: ['https://esm.sh/morphicons@1.7.1/es2022/element.bundle.mjs', 'd2c7ee3b1db27a8166e246bf36b5d48d47257579098fe0712cb7a71abe76424a']
 };
 const artifacts = process.env.MOTION_ARTIFACT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'image-design-motion-results-'));
 fs.mkdirSync(artifacts, { recursive: true });
@@ -26,7 +25,7 @@ async function run() {
     else { const r = await fetch(url); assert.ok(r.ok); cache[key] = Buffer.from(await r.arrayBuffer()); }
     if (hash) assert.equal(crypto.createHash('sha256').update(cache[key]).digest('hex'), hash, key + ' version changed');
   }
-  const server = http.createServer((req, res) => {
+  const server = createSiteServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(fs.readFileSync(path.join(root, req.url.startsWith('/large-upload') ? 'large-upload.html' : 'index.html')));
   });
@@ -41,7 +40,7 @@ async function run() {
     const heldUpload = new Promise(resolve => { releaseUpload = resolve; });
     await context.route('https://**/*', async route => {
       const url = route.request().url();
-      const key = url.includes('lucide@') ? 'lucide' : url.includes('animejs') ? 'anime' : url.includes('esm.sh') ? 'morph' : url.includes('tailwindcss') ? 'tailwind' : null;
+      const key = url.includes('lucide@') ? 'lucide' : url.includes('animejs') ? 'anime' : url.includes('esm.sh') ? 'morph' : null;
       if (key) {
         if ((options.noMorph && key === 'morph') || (options.noIcons && key === 'lucide') || (options.noAnime && key === 'anime')) return route.abort();
         if (key === 'morph' && options.delayMorph) await new Promise(r => setTimeout(r, options.delayMorph));

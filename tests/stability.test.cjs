@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const http = require('node:http');
+const { createSiteServer } = require('./site-test-server.cjs');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { chromium } = require('playwright');
@@ -235,7 +235,7 @@ async function backendTests() {
 }
 
 async function browserTests() {
-  const server=http.createServer((req,res)=>{
+  const server=createSiteServer((req,res)=>{
     if(req.url==='/'||req.url==='/index.html'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(fs.readFileSync(path.join(root,'index.html')));}
     else {res.statusCode=404;res.end('audit not found');}
   });

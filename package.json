@@ -1,0 +1,10 @@
+{
+  "name": "image-design",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss --config tailwind.config.cjs --input styles/workspace.input.css --output workspace.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

@@ -1,5 +1,19 @@
 # Stability Regression Tests
 
+## Workspace CSS
+
+`workspace.css` is a prebuilt stylesheet for `index.html`. After changing
+utility classes in the workspace, run `npm ci` (once per lockfile update) and
+`npm run build:css`. Publish the stylesheet with the HTML and increment the
+`workspace.css?v=` value in `index.html` when the generated file changes. Keep
+conditional utilities as complete class names in the HTML or its inline
+templates so Tailwind can discover them at build time. No build is required
+on GitHub Pages, and the catalog and upload pages have separate styles.
+
+`node --test tests/workspace-css.test.cjs` checks the relative stylesheet URL
+under the GitHub Pages subdirectory and validates login and workbench styles
+without any external network requests.
+
 ## Catalog Intake
 
 ```sh
@@ -66,7 +80,7 @@ single loading rings, late/failed modules, reduced motion, modal lifecycles,
 desktop/mobile geometry and the actual standalone chunk-upload button against
 a held mocked request. No production session, upload or account is used.
 Set `MOTION_ASSET_DIR` to a directory containing verified `lucide.js`, `morph.js`,
-`anime.js`, and `tailwind.js` fixtures; otherwise the public dependency sources
+and `anime.js` fixtures; otherwise the public dependency sources
 are fetched. Set `MOTION_ARTIFACT_DIR` for JSON and synthetic screenshots.
 
 ## Design-Service Claim Confirmation

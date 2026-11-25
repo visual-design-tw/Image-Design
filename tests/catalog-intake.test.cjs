@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const http = require('node:http');
+const { createSiteServer } = require('./site-test-server.cjs');
 const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
@@ -22,7 +22,7 @@ async function startCatalogServer() {
   const files = { '/': 'index.html', '/catalog-upload.html': 'catalog-upload.html',
     '/catalog-upload.js': 'catalog-upload.js', '/catalog-upload.css': 'catalog-upload.css' };
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
-  const server = http.createServer((req, res) => {
+  const server = createSiteServer((req, res) => {
     const file = files[req.url.split('?')[0]];
     if (!file) { res.writeHead(404).end(); return; }
     res.setHeader('Content-Type', types[path.extname(file)] + '; charset=utf-8');

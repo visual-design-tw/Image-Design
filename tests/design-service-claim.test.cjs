@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const http = require('node:http');
+const { createSiteServer } = require('./site-test-server.cjs');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { chromium } = require('playwright');
@@ -151,7 +151,7 @@ async function backendTests() {
 async function browserTests() {
   let c = context(), mode = 'normal', delay = 0;
   const requests = [], pagesErrors = [];
-  const server = http.createServer((req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(fs.readFileSync(path.join(root, 'index.html'))); });
+  const server = createSiteServer((req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(fs.readFileSync(path.join(root, 'index.html'))); });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
   try {

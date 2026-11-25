@@ -1,7 +1,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-const http=require('node:http');
+const { createSiteServer } = require('./site-test-server.cjs');
 const crypto=require('node:crypto');
 const assert=require('node:assert/strict');
 const {chromium}=require('playwright');
@@ -141,7 +141,7 @@ async function logicAudit() {
 }
 
 async function browserAudit() {
-  const server=http.createServer((req,res)=>{const file=req.url.startsWith('/large-upload')?'large-upload.html':'index.html';res.setHeader('Content-Type','text/html;charset=utf-8');res.end(fs.readFileSync(path.join(root,file)));});
+  const server=createSiteServer((req,res)=>{const file=req.url.startsWith('/large-upload')?'large-upload.html':'index.html';res.setHeader('Content-Type','text/html;charset=utf-8');res.end(fs.readFileSync(path.join(root,file)));});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
   const errors=[];
