@@ -14,6 +14,12 @@ on GitHub Pages, and the catalog and upload pages have separate styles.
 under the GitHub Pages subdirectory and validates login and workbench styles
 without any external network requests.
 
+## Shape Print Invitations
+
+`node --test tests/shape-print-invite.test.cjs` checks store-before-send,
+single-recipient and manager authorization, duplicate prevention, manual
+copy fallback, and the mobile invitation form. The mailer is mocked.
+
 ## Catalog Intake
 
 ```sh

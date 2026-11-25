@@ -1159,7 +1159,7 @@
             .fund-stat:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
         }
     </style>
-    <link rel="stylesheet" href="./workspace.css?v=1">
+    <link rel="stylesheet" href="./workspace.css?v=2">
 </head>
 <body class="min-h-screen flex flex-col antialiased booting">
 
@@ -2202,7 +2202,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.24-service-settings-save.1";
+        const APP_RELEASE = "2026.11.25-shape-print-invite-mail.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2321,8 +2321,11 @@
         let shapePrintInvites = [];
         let shapePrintInviteListStatus = "idle";
         let shapePrintInviteListErrorMessage = "";
+        let shapePrintInviteListGeneration = 0;
         let shapePrintInviteLastCreated = null;
-        let shapePrintInviteCreateInFlight = false;
+        let shapePrintInviteCreateMode = "";
+        let shapePrintInviteCreateError = "";
+        let shapePrintInviteDraft = { name: "", email: "", expiresInDays: 14 };
         let studentTeamSetupInFlight = false;
         let logoutInFlight = false;
         let authSessionToken = "";
@@ -4278,6 +4281,15 @@
 
         function clearStoredSession(options = {}) {
             clearFilePreviewSurfaces();
+            shapePrintInvites = [];
+            shapePrintInviteListStatus = "idle";
+            shapePrintInviteListErrorMessage = "";
+            shapePrintInviteListGeneration += 1;
+            shapePrintInviteLastCreated = null;
+            document.getElementById("shape-print-invite-receipt")?.remove();
+            shapePrintInviteCreateMode = "";
+            shapePrintInviteCreateError = "";
+            shapePrintInviteDraft = { name: "", email: "", expiresInDays: 14 };
             catalogWorkspace = createCatalogWorkspaceState();
             releaseCompetitionFundPhoto();
             competitionFund = createCompetitionFundState();
@@ -4553,7 +4565,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments', 'createAndSendShapePrintInvite'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -15564,15 +15576,21 @@
                 return;
             }
 
+            const generation = ++shapePrintInviteListGeneration;
             shapePrintInviteListStatus = "loading";
             shapePrintInviteListErrorMessage = "";
             if (activeTab === "teams") renderAll();
 
             try {
                 const response = await requestGas("listShapePrintInvites", {});
+                if (generation !== shapePrintInviteListGeneration) return;
                 shapePrintInvites = ensureArray(response && response.data && response.data.invites);
+                if (shapePrintInviteLastCreated && !shapePrintInvites.some(invite =>
+                    invite.inviteId === shapePrintInviteLastCreated.invite.inviteId && invite.status === "active"
+                )) shapePrintInviteLastCreated = null;
                 shapePrintInviteListStatus = "ready";
             } catch (error) {
+                if (generation !== shapePrintInviteListGeneration) return;
                 console.error("載入形印組邀請失敗", error);
                 shapePrintInviteListStatus = "error";
                 shapePrintInviteListErrorMessage = error.message || "暫時無法載入形印組邀請。";
@@ -15612,58 +15630,83 @@
             }
         }
 
+        function buildShapePrintInviteReceipt() {
+            const result = shapePrintInviteLastCreated;
+            if (!result) return "";
+            const message = result.delivery === "sent" ? "邀請信已寄出"
+                : result.delivery === "unconfirmed" ? "尚未確認寄送，可複製連結手動轉寄" : "連結已建立，未寄送郵件";
+            const tone = result.delivery === "unconfirmed" ? "text-[#C65A00]" : "text-[#0066CC]";
+            return `
+                <div id="shape-print-invite-receipt" class="mt-4 rounded-2xl border border-[#CFE5FF] bg-white p-3.5">
+                    <p role="status" class="text-xs font-bold ${tone}">${message}</p>
+                    <p class="mt-1 break-words text-[11px] text-[#6E6E73]">${escapeHtml(result.invite.inviteeEmail)}</p>
+                    <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <input readonly aria-label="剛建立的專屬連結" value="${escapeHtml(result.inviteUrl)}" onclick="this.select()" class="w-full min-w-0 flex-1 rounded-lg border border-[#E8E8ED] bg-[#FAFAFB] px-3 py-2 text-[11px] text-[#515156] outline-none">
+                        <button type="button" onclick="copyShapePrintInviteLink(shapePrintInviteLastCreated?.inviteUrl)" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#D7E8FF] bg-[#F3F8FF] px-3 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#E8F2FF]"><i data-lucide="copy" class="h-3.5 w-3.5"></i>複製連結</button>
+                    </div>
+                </div>`;
+        }
+
+        function updateShapePrintInviteDraft(form) {
+            shapePrintInviteDraft = {
+                name: form.elements.inviteeName.value,
+                email: form.elements.inviteeEmail.value,
+                expiresInDays: Number(form.elements.expiresInDays.value)
+            };
+        }
+
         async function handleCreateShapePrintInvite(event) {
             event.preventDefault();
-            if (shapePrintInviteCreateInFlight) return;
+            if (shapePrintInviteCreateMode) return;
             if (!canManageShapePrintInvites()) {
                 showToast("只有形印組長或形印指導教師可以建立專屬邀請。", "warning");
                 return;
             }
 
-            const emailInput = document.getElementById("shape-print-invite-email");
-            const nameInput = document.getElementById("shape-print-invite-name");
-            const expiryInput = document.getElementById("shape-print-invite-expiry");
-            const submitButton = document.getElementById("shape-print-invite-create-button");
-            const email = String(emailInput && emailInput.value || "").trim();
-            const name = String(nameInput && nameInput.value || "").trim();
-            const expiresInDays = Number(expiryInput && expiryInput.value || 14);
-
-            shapePrintInviteCreateInFlight = true;
-            if (submitButton) {
-                submitButton.disabled = true;
-                submitButton.textContent = "建立中…";
-            }
+            updateShapePrintInviteDraft(event.currentTarget);
+            const { name, email, expiresInDays } = shapePrintInviteDraft;
+            const inviteByEmail = event.submitter?.value === "email";
+            const epoch = authEpoch;
+            shapePrintInviteCreateMode = inviteByEmail ? "email" : "link";
+            shapePrintInviteCreateError = "";
+            renderAll();
 
             try {
-                const response = await requestGas("createShapePrintInvite", {
-                    email: email,
-                    name: name,
-                    expiresInDays: expiresInDays
+                const response = await requestGas(inviteByEmail ? "createAndSendShapePrintInvite" : "createShapePrintInvite", {
+                    email: email.trim(),
+                    name: name.trim(),
+                    expiresInDays
                 });
-                const data = response && response.data ? response.data : {};
-                const invite = data.invite || null;
-                shapePrintInviteLastCreated = invite && data.inviteUrl ? {
-                    invite: invite,
-                    inviteUrl: String(data.inviteUrl)
-                } : null;
-                if (invite) {
-                    shapePrintInvites = [invite].concat(shapePrintInvites.filter(function(item) {
-                        return String(item.inviteId || "") !== String(invite.inviteId || "");
-                    }));
-                    shapePrintInviteListStatus = "ready";
+                if (epoch !== authEpoch) return;
+                const data = response?.data;
+                if (!data?.invite?.inviteId || typeof data.inviteUrl !== "string" || !data.inviteUrl) {
+                    throw new Error("INVITE_NOT_CONFIRMED");
                 }
-                if (emailInput) emailInput.value = "";
-                if (nameInput) nameInput.value = "";
-                showToast("已建立一人一組的形印組邀請連結。", "success");
-                renderAll();
+                const invite = data.invite;
+                const delivery = inviteByEmail ? (data.deliveryStatus === "sent" ? "sent" : "unconfirmed") : "manual";
+                shapePrintInviteLastCreated = { invite, inviteUrl: data.inviteUrl, delivery };
+                shapePrintInviteListGeneration += 1;
+                shapePrintInvites = [invite].concat(shapePrintInvites.filter(item => item.inviteId !== invite.inviteId).map(item =>
+                    item.status === "active" && item.inviteeEmail === invite.inviteeEmail ? { ...item, status: "revoked" } : item
+                ));
+                shapePrintInviteListStatus = "ready";
+                shapePrintInviteDraft = { name: "", email: "", expiresInDays };
+                showToast(delivery === "sent" ? "邀請連結已建立，信件已寄出。"
+                    : delivery === "unconfirmed" ? "連結已建立，尚未確認寄送。可複製連結。"
+                    : "已建立專屬連結，未寄送郵件。", delivery === "unconfirmed" ? "warning" : "success");
             } catch (error) {
-                console.error("建立形印組邀請失敗", error);
-                showToast(error.message || "建立形印組邀請失敗，請稍後再試。", "error");
+                if (epoch !== authEpoch || error.sessionExpired) return;
+                const message = String(error.message || "");
+                shapePrintInviteCreateError = /Unsupported POST action/.test(message)
+                    ? "正式雲端尚未支援寄送邀請，可先使用「只建立連結」。"
+                    : /INVITE_NOT_CONFIRMED|REQUEST_TIMEOUT|Failed to fetch|Load failed|NetworkError|^HTTP |not valid JSON/i.test(message)
+                        ? (inviteByEmail ? "尚未確認邀請是否建立或寄出。請先重新載入邀請紀錄，並請對方查收，不要直接換發。"
+                            : "尚未確認連結是否建立。請先重新載入邀請紀錄，再決定是否換發。")
+                        : message.replace(/^[A-Z_]+:\s*/, "") || "建立邀請失敗，請稍後再試。";
             } finally {
-                shapePrintInviteCreateInFlight = false;
-                if (submitButton) {
-                    submitButton.disabled = false;
-                    submitButton.textContent = "建立專屬連結";
+                if (epoch === authEpoch) {
+                    shapePrintInviteCreateMode = "";
+                    if (activeTab === "teams") renderAll();
                 }
             }
         }
@@ -15673,10 +15716,13 @@
                 showToast("只有形印組長或形印指導教師可以撤銷邀請。", "warning");
                 return;
             }
+            const epoch = authEpoch;
             try {
                 const response = await requestGas("revokeShapePrintInvite", { inviteId: inviteId });
+                if (epoch !== authEpoch) return;
                 const invite = response && response.data ? response.data.invite : null;
                 if (invite) {
+                    if (shapePrintInviteLastCreated?.invite.inviteId === invite.inviteId) shapePrintInviteLastCreated = null;
                     shapePrintInvites = shapePrintInvites.map(function(item) {
                         return String(item.inviteId || "") === String(invite.inviteId || "") ? invite : item;
                     });
@@ -15684,6 +15730,7 @@
                 showToast("形印組邀請連結已撤銷。", "success");
                 renderAll();
             } catch (error) {
+                if (epoch !== authEpoch || error.sessionExpired) return;
                 console.error("撤銷形印組邀請失敗", error);
                 showToast(error.message || "撤銷形印組邀請失敗，請稍後再試。", "error");
             }
@@ -20244,13 +20291,21 @@
                                     </div>
                                     <span class="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#E8F7ED] px-3 py-1.5 text-[10px] font-bold text-[#14833B]"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i>免待啟用</span>
                                 </div>
-                                <form onsubmit="handleCreateShapePrintInvite(event)" class="mt-5 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,.8fr)_minmax(0,1.1fr)_150px_auto] md:items-end">
-                                    <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">姓名（選填）</span><input id="shape-print-invite-name" type="text" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="例如：王小美"></label>
-                                    <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">受邀信箱</span><input id="shape-print-invite-email" type="email" required class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="member@mail.tut.edu.tw"></label>
-                                    <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">連結期限</span><select id="shape-print-invite-expiry" data-soft-select-size="compact" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3 py-2.5 text-xs font-semibold text-[#1D1D1F] outline-none"><option value="7">7 天</option><option value="14" selected>14 天</option><option value="30">30 天</option></select></label>
-                                    <button id="shape-print-invite-create-button" type="submit" class="inline-flex min-h-[40px] items-center justify-center rounded-xl bg-[#1D1D1F] px-4 text-xs font-bold text-white transition hover:opacity-90">建立專屬連結</button>
+                                <form onsubmit="handleCreateShapePrintInvite(event)" oninput="updateShapePrintInviteDraft(this)" aria-label="建立形印組邀請" class="mt-5">
+                                    <fieldset ${shapePrintInviteCreateMode ? "disabled" : ""}>
+                                        <div class="grid gap-3 md:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)_150px]">
+                                            <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">姓名（選填）</span><input id="shape-print-invite-name" name="inviteeName" type="text" value="${escapeHtml(shapePrintInviteDraft.name)}" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="例如：王小美"></label>
+                                            <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">受邀信箱</span><input id="shape-print-invite-email" name="inviteeEmail" type="email" required maxlength="254" value="${escapeHtml(shapePrintInviteDraft.email)}" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3.5 py-2.5 text-xs text-[#1D1D1F] outline-none transition focus:border-[#0066CC]" placeholder="member@mail.tut.edu.tw"></label>
+                                            <label><span class="mb-1.5 block text-[10px] font-bold text-[#6E6E73]">連結期限</span><select id="shape-print-invite-expiry" name="expiresInDays" data-soft-select-size="compact" class="w-full rounded-xl border border-[#DFE3EA] bg-white px-3 py-2.5 text-xs font-semibold text-[#1D1D1F] outline-none">${[7, 14, 30].map(days => `<option value="${days}" ${shapePrintInviteDraft.expiresInDays === days ? "selected" : ""}>${days} 天</option>`).join("")}</select></label>
+                                        </div>
+                                        <div class="mt-4 flex flex-wrap justify-end gap-2">
+                                            <button id="shape-print-invite-create-button" type="submit" value="link" class="min-h-[40px] rounded-xl border border-[#DFE3EA] bg-white px-4 text-xs font-bold text-[#1D1D1F] transition hover:bg-[#F5F5F7] disabled:opacity-50">${shapePrintInviteCreateMode === "link" ? "建立中…" : "只建立連結"}</button>
+                                            <button type="submit" value="email" class="min-h-[40px] rounded-xl bg-[#0066CC] px-4 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50">${shapePrintInviteCreateMode === "email" ? "建立與寄送中…" : "建立並寄送邀請"}</button>
+                                        </div>
+                                    </fieldset>
                                 </form>
-                                ${shapePrintInviteLastCreated ? `<div class="mt-4 rounded-2xl border border-[#CFE5FF] bg-white p-3.5"><div class="flex flex-col gap-2 sm:flex-row sm:items-center"><div class="min-w-0 flex-1"><p class="text-[10px] font-bold text-[#0066CC]">剛建立的專屬連結</p><input readonly value="${escapeHtml(shapePrintInviteLastCreated.inviteUrl)}" onclick="this.select()" class="mt-1.5 w-full rounded-lg border border-[#E8E8ED] bg-[#FAFAFB] px-3 py-2 text-[10px] text-[#515156] outline-none"></div><button type="button" onclick="copyShapePrintInviteLink('${escapeInlineJsString(shapePrintInviteLastCreated.inviteUrl)}')" class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#D7E8FF] bg-[#F3F8FF] px-3 py-2 text-[11px] font-bold text-[#0066CC] transition hover:bg-[#E8F2FF]"><i data-lucide="copy" class="h-3.5 w-3.5"></i>複製</button></div></div>` : ''}
+                                ${shapePrintInviteCreateError ? `<p role="alert" class="mt-3 text-xs leading-relaxed text-[#C65A00]">${escapeHtml(shapePrintInviteCreateError)}</p>` : ''}
+                                ${buildShapePrintInviteReceipt()}
                                 <div class="mt-5"><div class="mb-2 flex items-center justify-between gap-3"><h4 class="text-xs font-bold text-[#1D1D1F]">最近邀請紀錄</h4><button type="button" onclick="loadShapePrintInvites({ force: true })" class="text-[10px] font-bold text-[#0066CC] hover:underline">重新載入</button></div>${shapePrintInviteListMarkup}</div>
                             </section>
                         ` : ''}

@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.24-service-settings-save.1';
+var APP_RELEASE = '2026.11.25-shape-print-invite-mail.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -584,6 +584,10 @@ function doPost(e) {
         return handleCreateShapePrintInvite_(payload);
       });
       return jsonResponse_(true, result);
+    }
+
+    if (action === 'createAndSendShapePrintInvite') {
+      return jsonResponse_(true, handleCreateAndSendShapePrintInvite_(payload));
     }
 
     if (action === 'listShapePrintInvites') {
@@ -7790,9 +7794,10 @@ function handleGetShapePrintInvite_(payload) {
   return { invite: summary };
 }
 
-function handleCreateShapePrintInvite_(payload) {
+function handleCreateShapePrintInvite_(payload, sendEmail) {
   var state = loadState_();
   var actor = requireSessionUser_(state, payload, ['SuperAdmin']);
+  if (sendEmail) assertRegistrationOpen_(state, 'shapePrint');
   var inviteeEmail = normalizeEmail_(payload && payload.email);
   var inviteeName = String(payload && payload.name || '').trim();
   var requestedDays = Number(payload && payload.expiresInDays);
@@ -7800,8 +7805,8 @@ function handleCreateShapePrintInvite_(payload) {
     ? SHAPE_PRINT_INVITE_DEFAULT_EXPIRY_DAYS
     : Math.min(SHAPE_PRINT_INVITE_MAX_EXPIRY_DAYS, Math.max(1, Math.floor(requestedDays)));
 
-  if (!inviteeEmail) {
-    throw new Error('請輸入受邀形印組員的電子郵件。');
+  if (inviteeEmail.length > 254 || !/^[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(inviteeEmail)) {
+    throw new Error('請輸入一個有效的受邀電子郵件地址。');
   }
   if (findUserByEmail_(state.Users, inviteeEmail)) {
     throw new Error('此信箱已經有系統帳號，無法再建立形印組註冊邀請。');
@@ -7814,6 +7819,9 @@ function handleCreateShapePrintInvite_(payload) {
   invites.forEach(function(record) {
     if (String(record.Status || '') === 'active'
       && normalizeEmail_(record.Invitee_Email) === inviteeEmail) {
+      if (sendEmail) {
+        throw new Error('INVITE_ALREADY_ACTIVE: 此信箱已有有效邀請。請先確認對方是否收到；要換發時，請先撤銷舊邀請。');
+      }
       record.Status = 'revoked';
       record.Revoked_At = nowString_();
       didReplaceActiveInvite = true;
@@ -7821,6 +7829,10 @@ function handleCreateShapePrintInvite_(payload) {
   });
 
   var rawToken = generateShapePrintInviteToken_();
+  var inviteUrl = buildShapePrintInviteUrl_(rawToken);
+  if (sendEmail && !/^https:\/\/[^\s/?#]+/i.test(inviteUrl)) {
+    throw new Error('寄送邀請需要設定 HTTPS 正式網站網址；這次未建立邀請。');
+  }
   var expiresAt = new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000);
   var invite = normalizeShapePrintInviteRecord_({
     Invite_ID: generateSequentialId_('SPI', invites, 'Invite_ID'),
@@ -7838,19 +7850,46 @@ function handleCreateShapePrintInvite_(payload) {
   invites.unshift(invite);
   persistShapePrintInvites_(invites);
 
-  appendActivityLogEntries_([
-    createActivityLogEntry_(actor, '建立形印組邀請', '已為 ' + (inviteeName || inviteeEmail) + ' 建立一組形印組註冊連結。', 'shape-print-invite', invite.Invite_ID, 'normal', {
-      source: 'createShapePrintInvite',
-      inviteeEmail: inviteeEmail,
-      expiresInDays: expiresInDays,
-      replacedActiveInvite: didReplaceActiveInvite
-    })
-  ]);
+  try {
+    appendActivityLogEntries_([
+      createActivityLogEntry_(actor, '建立形印組邀請', '已為 ' + (inviteeName || inviteeEmail) + ' 建立一組形印組註冊連結。', 'shape-print-invite', invite.Invite_ID, 'normal', {
+        source: sendEmail ? 'createAndSendShapePrintInvite' : 'createShapePrintInvite',
+        inviteeEmail: inviteeEmail,
+        expiresInDays: expiresInDays,
+        replacedActiveInvite: didReplaceActiveInvite
+      })
+    ]);
+  } catch (error) {
+    Logger.log('SHAPE_PRINT_INVITE_ACTIVITY_LOG_FAILED');
+  }
 
   return {
     invite: buildShapePrintInviteSummary_(invite, { includeEmail: true }),
-    inviteUrl: buildShapePrintInviteUrl_(rawToken)
+    inviteUrl: inviteUrl
   };
+}
+
+function handleCreateAndSendShapePrintInvite_(payload) {
+  // A confirmed invite survives mail errors; do not hold the workbook lock while sending.
+  var result = withLock_(function() { return handleCreateShapePrintInvite_(payload, true); });
+  try {
+    sendShapePrintInviteEmail_(result.invite, result.inviteUrl);
+    result.deliveryStatus = 'sent';
+  } catch (error) {
+    Logger.log('SHAPE_PRINT_INVITE_DELIVERY_NOT_CONFIRMED');
+    result.deliveryStatus = 'unconfirmed';
+  }
+  return result;
+}
+
+function sendShapePrintInviteEmail_(invite, url) {
+  var name = invite.inviteeName || '同學';
+  var intro = '你受邀加入「116級 畢業製作」形印組。請使用這封信的收件信箱，在專屬連結完成註冊。';
+  var expiry = '有效至 ' + invite.expiresAt + '（台灣時間）。連結限本人使用，請勿轉傳。';
+  var text = [name + ' 您好，', '', intro, url, '', expiry].join('\n');
+  var html = '<p>' + escapeHtml_(name) + ' 您好，</p><p>' + intro
+    + '</p><p><a href="' + escapeHtml_(url) + '">加入形印組</a></p><p>' + escapeHtml_(expiry) + '</p>';
+  sendSystemEmail_(invite.inviteeEmail, '【116級 畢業製作】形印組專屬邀請', text, html);
 }
 
 function handleListShapePrintInvites_(payload) {
