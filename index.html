@@ -2210,7 +2210,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.26-design-service-leader-review.1";
+        const APP_RELEASE = "2026.11.26-design-service-settings-timeout.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -4576,7 +4576,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments', 'createAndSendShapePrintInvite', 'createCalendarEvent', 'updateCalendarEvent'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments', 'createAndSendShapePrintInvite', 'createCalendarEvent', 'updateCalendarEvent', 'configureDesignService'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -4632,7 +4632,9 @@
                     new Promise(function(resolve, reject) {
                         timeout = setTimeout(function() {
                             controller.abort();
-                            reject(new Error("REQUEST_TIMEOUT: 連線等候較久，尚未取得確認。請保留此頁並重試；不要重複建立項目。"));
+                            reject(new Error(action === "configureDesignService"
+                                ? "REQUEST_TIMEOUT: 儲存確認逾時，設定可能已完成。請保留目前選擇，再按一次「儲存設定」查核；系統會避免重複寫入。"
+                                : "REQUEST_TIMEOUT: 連線等候較久，尚未取得確認。請保留此頁並重試；不要重複建立項目。"));
                         }, timeoutMs);
                     })
                 ]);

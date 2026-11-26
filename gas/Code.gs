@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.26-design-service-leader-review.1';
+var APP_RELEASE = '2026.11.26-design-service-settings-timeout.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -8858,9 +8858,15 @@ function handleConfigureDesignService_(payload) {
     throw new Error('只能指定啟用中的形印組長或組員接案。');
   }
 
-  var previousState = cloneObject_(state);
   var settings = getDesignServiceSettings_(state);
-  settings.Enabled = payload.enabled === true || String(payload.enabled || '').toLowerCase() === 'true';
+  var enabled = payload.enabled === true || String(payload.enabled || '').toLowerCase() === 'true';
+  if (settings.Enabled === enabled
+    && JSON.stringify(ensureArray_(settings.Eligible_User_IDs)) === JSON.stringify(eligibleIds)) {
+    return buildClientStateResultForUser_(state, actor, { designServiceSettings: settings });
+  }
+
+  var previousState = cloneObject_(state);
+  settings.Enabled = enabled;
   settings.Eligible_User_IDs = eligibleIds;
   settings.Updated_At = nowString_();
   settings.Updated_By_User_ID = String(actor.User_ID || '');

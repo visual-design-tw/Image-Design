@@ -119,6 +119,21 @@ async function backendTests() {
     assert.deepEqual(result.data.designServiceSettings.Eligible_User_IDs, ['U04']);
     assert.equal(c.writes, 1);
   });
+  await test('retrying an already confirmed setting returns the saved state without another write or log', () => {
+    const c = context();
+    const payload = { action: 'configureDesignService', enabled: true, eligibleUserIds: ['U01', 'U04'], sessionToken: 'SYNTHETIC_U01' };
+    const first = dispatch(c, payload);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const revision = c.db.Meta.State_Revision;
+    const writes = c.writes, logs = c.logs;
+    const retry = dispatch(c, payload);
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(retry.data.designServiceSettings.Enabled, true);
+    assert.deepEqual(retry.data.designServiceSettings.Eligible_User_IDs, ['U01', 'U04']);
+    assert.equal(c.writes, writes);
+    assert.equal(c.logs, logs);
+    assert.equal(c.db.Meta.State_Revision, revision);
+  });
   await test('disabled service and removed eligibility block new claims without changing settings', () => {
     for (const closed of [true, false]) {
       const c = context();
@@ -306,6 +321,21 @@ async function browserTests() {
       const error = await page.evaluate(async () => { try { await submitDesignServiceAction('configureDesignService', {}, 'SHOULD_NOT_SHOW'); return ''; } catch (error) { return error.message; } });
       assert.match(error, /SERVICE_NOT_CONFIRMED/); assert.ok(!(await page.locator('#toast-notif').textContent()).includes('SHOULD_NOT_SHOW'));
       mode = 'normal';
+    });
+    await test('settings save receives the extended confirmation window', async () => {
+      await reset(); await seedPage(page, 'U01');
+      await page.evaluate(() => {
+        const originalSetTimeout = window.setTimeout;
+        window.__configureDesignServiceTimeout = 0;
+        window.setTimeout = function(callback, duration, ...args) {
+          if (duration > window.__configureDesignServiceTimeout) window.__configureDesignServiceTimeout = duration;
+          return originalSetTimeout(callback, duration, ...args);
+        };
+      });
+      await page.evaluate(async () => {
+        try { await requestGas('configureDesignService', { enabled: true, eligibleUserIds: ['U01'] }); } catch (error) {}
+      });
+      assert.equal(await page.evaluate(() => window.__configureDesignServiceTimeout), 90000);
     });
     await test('settings save shows progress, confirms the updated values, and closes only on success', async () => {
       await reset(); delay = 250; await seedPage(page, 'U01');
