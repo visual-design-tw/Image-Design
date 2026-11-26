@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.25-shape-print-invite-mail.1';
+var APP_RELEASE = '2026.11.26-calendar-save.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -3687,77 +3687,101 @@ function buildCalendarEventFromPayload_(payload, actor, existingEvent) {
   });
 }
 
+function findCalendarEvent_(state, eventId) {
+  return state.Calendar_Events.find(function(event) { return event.Event_ID === eventId; }) || null;
+}
+
+function calendarEventFingerprint_(record, editableOnly) {
+  var event = hydrateCalendarEventRecord_(cloneObject_(record));
+  function canonicalTime(value) {
+    try { return normalizeCalendarEventDateTime_(value, '', false); }
+    catch (error) { return value; }
+  }
+  var editable = [event.Stage_ID, event.Title, event.Description, canonicalTime(event.Starts_At),
+    canonicalTime(event.Ends_At || event.Starts_At), event.All_Day,
+    ['meeting', 'production', 'review', 'print', 'reminder'].indexOf(event.Event_Type) >= 0 ? event.Event_Type : 'meeting'];
+  return JSON.stringify(editableOnly ? editable : editable.concat([
+    event.Event_ID, event.Created_At, event.Updated_At, event.Created_By_User_ID, event.Updated_By_User_ID
+  ]));
+}
+
+function calendarSaveResult_(state, actor, event) {
+  return buildClientStateResultForUser_(state, actor, { calendarEvent: event }, { includeHeatmap: false });
+}
+
+function persistCalendarEventSave_(previousState, nextState, actor, event, editing) {
+  // Write only the calendar and revision under the dispatcher lock.
+  nextState.Meta.State_Revision = getStateRevision_(previousState) + 1;
+  writeStateTables_(SpreadsheetApp.openById(getConfig_().spreadsheetId), nextState, previousState);
+  var saved;
+  try { saved = loadState_({ fresh: true }); }
+  catch (error) { throw new Error('CALENDAR_SAVE_NOT_CONFIRMED: 尚未確認儲存，已保留輸入，請重試。'); }
+  var confirmed = findCalendarEvent_(saved, event.Event_ID);
+  if (!confirmed || getStateRevision_(saved) < nextState.Meta.State_Revision
+      || calendarEventFingerprint_(confirmed) !== calendarEventFingerprint_(event)) {
+    throw new Error('CALENDAR_SAVE_NOT_CONFIRMED: 尚未確認儲存，已保留輸入，請重試。');
+  }
+  try {
+    appendActivityLogEntries_([createActivityLogEntry_(actor, (editing ? '更新' : '新增') + '工作行事曆事件',
+      (editing ? '已更新' : '已新增') + '「' + event.Title + '」。', 'calendar-event', event.Event_ID, 'normal',
+      { source: editing ? 'updateCalendarEvent' : 'createCalendarEvent', stageId: event.Stage_ID, eventType: event.Event_Type })]);
+  } catch (error) {
+    Logger.log('CALENDAR_SAVE_ACTIVITY_LOG_FAILED');
+  }
+  return calendarSaveResult_(saved, actor, confirmed);
+}
+
 function handleCreateCalendarEvent_(payload) {
-  var previousState = loadState_();
+  var previousState = loadState_({ fresh: true });
   var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
   assertShapePrintCalendarAccess_(actor);
-  assertExpectedStateRevision_(payload, previousState);
+  var requestId = String(payload.requestId || '');
+  if (!requestId) assertExpectedStateRevision_(payload, previousState);
+  else if (!/^[a-f0-9]{32}$/.test(requestId)) throw new Error('請重新開啟新增事件視窗後再試。');
 
   var nextState = cloneObject_(previousState);
   var event = buildCalendarEventFromPayload_(payload, actor, null);
-  event.Event_ID = generateSequentialId_('CE', nextState.Calendar_Events, 'Event_ID');
+  event.Event_ID = requestId ? 'CE_REQ_' + actor.User_ID + '_' + requestId : generateSequentialId_('CE', nextState.Calendar_Events, 'Event_ID');
+  var existing = requestId && findCalendarEvent_(previousState, event.Event_ID);
+  if (existing) {
+    if (calendarEventFingerprint_(existing, true) !== calendarEventFingerprint_(event, true)) {
+      return { calendarConflict: { event: existing, created: true } };
+    }
+    return calendarSaveResult_(previousState, actor, existing);
+  }
+  if (requestId && previousState.Recycle_Bin.some(function(entry) {
+    return entry.Entity_Type === 'calendar-event' && entry.Entity_ID === event.Event_ID;
+  })) return { calendarConflict: { event: null } };
+
   nextState.Calendar_Events.unshift(event);
-
-  persistState_(nextState, {
-    existingState: previousState,
-    nextRevision: getStateRevision_(previousState) + 1,
-    preserveCalendarEventState: false
-  });
-
-  var savedState = loadState_();
-  appendActivityLogEntries_([
-    createActivityLogEntry_(
-      actor,
-      '新增工作行事曆事件',
-      '已新增「' + event.Title + '」。',
-      'calendar-event',
-      event.Event_ID,
-      'normal',
-      { source: 'createCalendarEvent', stageId: event.Stage_ID, eventType: event.Event_Type }
-    )
-  ]);
-  return buildClientStateResultForUser_(savedState, actor, { calendarEvent: event });
+  return persistCalendarEventSave_(previousState, nextState, actor, event, false);
 }
 
 function handleUpdateCalendarEvent_(payload) {
-  var previousState = loadState_();
+  var previousState = loadState_({ fresh: true });
   var actor = requireSessionUser_(previousState, payload, ['SuperAdmin', 'Admin']);
   assertShapePrintCalendarAccess_(actor);
-  assertExpectedStateRevision_(payload, previousState);
-
-  var eventId = String(payload && payload.eventId || '').trim();
-  var existingEvent = ensureArray_(previousState.Calendar_Events).find(function(event) {
-    return String(event && event.Event_ID || '') === eventId;
-  });
-  if (!existingEvent) {
+  var expected = payload.expectedEvent;
+  if (!expected) assertExpectedStateRevision_(payload, previousState);
+  var eventId = String(payload.eventId || '').trim();
+  var existing = findCalendarEvent_(previousState, eventId);
+  if (!existing) {
+    if (expected) return { calendarConflict: { event: null } };
     throw new Error('NOT_FOUND: 找不到要編輯的行事曆事件，請重新整理後再試。');
   }
-
-  var nextEvent = buildCalendarEventFromPayload_(payload, actor, existingEvent);
+  var updated = buildCalendarEventFromPayload_(payload, actor, existing);
+  if (expected && calendarEventFingerprint_(expected) !== calendarEventFingerprint_(existing)) {
+    if (String(existing.Updated_By_User_ID) === String(actor.User_ID)
+        && calendarEventFingerprint_(updated, true) === calendarEventFingerprint_(existing, true)) {
+      return calendarSaveResult_(previousState, actor, existing);
+    }
+    return { calendarConflict: { event: existing } };
+  }
   var nextState = cloneObject_(previousState);
-  nextState.Calendar_Events = ensureArray_(nextState.Calendar_Events).map(function(event) {
-    return String(event && event.Event_ID || '') === eventId ? nextEvent : event;
+  nextState.Calendar_Events = nextState.Calendar_Events.map(function(event) {
+    return event.Event_ID === eventId ? updated : event;
   });
-
-  persistState_(nextState, {
-    existingState: previousState,
-    nextRevision: getStateRevision_(previousState) + 1,
-    preserveCalendarEventState: false
-  });
-
-  var savedState = loadState_();
-  appendActivityLogEntries_([
-    createActivityLogEntry_(
-      actor,
-      '更新工作行事曆事件',
-      '已更新「' + nextEvent.Title + '」。',
-      'calendar-event',
-      eventId,
-      'normal',
-      { source: 'updateCalendarEvent', stageId: nextEvent.Stage_ID, eventType: nextEvent.Event_Type }
-    )
-  ]);
-  return buildClientStateResultForUser_(savedState, actor, { calendarEvent: nextEvent });
+  return persistCalendarEventSave_(previousState, nextState, actor, updated, true);
 }
 
 function handleDeleteCalendarEvent_(payload) {

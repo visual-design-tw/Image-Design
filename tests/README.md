@@ -14,6 +14,12 @@ on GitHub Pages, and the catalog and upload pages have separate styles.
 under the GitHub Pages subdirectory and validates login and workbench styles
 without any external network requests.
 
+## Calendar Event Save
+
+`node --test tests/calendar-event-save.test.cjs` uses a mocked workbook and the
+real editor to verify unrelated and same-event conflicts, retained changes,
+cross-month dates, and duplicate-free creation retries.
+
 ## Shape Print Invitations
 
 `node --test tests/shape-print-invite.test.cjs` checks store-before-send,

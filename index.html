@@ -1159,7 +1159,7 @@
             .fund-stat:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
         }
     </style>
-    <link rel="stylesheet" href="./workspace.css?v=2">
+    <link rel="stylesheet" href="./workspace.css?v=3">
 </head>
 <body class="min-h-screen flex flex-col antialiased booting">
 
@@ -1944,7 +1944,7 @@
     </div>
 
     <!-- 頁尾資訊彈窗 -->
-    <div id="calendar-event-modal" data-surface-layout="centered-modal" class="fixed inset-0 z-[92] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeCalendarEventModal()">
+    <div id="calendar-event-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-event-modal-title" data-surface-layout="centered-modal" class="fixed inset-0 z-[92] hidden items-center justify-center overflow-y-auto bg-[rgba(15,23,42,0.18)] p-3 sm:p-4 backdrop-blur-[10px]" onclick="if (event.target === this) closeCalendarEventModal()">
         <div class="max-h-[88vh] w-full max-w-[560px] overflow-y-auto rounded-[28px] border border-white/80 bg-[rgba(255,255,255,0.94)] shadow-[0_16px_40px_rgba(15,23,42,0.12),0_4px_16px_rgba(15,23,42,0.05)] backdrop-blur-[28px]">
             <div class="flex items-start justify-between gap-4 px-5 pt-5 pb-4">
                 <div class="flex items-center gap-3">
@@ -1960,7 +1960,7 @@
                     <i data-lucide="x" class="h-5 w-5"></i>
                 </button>
             </div>
-            <div class="space-y-4 px-5 pb-5">
+            <fieldset id="calendar-event-fields" class="space-y-4 px-5 pb-5">
                 <div>
                     <label for="calendar-event-title" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">事件名稱</label>
                     <input id="calendar-event-title" type="text" maxlength="120" class="w-full rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-sm font-semibold text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8] focus:shadow-[0_0_0_4px_rgba(0,113,227,0.08)]" placeholder="例如：印前校對會議">
@@ -2008,8 +2008,16 @@
                     <label for="calendar-event-description" class="mb-1.5 block text-[11px] font-bold text-[#1D1D1F]">備註</label>
                     <textarea id="calendar-event-description" rows="3" maxlength="1000" class="w-full resize-none rounded-2xl border border-[#E5E5EA] bg-white px-4 py-3 text-xs leading-5 text-[#1D1D1F] outline-none transition focus:border-[#C7D7F8]" placeholder="可記錄會議地點、負責事項或提醒內容。"></textarea>
                 </div>
+            </fieldset>
+            <div id="calendar-event-feedback" class="mx-5 mb-4 hidden rounded-xl border border-[#FFE0BE] bg-[#FFFBF6] p-3 text-xs leading-relaxed text-[#6E6E73]">
+                <p id="calendar-event-feedback-text" role="status" aria-live="polite"></p>
+                <div id="calendar-event-latest" class="mt-2 hidden space-y-2 border-t border-[#FFE0BE] pt-2">
+                    <p class="font-bold text-[#1D1D1F]">雲端最新版本</p>
+                    <p id="calendar-event-latest-text" class="whitespace-pre-wrap break-words"></p>
+                    <button type="button" onclick="rebaseCalendarEvent()" class="rounded-lg border border-[#CFE3FF] bg-white px-3 py-2 font-bold text-[#0066CC]">保留我的修改，套用到最新版</button>
+                </div>
             </div>
-            <div class="flex items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[rgba(15,23,42,0.06)] px-5 py-3.5">
                 <button id="calendar-event-delete" type="button" onclick="deleteCalendarEvent()" class="hidden inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-[#FF3B30] transition hover:bg-[#FFF2F0]">
                     <span data-morph-icon="destructive-action" data-morph-icon-state="idle" class="h-3.5 w-3.5" style="--morph-icon-size: 0.875rem" aria-hidden="true"><i data-morph-icon-fallback="true" data-lucide="trash-2" class="h-3.5 w-3.5"></i></span>
                     <span data-morph-action-label data-morph-idle-label="刪除事件">刪除事件</span>
@@ -2202,7 +2210,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.25-shape-print-invite-mail.1";
+        const APP_RELEASE = "2026.11.26-calendar-save.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -2359,6 +2367,7 @@
         let activeCalendarEventId = "";
         let calendarEventFilter = "all";
         let calendarEventSaveInFlight = false;
+        let calendarEventEdit = null;
         let calendarEventDeleteArmed = false;
         let recycleRestoreInFlight = false;
         let activeWorkItemId = "";
@@ -4281,6 +4290,8 @@
 
         function clearStoredSession(options = {}) {
             clearFilePreviewSurfaces();
+            calendarEventSaveInFlight = false;
+            if (calendarEventEdit) closeCalendarEventModal(true);
             shapePrintInvites = [];
             shapePrintInviteListStatus = "idle";
             shapePrintInviteListErrorMessage = "";
@@ -4565,7 +4576,7 @@
             }
             const expectedEpoch = authEpoch;
             const controller = new AbortController();
-            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments', 'createAndSendShapePrintInvite'].includes(action) ? 90000 : 30000;
+            const timeoutMs = isPublicRegistrationRead ? 10000 : /upload|Upload|clearProjectBusinessData|catalogDownload|catalogService(?:Begin|Chunk|Download)|competitionFundPublishAnnouncement|competitionFundAnnouncementPhoto/.test(action) ? 120000 : ['postDiscussionComment', 'claimDesignServiceOrder', 'reviewDesignServiceOrder', 'catalogPurgeItem', 'catalogRetryPurgeAttachments', 'createAndSendShapePrintInvite', 'createCalendarEvent', 'updateCalendarEvent'].includes(action) ? 90000 : 30000;
             let timeout;
             const operation = async function() {
             let response;
@@ -16496,6 +16507,7 @@
         }
 
         function openCalendarEventModal(eventId = "", seedDate = "") {
+            if (calendarEventSaveInFlight) return;
             const roleContext = getEffectiveRoleContext();
             if (!canManageAssignmentBoard(roleContext.effectiveRole)) {
                 showToast("只有形印組可以管理工作行事曆。", "warning");
@@ -16514,6 +16526,10 @@
             const deleteButton = document.getElementById("calendar-event-delete");
             const spacer = document.getElementById("calendar-event-delete-spacer");
             const event = eventId ? getCalendarCustomEvents().find(function(item) { return item.id === eventId; }) : null;
+            if (eventId && !event) {
+                showToast("找不到這筆事件，請重新同步行事曆。", "warning");
+                return;
+            }
             activeCalendarEventId = event ? event.id : "";
             calendarEventDeleteArmed = false;
             const baseDate = (seedDate && calendarDateFromText(seedDate)) || new Date();
@@ -16530,6 +16546,16 @@
             }
             if (allDayInput) allDayInput.checked = Boolean(event && event.allDay);
             if (descriptionInput) descriptionInput.value = event ? event.description : "";
+            const raw = state.Calendar_Events.find(item => item.Event_ID === activeCalendarEventId);
+            calendarEventEdit = {
+                expectedEvent: raw ? cloneStateSnapshot(raw) : null,
+                baseline: getCalendarModalPayload(),
+                stateRevision: remoteStateRevision,
+                requestId: event ? "" : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join(""),
+                conflict: null
+            };
+            setCalendarEventFeedback("");
+            document.getElementById("calendar-event-fields").disabled = false;
             if (deleteButton) {
                 deleteButton.classList.toggle("hidden", !event);
                 setMorphActionButtonState(deleteButton, "destructive-action", "idle", "刪除事件", {
@@ -16554,6 +16580,7 @@
 
         function closeCalendarEventModal(force) {
             if (calendarEventSaveInFlight && force !== true) return;
+            calendarEventEdit = null;
             activeCalendarEventId = "";
             calendarEventDeleteArmed = false;
             closeDateTimePicker();
@@ -16575,20 +16602,74 @@
             };
         }
 
+        function setCalendarEventFeedback(message, latest = null) {
+            document.getElementById("calendar-event-feedback-text").textContent = message;
+            document.getElementById("calendar-event-feedback").classList.toggle("hidden", !message);
+            document.getElementById("calendar-event-latest").classList.toggle("hidden", !latest);
+            if (latest) {
+                document.getElementById("calendar-event-latest-text").textContent = [
+                    latest.Title,
+                    calendarDateTimeLabel(latest.Starts_At, latest.All_Day) + " 至 " + calendarDateTimeLabel(latest.Ends_At || latest.Starts_At, latest.All_Day),
+                    getCalendarEventTypeMeta(latest.Event_Type).label,
+                    latest.Description ? "備註：" + latest.Description : "無備註"
+                ].join("\n");
+                document.getElementById("calendar-event-feedback").scrollIntoView({ block: "nearest" });
+            } else {
+                document.getElementById("calendar-event-latest-text").textContent = "";
+            }
+        }
+
+        function rebaseCalendarEvent() {
+            const context = calendarEventEdit;
+            const latest = context?.conflict?.event;
+            if (!latest || calendarEventSaveInFlight) return;
+            const draft = getCalendarModalPayload();
+            const fields = { title: "title", startsAt: "start", endsAt: "end", eventType: "type", description: "description", allDay: "all-day" };
+            const current = {
+                title: latest.Title, startsAt: calendarInputValue(latest.Starts_At).replace("T", " "),
+                endsAt: calendarInputValue(latest.Ends_At || latest.Starts_At).replace("T", " "),
+                eventType: latest.Event_Type, description: latest.Description, allDay: Boolean(latest.All_Day), stageId: draft.stageId
+            };
+            Object.keys(fields).forEach(function(key) {
+                const input = document.getElementById("calendar-event-" + fields[key]);
+                const value = draft[key] === context.baseline[key] ? current[key] : draft[key];
+                if (key === "allDay") input.checked = value;
+                else input.value = key === "startsAt" || key === "endsAt" ? value.replace(" ", "T") : value;
+            });
+            activeCalendarEventId = latest.Event_ID;
+            context.expectedEvent = latest;
+            context.baseline = current;
+            context.conflict = null;
+            document.getElementById("calendar-event-modal-title").textContent = "編輯工作事件";
+            document.getElementById("calendar-event-save").disabled = false;
+            document.getElementById("calendar-event-delete").disabled = false;
+            enhanceNativeSoftSelects(document.getElementById("calendar-event-modal"));
+            syncDateTimePickerControls(document.getElementById("calendar-event-modal"));
+            setCalendarEventFeedback("已保留你有修改的欄位。請確認內容後再按「儲存事件」。");
+        }
+
         async function saveCalendarEvent() {
-            if (calendarEventSaveInFlight) return;
-            if (!isRemoteSyncEnabled() || !authSessionToken || gasConnectionStatus !== "remote") {
-                showToast("工作行事曆需要保持 GAS 連線，請重新同步後再儲存。", "warning");
+            const context = calendarEventEdit;
+            if (!context || context.conflict || calendarEventSaveInFlight) return;
+            if (!isRemoteSyncEnabled() || !authSessionToken) {
+                setCalendarEventFeedback("請連線並登入雲端後再儲存，輸入仍保留。");
                 return;
             }
             const payload = getCalendarModalPayload();
             if (!payload.title || !payload.startsAt || !payload.endsAt) {
-                showToast("請完整填寫事件名稱與開始、結束時間。", "warning");
+                setCalendarEventFeedback("請完整填寫事件名稱與開始、結束時間。");
                 return;
             }
             const button = document.getElementById("calendar-event-save");
-            const isEditing = Boolean(activeCalendarEventId);
+            const eventId = activeCalendarEventId;
+            const isEditing = Boolean(eventId);
+            const epoch = authEpoch;
             calendarEventSaveInFlight = true;
+            closeDateTimePicker();
+            closeSoftSelects();
+            document.getElementById("calendar-event-fields").disabled = true;
+            document.getElementById("calendar-event-delete").disabled = true;
+            setCalendarEventFeedback("");
             if (button) {
                 setMorphActionButtonState(button, "calendar-action", "loading", "儲存中…", {
                     disabled: true,
@@ -16597,10 +16678,24 @@
             }
             try {
                 const action = isEditing ? "updateCalendarEvent" : "createCalendarEvent";
-                if (activeCalendarEventId) payload.eventId = activeCalendarEventId;
-                const response = await requestGas(action, Object.assign({}, payload, { stateRevision: remoteStateRevision }));
-                if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "" })) {
-                    throw new Error("雲端沒有回傳最新行事曆資料。");
+                const response = await requestGas(action, Object.assign({}, payload, { stateRevision: context.stateRevision },
+                    isEditing ? { eventId, expectedEvent: context.expectedEvent } : { requestId: context.requestId }));
+                if (authEpoch !== epoch || calendarEventEdit !== context) return;
+                const result = response?.data;
+                if (result?.calendarConflict) {
+                    context.conflict = result.calendarConflict;
+                    setCalendarEventFeedback(context.conflict.event
+                        ? context.conflict.created
+                            ? "這筆事件先前已新增。請確認雲端版本，再決定是否套用目前的輸入。"
+                            : "這筆事件已被更新。你的輸入仍保留，未覆蓋雲端內容。"
+                        : "這筆事件已不在行事曆。你的輸入仍保留，可複製內容後另建事件。", context.conflict.event);
+                    return;
+                }
+                if (!result?.calendarEvent?.Event_ID || (isEditing && result.calendarEvent.Event_ID !== eventId)
+                    || !Array.isArray(result.state?.Calendar_Events)
+                    || !result.state.Calendar_Events.some(event => event.Event_ID === result.calendarEvent.Event_ID)
+                    || !applyBackendStateResponse(response, { preferredUserId: currentUser?.User_ID || "", allowFallback: false, skipRender: true, keepExistingHeatmap: true })) {
+                    throw new Error("雲端尚未確認這次儲存，請保留輸入並重試確認。");
                 }
                 const savedDate = calendarDateFromText(payload.startsAt);
                 if (savedDate) calendarViewCursor = new Date(savedDate.getFullYear(), savedDate.getMonth(), 1);
@@ -16608,12 +16703,18 @@
                 renderAll();
                 showToast(isEditing ? "工作事件已更新。" : "工作事件已新增。", "success");
             } catch (error) {
-                showToast(error && error.message ? error.message : "儲存工作事件失敗。", "warning");
+                if (authEpoch !== epoch || calendarEventEdit !== context || error.sessionExpired) return;
+                const message = String(error.message || "");
+                setCalendarEventFeedback(/^STATE_CONFLICT:/.test(message)
+                    ? "目前的雲端版本要求重新同步。輸入仍保留，請先記下修改再重新開啟事件。"
+                    : message.replace(/^[A-Z_]+:\s*/, "") || "雲端尚未確認儲存，請保留輸入並重試。");
             } finally {
-                calendarEventSaveInFlight = false;
-                if (button) {
+                if (authEpoch === epoch) {
+                    calendarEventSaveInFlight = false;
+                    document.getElementById("calendar-event-fields").disabled = false;
+                    document.getElementById("calendar-event-delete").disabled = Boolean(context.conflict);
                     setMorphActionButtonState(button, "calendar-action", "idle", "儲存事件", {
-                        disabled: false,
+                        disabled: Boolean(context.conflict),
                         busy: false
                     });
                 }
@@ -16621,7 +16722,7 @@
         }
 
         async function deleteCalendarEvent() {
-            if (!activeCalendarEventId || calendarEventSaveInFlight) return;
+            if (!activeCalendarEventId || calendarEventSaveInFlight || calendarEventEdit?.conflict) return;
             const button = document.getElementById("calendar-event-delete");
             if (!calendarEventDeleteArmed) {
                 calendarEventDeleteArmed = true;
@@ -16657,7 +16758,7 @@
                 });
             }
             try {
-                const response = await requestGas("deleteCalendarEvent", { eventId: eventId, stateRevision: remoteStateRevision });
+                const response = await requestGas("deleteCalendarEvent", { eventId: eventId, stateRevision: calendarEventEdit?.stateRevision ?? remoteStateRevision });
                 if (!applyBackendStateResponse(response, { preferredUserId: currentUser && currentUser.User_ID ? currentUser.User_ID : "" })) {
                     throw new Error("雲端沒有回傳最新行事曆資料。");
                 }
