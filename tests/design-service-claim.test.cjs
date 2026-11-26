@@ -92,14 +92,22 @@ async function backendTests() {
       const result = dispatch(c, input(user)); assert.equal(result.ok, false); assert.equal(c.writes, 0);
     }
   });
+  await test('eligible shape-print leader can claim a service order', () => {
+    const c = context();
+    c.db.Design_Service_Settings[0].Eligible_User_IDs = ['U01'];
+    const result = dispatch(c, input('U01'));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.data.designServiceOrder.Responsible_User_ID, 'U01');
+    assert.equal(c.writes, 1);
+  });
   await test('service settings use the fresh state and return the confirmed saved values', () => {
     const c = context();
     c.db.Assignments[0].Body = 'Latest value from another manager';
-    const result = dispatch(c, { action: 'configureDesignService', enabled: true, eligibleUserIds: ['U04', 'U05'], sessionToken: 'SYNTHETIC_U01' });
+    const result = dispatch(c, { action: 'configureDesignService', enabled: true, eligibleUserIds: ['U01', 'U04', 'U05'], sessionToken: 'SYNTHETIC_U01' });
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.data.state.Assignments[0].Body, 'Latest value from another manager');
     assert.equal(result.data.designServiceSettings.Enabled, true);
-    assert.deepEqual(result.data.designServiceSettings.Eligible_User_IDs, ['U04', 'U05']);
+    assert.deepEqual(result.data.designServiceSettings.Eligible_User_IDs, ['U01', 'U04', 'U05']);
     assert.equal(c.writes, 1); assert.equal(c.reads.length, 2);
     assert.ok(c.reads.every(read => read.fresh && read.locked));
   });

@@ -146,7 +146,7 @@
         const latest = data.latest;
         const state = latest?.status === 'returned' && !data.canSubmit ? 'overdue' : latest?.status;
         const overview = data.serviceSelectionRequired
-            ? { title: '先選擇排版組員', kicker: '繳交前', hint: '確認人選後，就可以開始填寫或上傳素材。' }
+            ? { title: '先選擇排版人員', kicker: '繳交前', hint: '確認人選後，就可以開始填寫或上傳素材。' }
             : overviewStates[state] || overviewStates[data.canSubmit ? 'open' : 'closed'];
         field('overview-heading').dataset.tone = overview.tone || '';
         field('overview-icon').hidden = !overview.icon;

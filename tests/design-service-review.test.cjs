@@ -15,7 +15,8 @@ async function test(name, fn) {
 }
 function context() {
   const c = backend(), seed = fixture();
-  seed.Users.push({ User_ID: 'U05', Name: 'Fixture teacher', Email: 'teacher@example.invalid', Team_ID: 'T00', Role: 'SuperAdmin', Status: 'Active' });
+  seed.Users.push({ User_ID: 'U05', Name: 'Fixture teacher', Email: 'te0063@mail.tut.edu.tw', Team_ID: 'T00', Role: 'SuperAdmin', Status: 'Active' });
+  seed.Users.push({ User_ID: 'U06', Name: 'Second fixture leader', Email: 'second-leader@example.invalid', Team_ID: 'T00', Role: 'SuperAdmin', Status: 'Active' });
   seed.Design_Service_Orders = [{ Service_Order_ID: id, Assignment_ID: 'A01', Stage_ID: 'S01', Team_ID: 'T01',
     Responsible_User_ID: 'U04', Responsible_Name: 'Fixture worker', Status: '待審核', File_Name: 'synthetic-result.ai',
     Drive_File_ID: 'SYNTHETIC_FILE', Submitted_At: '2026-10-22 09:00', Review_Note: '' }];
@@ -89,6 +90,21 @@ async function backendTests() {
   await test('teachers with manager permissions can review without broadening access', () => {
     const c = context(), r = dispatch(c, input({ sessionToken: 'SYNTHETIC_U05' }));
     assert.equal(r.ok, true); assert.equal(r.data.designServiceOrder.Reviewed_By_User_ID, 'U05');
+  });
+  await test('only the producing shape-print leader can review the leader-owned result', () => {
+    const c = context();
+    c.db.Design_Service_Orders[0].Responsible_User_ID = 'U01';
+    c.db.Design_Service_Orders[0].Responsible_Name = 'Audit manager';
+    for (const user of ['U05', 'U06']) {
+      const denied = dispatch(c, input({ sessionToken: 'SYNTHETIC_' + user }));
+      assert.equal(denied.ok, false);
+      assert.match(denied.error.message, /FORBIDDEN/);
+      assert.equal(c.writes, 0);
+    }
+    const approved = dispatch(c, input());
+    assert.equal(approved.ok, true, JSON.stringify(approved));
+    assert.equal(approved.data.designServiceOrder.Reviewed_By_User_ID, 'U01');
+    assert.equal(c.writes, 1);
   });
   await test('missing order, missing deliverable, invalid decision and nonpending status fail without writes', () => {
     for (const change of [c => { c.db.Design_Service_Orders = []; }, c => { c.db.Design_Service_Orders[0].Drive_File_ID = ''; },

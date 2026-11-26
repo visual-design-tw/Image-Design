@@ -39,7 +39,7 @@ var AUTH_SESSION_MAX_PER_USER = 5;
 var AUTH_LOGIN_MAX_ATTEMPTS = 5;
 var AUTH_LOGIN_LOCKOUT_SECONDS = 10 * 60;
 var MIN_PASSWORD_LENGTH = 8;
-var APP_RELEASE = '2026.11.26-calendar-save.1';
+var APP_RELEASE = '2026.11.26-design-service-leader-review.1';
 var PROJECT_DISPLAY_NAME = '116級 畢業製作';
 var PROJECT_FALLBACK_STAGE_ID = 'S116';
 var PROJECT_DEFAULT_BUDGET = 200000;
@@ -2286,6 +2286,10 @@ function resolveAuditActor_(state, userId) {
 
 function isShapePrintUser_(user) {
   return Boolean(user) && ['SuperAdmin', 'Admin'].indexOf(String(user.Role || '')) >= 0;
+}
+
+function isShapePrintLeader_(user) {
+  return Boolean(user) && competitionFundIsLeader_(user);
 }
 
 function getWorkspaceAccessPolicy_() {
@@ -8758,11 +8762,25 @@ function getDesignServiceEligibleUserIds_(state, settings) {
   });
   return ensureArray_(state && state.Users).filter(function(user) {
     return requestedIds.indexOf(String(user.User_ID || '')) >= 0
-      && String(user.Role || '') === 'Admin'
-      && String(user.Status || '') === 'Active';
+      && canProduceDesignService_(user);
   }).map(function(user) {
     return String(user.User_ID || '');
   });
+}
+
+function canProduceDesignService_(user) {
+  return Boolean(user && user.User_ID && user.Status === 'Active'
+    && (user.Role === 'Admin' || isShapePrintLeader_(user)));
+}
+
+function designServiceLeaderOwner_(state, order) {
+  var owner = resolveAuditActor_(state, order.Responsible_User_ID);
+  return isShapePrintLeader_(owner) ? owner : null;
+}
+
+function canUploadDesignServiceOrder_(state, order, actor) {
+  if (order.Responsible_User_ID === actor.User_ID) return canProduceDesignService_(actor);
+  return actor.Role === 'SuperAdmin' && !designServiceLeaderOwner_(state, order);
 }
 
 function getDesignServiceAssignmentContext_(state, assignmentId, teamId) {
@@ -8833,13 +8851,11 @@ function handleConfigureDesignService_(payload) {
   });
   var invalidIds = eligibleIds.filter(function(userId) {
     return !ensureArray_(state.Users).some(function(user) {
-      return String(user.User_ID || '') === userId
-        && String(user.Role || '') === 'Admin'
-        && String(user.Status || '') === 'Active';
+      return String(user.User_ID || '') === userId && canProduceDesignService_(user);
     });
   });
   if (invalidIds.length > 0) {
-    throw new Error('只能指定目前為啟用中的形印組員接案。');
+    throw new Error('只能指定啟用中的形印組長或組員接案。');
   }
 
   var previousState = cloneObject_(state);
@@ -8974,7 +8990,10 @@ function loadDesignServiceClaimState_() {
 function handleClaimDesignServiceOrder_(payload) {
   // doPost holds the script lock through the fresh read, commit and confirmation.
   var state = loadDesignServiceClaimState_();
-  var actor = requireSessionUser_(state, payload, ['Admin']);
+  var actor = requireSessionUser_(state, payload, ['SuperAdmin', 'Admin']);
+  if (!canProduceDesignService_(actor)) {
+    throw new Error('CLAIM_FORBIDDEN: 只有具接案資格的形印組長或組員可以接案。');
+  }
   var order = getDesignServiceOrderById_(state, payload.serviceOrderId);
   if (!order) {
     throw new Error('CLAIM_UNAVAILABLE: 找不到這筆案件，可能已移除，請更新清單後再確認。');
@@ -9055,6 +9074,7 @@ function handleClaimDesignServiceOrder_(payload) {
 
 function updateDesignServiceOrderWithDrive_(state, actor, order, driveResult) {
   var submittedAt = nowString_();
+  var leaderOwner = designServiceLeaderOwner_(state, order);
   order.File_Name = String(driveResult.fileName || '');
   order.Google_Drive_URL = String(driveResult.fileUrl || '');
   order.Drive_File_ID = String(driveResult.fileId || '');
@@ -9069,11 +9089,12 @@ function updateDesignServiceOrderWithDrive_(state, actor, order, driveResult) {
   createNotifications_(state, {
     type: 'design-service-deliverable',
     title: '形印代做成果已送審',
-    message: '「' + order.Service_Order_ID + '」已由 ' + String(actor.Name || '形印組員') + ' 上傳成果，等待組長審核。',
+    message: '「' + order.Service_Order_ID + '」已由 ' + String(actor.Name || '形印組員') + ' 上傳成果，'
+      + (leaderOwner ? '等待製作的組長本人審核。' : '等待組長審核。'),
     tab: 'design-service',
     refType: 'design-service-order',
     refId: order.Service_Order_ID,
-    audience: {
+    audience: leaderOwner ? { userIds: [leaderOwner.User_ID], teamIds: [order.Team_ID] } : {
       roles: ['SuperAdmin'],
       teamIds: [order.Team_ID]
     },
@@ -9092,7 +9113,7 @@ function handleUploadDesignServiceDeliverable_(payload) {
   if (!order) {
     throw new Error('找不到指定的形印代做案件。');
   }
-  if (String(actor.Role || '') !== 'SuperAdmin' && String(order.Responsible_User_ID || '') !== String(actor.User_ID || '')) {
+  if (!canUploadDesignServiceOrder_(state, order, actor)) {
     throw new Error('FORBIDDEN: 只有案件負責人可以上傳形印代做成果。');
   }
   if (['製作中', '退回修正'].indexOf(String(order.Status || '')) === -1) {
@@ -9177,6 +9198,10 @@ function handleReviewDesignServiceOrder_(payload) {
   var reviewNote = String(payload.reviewNote || payload.comment || '').trim();
   if (!order) {
     throw new Error('REVIEW_UNAVAILABLE: 找不到這筆案件，請保留意見並更新清單後確認。');
+  }
+  var leaderOwner = designServiceLeaderOwner_(state, order);
+  if (leaderOwner && leaderOwner.User_ID !== reviewer.User_ID) {
+    throw new Error('FORBIDDEN: 這份成果只能由製作的形印組長本人審核。');
   }
   if (['通過', '退件'].indexOf(decision) === -1) {
     throw new Error('請選擇通過或退回修正。');
@@ -9622,8 +9647,7 @@ function handleLargeDesignServiceFormUpload_(payload, resumableDriveResult) {
   if (!order) {
     throw new Error('找不到指定的形印代做案件。');
   }
-  if (String(currentUser.Role || '') !== 'SuperAdmin'
-    && String(order.Responsible_User_ID || '') !== String(currentUser.User_ID || '')) {
+  if (!canUploadDesignServiceOrder_(state, order, currentUser)) {
     throw new Error('FORBIDDEN: 只有案件負責人可以上傳形印代做成果。');
   }
   if (['製作中', '退回修正'].indexOf(String(order.Status || '')) === -1) {
@@ -10608,11 +10632,16 @@ function catalogServiceContext_(tables, order) {
 }
 
 function catalogServiceIsOwner_(ctx, actor) {
-  return ctx.order.Owner_ID === actor.User_ID && actor.Role === 'Admin' && catalogIsEligibleReviewer_(actor, ctx.group);
+  return ctx.order.Owner_ID === actor.User_ID && canProduceDesignService_(actor) && catalogIsEligibleReviewer_(actor, ctx.group);
 }
 
 function catalogServiceIsManager_(ctx, actor) {
   return actor.Role === 'SuperAdmin' && catalogIsEligibleReviewer_(actor, ctx.group);
+}
+
+function catalogServiceResultReviewerId_(ctx, users) {
+  var author = catalogFind_(users, 'User_ID', ctx.results[0]?.Owner_ID);
+  return isShapePrintLeader_(author) ? author.User_ID : '';
 }
 
 function catalogServiceBoard_(tables, auth, rows) {
@@ -10650,12 +10679,16 @@ function catalogServiceBoard_(tables, auth, rows) {
       var owner = catalogFind_(auth.users, 'User_ID', order.Owner_ID);
       var requested = catalogFind_(auth.users, 'User_ID', order.Requested_ID);
       var material = ctx.source ? catalogSubmissionView_(ctx.source, auth.users) : null;
+      var reviewerId = catalogServiceResultReviewerId_(ctx, auth.users);
+      var pendingReview = order.Status === 'review' && ctx.results[0]?.Status === 'pending';
       return Object.assign(view, {
         brief: order.Brief, published: order.Public === true, ownerId: order.Owner_ID,
         ownerName: owner?.Name || '', requestedId: manage ? order.Requested_ID : '', requestedName: manage ? requested?.Name || '' : '',
         legacyTeamId: ctx.group.Legacy_Team_ID, canManage: manage, sourceStatus: ctx.sourceStatus,
         canAssign: manage && Boolean(ctx.source) && ['requested', 'open', 'making', 'returned'].indexOf(order.Status) >= 0,
         canUpload: owns && ['making', 'returned'].indexOf(order.Status) >= 0,
+        canReview: manage && pendingReview && (!reviewerId || reviewerId === actor.User_ID),
+        reviewReservedForOwner: manage && pendingReview && Boolean(reviewerId) && reviewerId !== actor.User_ID,
         material: material && { id: material.id, version: material.version, text: material.text, fileName: material.fileName, fileSize: material.fileSize },
         results: ctx.results.map(function(row) {
           return { id: row.Result_ID, version: row.Version, fileName: row.File_Name, fileSize: row.File_Size, submittedAt: row.Submitted_At,
@@ -10700,7 +10733,7 @@ function catalogServiceInstructions_(payload) {
 function catalogServiceResolveOwner_(tables, auth, group, id) {
   var candidates = catalogServiceEligibleUsers_(auth.users, tables.Design_Service_Settings, group);
   if ((id && !candidates.some(function(user) { return user.User_ID === id; })) || (!id && !candidates.length)) {
-    throw new Error('CATALOG_SERVICE_INPUT: 所選組員目前無法接案，請確認最新接案名單。');
+    throw new Error('CATALOG_SERVICE_INPUT: 所選人員目前無法接案，請確認最新接案名單。');
   }
   return id;
 }
@@ -10730,7 +10763,7 @@ function handleCatalogGuestRequestService_(payload) {
   var ctx = readCatalogGuestContext_(identity, true);
   requireCatalogGuestGrant_(ctx, payload);
   if (ctx.item.Allow_Service_Request !== true) {
-    throw new Error('CATALOG_CLOSED: 此收件目前未開放選擇排版組員。');
+    throw new Error('CATALOG_CLOSED: 此收件目前未開放選擇排版人員。');
   }
   var id = 'PCGSR_' + catalogRequestId_(payload);
   var tables = readCatalogServiceData_(false);
@@ -10738,14 +10771,14 @@ function handleCatalogGuestRequestService_(payload) {
   var existing = catalogFind_(orders, 'Order_ID', id);
   if (existing && existing.Target_ID === identity.targetId) return { intake: catalogGuestView_(ctx, true) };
   if (!catalogGuestCanRequestService_(ctx, catalogGuestWindow_(ctx))) {
-    throw new Error('CATALOG_CLOSED: 目前不能選擇排版組員，請聯絡負責人。');
+    throw new Error('CATALOG_CLOSED: 目前不能選擇排版人員，請聯絡負責人。');
   }
   if (existing || orders.some(function(order) { return order.Target_ID === identity.targetId && order.Status !== 'cancelled'; })) {
     throw new Error('CATALOG_CHANGED: 此收件已有排版案件。請更新狀態後再確認。');
   }
   var users = loadResumableUploadAuthState_().Users;
   var candidate = String(payload.memberId || '');
-  if (!candidate) throw new Error('CATALOG_SERVICE_INPUT: 請先選擇一位排版組員。');
+  if (!candidate) throw new Error('CATALOG_SERVICE_INPUT: 請先選擇一位排版人員。');
   catalogServiceResolveOwner_(tables, { users: users }, ctx.group, candidate);
   ctx.order = { Order_ID: id, Target_ID: identity.targetId, Source_ID: '', Requested_ID: candidate,
     Owner_ID: '', Brief: '', Due_At: '', Status: 'requested', Public: true, Revision: 1, Created_At: new Date().toISOString() };
@@ -10764,6 +10797,10 @@ function handleCatalogServiceChange_(payload) {
   var actor = auth.actor;
   if (!ctx || (operation !== 'claim' && !catalogServiceIsManager_(ctx, actor))) {
     throw new Error('FORBIDDEN: 你不能操作這個代做案件。');
+  }
+  var reviewerId = operation === 'review' ? catalogServiceResultReviewerId_(ctx, auth.users) : '';
+  if (reviewerId && reviewerId !== actor.User_ID) {
+    throw new Error('FORBIDDEN: 這份成果只能由製作的形印組長本人審核。');
   }
   var requestId = catalogRequestId_(payload);
   if (order.Last_Request_ID === requestId && order.Last_Action === operation && order.Last_Actor_ID === actor.User_ID) {
@@ -10793,7 +10830,7 @@ function handleCatalogServiceChange_(payload) {
     if (order.Status !== 'review' || !result || result.Status !== 'pending' || result.Result_ID !== payload.resultId) {
       throw new Error('CATALOG_CHANGED: 請重新開啟並確認最新成果。');
     }
-    if (result.Owner_ID === actor.User_ID) throw new Error('FORBIDDEN: 不能審核自己提交的成果。');
+    if (result.Owner_ID === actor.User_ID && !reviewerId) throw new Error('FORBIDDEN: 不能審核自己提交的成果。');
     var note = String(payload.note || '').trim();
     var decision = payload.decision;
     if (['approved', 'returned'].indexOf(decision) < 0 || note.length > 1000 || (decision === 'returned' && !note)) {
@@ -11351,7 +11388,7 @@ function catalogGuestServiceCandidates_(context) {
 function catalogAssertInitialServiceChoice_(context) {
   var window = catalogGuestWindow_(context);
   if (!window.latest && catalogGuestCanChooseService_(context, window) && catalogGuestServiceCandidates_(context).length) {
-    throw new Error('CATALOG_SERVICE_SELECTION_REQUIRED: 請先回到收件首頁選擇排版組員，再繼續繳交。');
+    throw new Error('CATALOG_SERVICE_SELECTION_REQUIRED: 請先回到收件首頁選擇排版人員，再繼續繳交。');
   }
 }
 

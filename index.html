@@ -1810,7 +1810,7 @@
     <div id="design-service-settings-modal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-[82] flex items-center justify-center p-4 hidden" onclick="if (event.target === this) closeDesignServiceSettingsModal()">
         <div class="max-h-[88vh] w-full max-w-lg space-y-5 overflow-y-auto rounded-3xl border border-[#E8E8ED] bg-white p-6 shadow-xl animate-in fade-in zoom-in duration-200">
             <div class="flex items-start justify-between gap-4">
-                <div class="flex items-center gap-2 text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">形印代做設定</h3><p class="mt-0.5 text-[10px] text-[#86868B]">由形印組組長控制是否開放，以及哪些組員可以接案。</p></div></div>
+                <div class="flex items-center gap-2 text-[#0066CC]"><i data-lucide="sliders-horizontal" class="h-5 w-5"></i><div><h3 class="font-bold text-base text-[#1D1D1F]">形印代做設定</h3><p class="mt-0.5 text-[10px] text-[#86868B]">設定是否開放申請，以及誰可以接案。</p></div></div>
                 <button type="button" data-design-service-close onclick="closeDesignServiceSettingsModal()" class="text-[#86868B] hover:text-[#1D1D1F] disabled:cursor-wait disabled:opacity-50"><i data-lucide="x" class="h-5 w-5"></i></button>
             </div>
             <div id="design-service-settings-modal-body" class="space-y-4"></div>
@@ -2210,7 +2210,7 @@
         const REMOTE_STATE_CACHE_PREFIX = "shapeprint_remote_state_v1:";
         const REMOTE_STATE_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
         const REMEMBERED_LOGIN_KEY = "shapeprint_remembered_login_v1";
-        const APP_RELEASE = "2026.11.26-calendar-save.1";
+        const APP_RELEASE = "2026.11.26-design-service-leader-review.1";
         const REMEMBERED_EMAIL_KEY = "shapeprint_remembered_email_v2";
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyfTfGZtJMc8tPEFDW2lqi_11bDQ7B8Pj_4jVBDArX13jYu9ZxomYoCU0SgMbDuqus/exec";
         const ENABLE_DEMO_MODE = false;
@@ -12490,8 +12490,7 @@
 
             let roleDisplay = "畢業組員";
             if (effectiveRole === "SuperAdmin") {
-                const isGuidingTeacher = String(currentUser.Email || "").toLowerCase() === "te0063@mail.tut.edu.tw";
-                roleDisplay = isGuidingTeacher ? "形印指導教師" : "形印組長";
+                roleDisplay = isShapePrintLeader(currentUser) ? "形印組長" : "形印指導教師";
             } else if (effectiveRole === "Admin") {
                 roleDisplay = "形印組員";
             } else if (effectiveRole === "Leader") {
@@ -12563,10 +12562,38 @@
             return tones[String(status || "")] || "bg-[#F2F2F7] text-[#86868B]";
         }
 
+        function isShapePrintLeader(user) {
+            return user?.Role === "SuperAdmin" && String(user.Email || "").trim().toLowerCase() !== "te0063@mail.tut.edu.tw";
+        }
+
+        function canProduceDesignService(user) {
+            return Boolean(user?.User_ID && user.Status === "Active" && (user.Role === "Admin" || isShapePrintLeader(user)));
+        }
+
+        function isDesignServiceProducerWorkspace() {
+            return canProduceDesignService(currentUser) && getEffectiveRoleContext().effectiveRole === currentUser.Role;
+        }
+
+        function designServiceLeaderOwnerId(order) {
+            const owner = ensureArray(state.Users).find(user => user.User_ID === order?.Responsible_User_ID);
+            return isShapePrintLeader(owner) ? owner.User_ID : "";
+        }
+
+        function canReviewDesignServiceOrder(order) {
+            const leaderId = designServiceLeaderOwnerId(order);
+            return Boolean(order && canManageDesignServiceSettings() && (!leaderId || leaderId === currentUser?.User_ID));
+        }
+
+        function canUploadDesignServiceOrder(order) {
+            if (!order) return false;
+            if (order.Responsible_User_ID === currentUser?.User_ID) return isDesignServiceProducerWorkspace();
+            return canManageDesignServiceSettings() && !designServiceLeaderOwnerId(order);
+        }
+
         function getDesignServiceEligibleUsers() {
             const eligibleIds = getDesignServiceSettings().Eligible_User_IDs;
             return ensureArray(state.Users).filter(function(user) {
-                return user.Role === "Admin" && user.Status === "Active" && eligibleIds.includes(String(user.User_ID || ""));
+                return canProduceDesignService(user) && eligibleIds.includes(String(user.User_ID || ""));
             });
         }
 
@@ -12682,20 +12709,19 @@
             const body = document.getElementById("design-service-settings-modal-body");
             if (!modal || !body) return;
             const settings = getDesignServiceSettings();
-            const members = ensureArray(state.Users).filter(function(user) {
-                return user.Role === "Admin" && user.Status === "Active";
-            });
+            const candidates = ensureArray(state.Users).filter(canProduceDesignService);
             body.innerHTML = `
                 <label class="flex items-center justify-between gap-4 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-3 cursor-pointer">
                     <span><span class="block text-xs font-bold text-[#1D1D1F]">開放形印代做申請</span><span class="mt-1 block text-[10px] text-[#86868B]">關閉後，其他小組不會再看到新的申請入口。</span></span>
                     <input id="design-service-enabled-toggle" type="checkbox" ${settings.Enabled ? "checked" : ""} class="h-5 w-5 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]">
                 </label>
                 <div class="space-y-2">
-                    <div><p class="text-xs font-bold text-[#1D1D1F]">可接案的形印組員</p><p class="mt-1 text-[10px] text-[#86868B]">只有勾選的形印組員會收到待接案通知並可以鎖定案件。</p></div>
+                    <div><p class="text-xs font-bold text-[#1D1D1F]">可接案人員</p><p class="mt-1 text-[10px] text-[#86868B]">勾選可接案的組長與組員。組長製作的成果僅由本人審核。</p></div>
                     <div class="space-y-2">
-                        ${members.length === 0 ? '<p class="rounded-2xl bg-[#F5F5F7] p-4 text-xs text-[#86868B]">目前沒有可設定的形印組員。</p>' : members.map(function(user) {
+                        ${candidates.length === 0 ? '<p class="rounded-2xl bg-[#F5F5F7] p-4 text-xs text-[#86868B]">目前沒有可接案的啟用帳號。</p>' : candidates.map(function(user) {
                             const checked = settings.Eligible_User_IDs.includes(String(user.User_ID || ""));
-                            return `<label class="flex items-center justify-between gap-3 rounded-2xl border border-[#E8E8ED] px-4 py-3 cursor-pointer hover:bg-[#FBFBFD]"><span><span class="block text-xs font-semibold text-[#1D1D1F]">${escapeHtml(user.Name)}</span><span class="mt-1 block text-[10px] text-[#86868B]">${escapeHtml(user.Email || "形印組員")}</span></span><input type="checkbox" data-design-service-user-id="${escapeHtml(user.User_ID)}" ${checked ? "checked" : ""} class="h-5 w-5 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]"></label>`;
+                            const role = isShapePrintLeader(user) ? "形印組長" : "形印組員";
+                            return `<label class="flex items-center justify-between gap-3 rounded-2xl border border-[#E8E8ED] px-4 py-3 cursor-pointer hover:bg-[#FBFBFD]"><span><span class="block text-xs font-semibold text-[#1D1D1F]">${escapeHtml(user.Name)}</span><span class="mt-1 block text-[10px] text-[#86868B]">${role}${user.Email ? " · " + escapeHtml(user.Email) : ""}</span></span><input type="checkbox" data-design-service-user-id="${escapeHtml(user.User_ID)}" ${checked ? "checked" : ""} class="h-5 w-5 rounded border-[#D1D1D6] text-[#0066CC] focus:ring-[#0066CC]"></label>`;
                         }).join("")}
                     </div>
                 </div>
@@ -12768,15 +12794,16 @@
 
         function openDesignServiceReviewModal(orderId) {
             if (designServiceReviewInFlight) return;
-            if (!canManageDesignServiceSettings()) {
-                showToast("只有形印組組長可以審核形印代做成果。", "warning");
+            const order = getDesignServiceOrderById(orderId);
+            if (!order) return;
+            if (!canReviewDesignServiceOrder(order)) {
+                showToast(designServiceLeaderOwnerId(order) ? "這份成果只能由製作的形印組長本人審核。" : "請以形印組長或指導教師身分開啟審核。", "warning");
                 return;
             }
-            const order = getDesignServiceOrderById(orderId);
             const modal = document.getElementById("design-service-review-modal");
             const title = document.getElementById("design-service-review-title");
             const note = document.getElementById("design-service-review-note");
-            if (!order || !modal) return;
+            if (!modal) return;
             if (order.Status !== '待審核') {
                 showToast('這筆案件目前不是待審核狀態，請確認最新案件清單。', 'info');
                 return;
@@ -12844,8 +12871,9 @@
                 note?.focus();
                 return;
             }
-            if (!canManageDesignServiceSettings() || context.userId !== String(currentUser?.User_ID || '')) {
-                context.message = '請以形印組長或指導教師身分重新開啟審核。';
+            const order = getDesignServiceOrderById(activeDesignServiceReviewOrderId);
+            if (!canReviewDesignServiceOrder(order) || context.userId !== String(currentUser?.User_ID || '')) {
+                context.message = designServiceLeaderOwnerId(order) ? '這份成果只能由製作的形印組長本人審核。' : '請以具審核權限的帳號重新開啟案件。';
                 renderDesignServiceReviewState();
                 return;
             }
@@ -12933,8 +12961,7 @@
 
         function openDesignServiceUploadModal(orderId) {
             const order = getDesignServiceOrderById(orderId);
-            const roleContext = getEffectiveRoleContext();
-            if (!order || (roleContext.effectiveRole !== "SuperAdmin" && String(order.Responsible_User_ID || "") !== String(currentUser && currentUser.User_ID || ""))) {
+            if (!canUploadDesignServiceOrder(order)) {
                 showToast("只有案件負責人可以上傳形印代做成果。", "warning");
                 return;
             }
@@ -17661,8 +17688,8 @@
             const id = String(orderId || '');
             const userId = String(currentUser?.User_ID || '');
             const entry = { userId: userId, phase: 'pending', message: '正在確認最新案件與負責人，請稍候，不需要重複點擊。' };
-            if (!id || !getDesignServiceOrderById(id) || getEffectiveRoleContext().effectiveRole !== 'Admin') {
-                showToast('請以具接案資格的形印組員身分操作。', 'warning');
+            if (!id || !getDesignServiceOrderById(id) || !isDesignServiceProducerWorkspace()) {
+                showToast('請以具接案資格的形印組長或組員身分操作。', 'warning');
                 return;
             }
             if (remoteMutationInFlight) {
@@ -17744,7 +17771,8 @@
             const makingCount = orders.filter(function(order) { return order.Status === "製作中" || order.Status === "退回修正"; }).length;
             const reviewCount = orders.filter(function(order) { return order.Status === "待審核"; }).length;
             const eligible = getDesignServiceEligibleUsers();
-            const currentUserCanClaim = effectiveRole === "Admin" && eligible.some(function(user) {
+            const currentUserIsProducer = isDesignServiceProducerWorkspace();
+            const currentUserCanClaim = currentUserIsProducer && eligible.some(function(user) {
                 return String(user.User_ID || "") === String(currentUser && currentUser.User_ID || "");
             });
 
@@ -17760,7 +17788,7 @@
                             <div class="rounded-2xl bg-[#F5F5F7] p-3 md:p-4"><p class="text-[10px] font-semibold text-[#86868B]">製作中</p><p class="mt-1 text-2xl font-extrabold text-[#1D1D1F]">${makingCount}</p></div>
                             <div class="rounded-2xl bg-[#F5F5F7] p-3 md:p-4"><p class="text-[10px] font-semibold text-[#86868B]">待審核</p><p class="mt-1 text-2xl font-extrabold text-[#1D1D1F]">${reviewCount}</p></div>
                         </div>
-                        ${effectiveRole === "Admin" && !currentUserCanClaim ? `<div class="mt-4 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-3 text-[11px] leading-relaxed text-[#86868B]">目前未被組長指定為可接案成員；你仍可查看已分派給自己的案件。</div>` : ''}
+                        ${currentUserIsProducer && !currentUserCanClaim ? `<div class="mt-4 rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] px-4 py-3 text-[11px] leading-relaxed text-[#86868B]">你目前不在接案名單，仍可處理已分派給自己的案件。</div>` : ''}
                     </section>
                     <section class="rounded-3xl border border-[#E8E8ED] bg-white p-5 shadow-sm md:p-6">
                         <div class="flex items-center justify-between gap-3"><div><h4 class="text-sm font-bold text-[#1D1D1F]">案件清單</h4><p class="mt-1 text-[10px] text-[#86868B]">案件接案後會鎖定負責人，完成成果上傳後交由組長審核。</p></div><span class="text-[10px] font-semibold text-[#86868B]">共 ${orders.length} 件</span></div>
@@ -17770,16 +17798,17 @@
                                 const team = state.Teams.find(function(item) { return String(item.Team_ID || "") === String(order.Team_ID || ""); });
                                 const claimFeedback = designServiceClaimFeedback.get(String(order.Service_Order_ID || ''));
                                 const feedback = claimFeedback?.userId === currentUser?.User_ID ? claimFeedback : null;
-                                const canClaim = settings.Enabled && effectiveRole === "Admin" && currentUserCanClaim && order.Status === "待接案";
-                                const canConfirmClaim = effectiveRole === 'Admin' && ['pending', 'unconfirmed'].includes(feedback?.phase);
+                                const canClaim = settings.Enabled && currentUserCanClaim && order.Status === "待接案";
+                                const canConfirmClaim = currentUserIsProducer && ['pending', 'unconfirmed'].includes(feedback?.phase);
                                 const claiming = feedback?.phase === 'pending';
-                                const isResponsible = effectiveRole === "Admin" && String(order.Responsible_User_ID || "") === String(currentUser && currentUser.User_ID || "");
+                                const isResponsible = currentUserIsProducer && order.Responsible_User_ID === currentUser.User_ID;
                                 const canUpload = isResponsible && ["製作中", "退回修正"].includes(order.Status) && !['pending', 'unconfirmed'].includes(feedback?.phase);
-                                const canReview = effectiveRole === "SuperAdmin" && order.Status === "待審核";
+                                const canReview = order.Status === "待審核" && canReviewDesignServiceOrder(order);
+                                const statusLabel = order.Status === "待審核" && designServiceLeaderOwnerId(order) ? "待製作組長本人審核" : getDesignServiceStatusLabel(order.Status);
                                 const fileLink = order.Google_Drive_URL ? `<a href="${escapeAttributeUrl(order.Google_Drive_URL)}" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex max-w-full items-center gap-1 text-[10px] font-bold text-[#0066CC] hover:underline"><i data-lucide="external-link" class="h-3 w-3"></i><span class="truncate">${escapeHtml(order.File_Name || "開啟成果檔案")}</span></a>` : '';
                                 return `<article class="rounded-2xl border border-[#E8E8ED] bg-[#FBFBFD] p-4 transition hover:-translate-y-0.5 hover:border-[#D5D5DD] hover:bg-white" data-service-card>
                                     <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                        <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-[#86868B]">${escapeHtml(order.Service_Order_ID)}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${getDesignServiceStatusClass(order.Status)}">${getDesignServiceStatusLabel(order.Status)}</span></div><h5 class="mt-2 text-sm font-bold text-[#1D1D1F]">${escapeHtml(assignment ? assignment.Title : order.Assignment_ID)}</h5><p class="mt-1 text-[11px] text-[#86868B]">申請小組：${escapeHtml(team ? team.Team_Name : order.Team_ID)} · 申請時間：${escapeHtml(formatCompactDateTimeLabel(order.Requested_At))}</p>${fileLink}</div>
+                                        <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-[#86868B]">${escapeHtml(order.Service_Order_ID)}</span><span class="rounded-full px-2.5 py-1 text-[10px] font-bold ${getDesignServiceStatusClass(order.Status)}">${statusLabel}</span></div><h5 class="mt-2 text-sm font-bold text-[#1D1D1F]">${escapeHtml(assignment ? assignment.Title : order.Assignment_ID)}</h5><p class="mt-1 text-[11px] text-[#86868B]">申請小組：${escapeHtml(team ? team.Team_Name : order.Team_ID)} · 申請時間：${escapeHtml(formatCompactDateTimeLabel(order.Requested_At))}</p>${fileLink}</div>
                                         <div class="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">${order.Responsible_Name ? `<span class="rounded-full bg-white px-3 py-1.5 text-[10px] font-semibold text-[#1D1D1F]">負責人：${escapeHtml(order.Responsible_Name)}</span>` : ''}${canClaim || canConfirmClaim ? `<button type="button" data-service-claim-id="${escapeHtml(order.Service_Order_ID)}" onclick="claimDesignServiceOrder('${escapeInlineJsString(order.Service_Order_ID)}')" ${designServiceClaimInFlight ? 'disabled' : ''} aria-busy="${claiming ? 'true' : 'false'}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0066CC] px-3.5 py-2 text-[11px] font-bold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-65">${claiming ? '<span aria-hidden="true" class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>接案中…' : canConfirmClaim ? '重試確認' : '接案'}</button>` : ''}${canUpload ? `<button type="button" onclick="openDesignServiceUploadModal('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl border border-[#CFE3FF] bg-[#F4F8FF] px-3.5 py-2 text-[11px] font-bold text-[#0066CC]">上傳成果</button>` : ''}${canReview ? `<button type="button" onclick="openDesignServiceReviewModal('${escapeInlineJsString(order.Service_Order_ID)}')" class="rounded-xl bg-[#1D1D1F] px-3.5 py-2 text-[11px] font-bold text-white">審核成果</button>` : ''}</div>
                                     </div>${feedback ? `<p role="status" aria-live="polite" data-service-claim-status class="mt-3 rounded-xl border ${feedback.phase === 'success' ? 'border-[#BDE8CD] bg-[#F2FBF5] text-[#197342]' : feedback.phase === 'pending' ? 'border-[#CFE3FF] bg-[#F4F8FF] text-[#0066CC]' : 'border-[#FFE0BE] bg-[#FFFBF6] text-[#915000]'} px-3 py-2 text-xs leading-relaxed">${escapeHtml(feedback.message)}</p>` : ''}${order.Review_Note ? `<div class="mt-3 rounded-xl border border-[#FFD9D6] bg-[#FFF6F5] px-3 py-2 text-[10px] leading-relaxed text-[#C9342B]">審核意見：${escapeHtml(order.Review_Note)}</div>` : ''}
                                 </article>`;
@@ -18899,7 +18928,7 @@
                 record = data.service?.cases.find(order => order.id === id);
                 if (!record || (kind === 'service-upload' ? !record.canUpload : !record.canManage)) return;
                 if (kind === 'service-assign' && !record.canAssign) return;
-                if (kind === 'service-review' && record.status !== 'review') return;
+                if (kind === 'service-review' && !record.canReview) return;
                 const candidates = catalogServiceCandidates(data.service, record.legacyTeamId);
                 const suggested = record.ownerId || record.requestedId;
                 values = { ownerId: candidates.some(person => person.id === suggested) ? suggested : 'open',
@@ -19108,8 +19137,8 @@
                     ${values.format !== 'file' || !record || record.verifyEmail || data.service ? `<div data-catalog-form-settings class="space-y-2">
                         ${values.format === 'file' ? '' : catalogItemDisclosure(form, 'text', '文字欄位', fieldCount + ' 欄', catalogTextFieldEditor(values, record, data.textFieldLimits))}
                         ${!record || record.verifyEmail ? catalogItemDisclosure(form, 'verification', '信箱驗證', values.verifyEmail ? '開啟' : '關閉', verification) : ''}
-                        ${data.service ? catalogItemDisclosure(form, 'service', '指定排版組員', values.allowServiceRequest ? '開啟' : '關閉',
-                            `<label class="flex items-start gap-2 text-sm"><input name="allowServiceRequest" type="checkbox" ${values.allowServiceRequest ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span>允許小組從專屬連結選擇希望的排版組員<span class="mt-1 block catalog-muted">小組先選人再繳交，素材通過後由組長確認分工。</span></span></label>`) : ''}
+                        ${data.service ? catalogItemDisclosure(form, 'service', '指定排版人員', values.allowServiceRequest ? '開啟' : '關閉',
+                            `<label class="flex items-start gap-2 text-sm"><input name="allowServiceRequest" type="checkbox" ${values.allowServiceRequest ? 'checked' : ''} onchange="catalogDraftChange(this)" class="mt-1 shrink-0"><span>允許小組從專屬連結選擇希望的排版人員<span class="mt-1 block catalog-muted">小組先選人再繳交，素材通過後由組長確認分工。</span></span></label>`) : ''}
                     </div>` : ''}`;
             } else if (kind === 'purge-item') {
                 title = '永久刪除收件項目？';
@@ -19275,9 +19304,10 @@
                     ${order.canClaim ? catalogButton('接案', "changeCatalogServiceOrder('claim','" + id + "')", true, disabled) : ''}
                     ${order.canUpload ? catalogButton('上傳成果', "openCatalogEditor('service-upload','" + id + "')", true, disabled) : ''}
                     ${order.canAssign ? catalogButton(order.status === 'requested' ? '確認人選' : '調整分工', "openCatalogEditor('service-assign','" + id + "')", order.status === 'requested', disabled) : ''}
-                    ${order.canManage && order.status === 'review' && order.results?.length ? catalogButton('審核成果', "openCatalogEditor('service-review','" + id + "')", true, disabled) : ''}
+                    ${order.canReview ? catalogButton('審核成果', "openCatalogEditor('service-review','" + id + "')", true, disabled) : ''}
                     ${order.canManage && !['completed', 'cancelled'].includes(order.status) ? catalogButton('取消案件', "changeCatalogServiceOrder('cancel','" + id + "')", false, disabled) : ''}
                 </div>
+                ${order.reviewReservedForOwner ? '<p class="text-sm catalog-muted">這份成果由製作的組長本人審核。</p>' : ''}
                 ${order.material ? `<details class="rounded-xl bg-[#F6F8FB] px-3 py-2.5">
                     <summary class="cursor-pointer text-sm font-semibold">原始素材 ・ 第 ${order.material.version} 版</summary>
                     <div class="space-y-2 pt-2 text-sm">${order.material.text ? `<p class="catalog-break whitespace-pre-wrap">${escapeHtml(order.material.text)}</p>` : ''}

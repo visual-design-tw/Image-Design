@@ -695,11 +695,15 @@ function approvedServiceSource(f, number, options) {
 test('a verified group chooses a layout member before submitting; the manager then assigns approved material', () => {
   const f = fakeWorkspace();
   const a = createServiceIntake(f, '18', { verifyEmail: true, legacy: 'T02', allow: true });
+  f.data.Design_Service_Settings[0].Eligible_User_IDs.push('U01');
   assert.equal(f.call('catalogGuestDescribe', { linkToken: a.guest.linkToken }).serviceCandidates, undefined);
   const first = f.call('catalogGuestDescribe', a.guest);
   assert.equal(first.latest, null);
   assert.equal(first.serviceSelectionRequired, true);
-  assert.deepEqual(first.serviceCandidates, [{ id: 'U05', name: '收件組員' }]);
+  assert.deepEqual(first.serviceCandidates, [
+    { id: 'U01', name: 'Audit manager' },
+    { id: 'U05', name: '收件組員' }
+  ]);
   assert.throws(() => submitServiceMaterial(f, a), /CATALOG_SERVICE_SELECTION_REQUIRED/);
   const payload = { ...a.guest, memberId: 'U05', requestId: requestId() };
   assert.throws(() => f.call('catalogGuestRequestService', { ...payload, guestGrant: '' }), /VERIFY_REQUIRED/);
@@ -756,6 +760,29 @@ test('layout choice never blocks submission when no eligible member is available
   assert.equal(pending.serviceSelectionRequired, false);
   assert.equal(pending.serviceCandidates.length, 1);
   assert.equal(f.call('catalogGuestRequestService', { ...intake.guest, memberId: 'U05', requestId: requestId() }).intake.service.status, 'requested');
+});
+
+test('a shape-print leader may review their own layout result, but another leader may not', () => {
+  const f = fakeWorkspace();
+  const a = approvedServiceSource(f, '18', { allow: false, format: 'file' });
+  f.data.Design_Service_Settings[0].Eligible_User_IDs.push('U01');
+  const order = f.staff('catalogServiceCreate', { targetId: a.target.id, sourceId: a.source.Submission_ID,
+    ownerId: 'U01', requestId: requestId(), dueAt: taipeiDue(f.clock + day), brief: '組長自行製作' });
+  const upload = { orderId: order.orderId, revision: order.revision, requestId: requestId(), fileName: 'layout.pdf', fileSize: 3 };
+  f.staff('catalogServiceBegin', upload, 'U01');
+  const result = f.staff('catalogServiceChunk', { orderId: order.orderId, requestId: upload.requestId,
+    start: 0, end: 2, base64: 'UERG' }, 'U01');
+  assert.ok(result.resultId);
+
+  const secondLeader = f.seed.Users.find(user => user.User_ID === 'U05');
+  secondLeader.Role = 'SuperAdmin';
+  secondLeader.Email = 'second-leader@example.invalid';
+  const review = { operation: 'review', orderId: order.orderId,
+    revision: f.staff('catalogBoard').service.cases[0].revision, resultId: result.resultId,
+    requestId: requestId(), decision: 'approved' };
+  assert.equal(f.staff('catalogBoard', {}, 'U05').service.cases[0].canReview, false);
+  assert.throws(() => f.staff('catalogServiceChange', review, 'U05'), /FORBIDDEN/);
+  assert.equal(f.staff('catalogServiceChange', review, 'U01').status, 'completed');
 });
 
 test('catalog layout uploads keep original and result versions separate and protect their history', () => {
@@ -874,13 +901,13 @@ test('the private page requires the layout choice first, then guest submits and 
     await editor.getByRole('button', { name: '儲存', exact: true }).click();
     await manager.getByText('收件項目已儲存。', { exact: true }).waitFor();
     await guest.getByRole('button', { name: '更新狀態' }).click();
-    await guest.getByRole('heading', { name: '先選擇排版組員' }).waitFor();
+    await guest.getByRole('heading', { name: '先選擇排版人員' }).waitFor();
     assert.equal(await guest.getByRole('button', { name: '開始填寫' }).isVisible(), false);
-    await guest.getByLabel('希望的排版組員').selectOption({ label: '收件組員' });
+    await guest.getByLabel('希望的排版人員').selectOption({ label: '收件組員' });
     assert.equal(await guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await guest.getByRole('button', { name: '確認人選' }).click();
     await guest.getByText('已登記人選，待組長確認｜收件組員', { exact: true }).waitFor();
-    assert.equal(await guest.getByLabel('希望的排版組員').isVisible(), false);
+    assert.equal(await guest.getByLabel('希望的排版人員').isVisible(), false);
     await nav(manager).getByRole('button', { name: '專刊代做', exact: true }).click();
     await manager.getByText('素材：待上傳・通過審核後可確認人選。', { exact: true }).waitFor();
     assert.equal(await manager.getByRole('button', { name: '確認人選', exact: true }).isVisible(), false);
